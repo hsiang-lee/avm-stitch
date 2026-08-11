@@ -4,13 +4,13 @@
 
 #include <gtest/gtest.h>
 
-#include "avm_stitch/bowl_model.hpp"
-#include "avm_stitch/egl_headless_context.hpp"
-#include "avm_stitch/mesh_bake.hpp"
-#include "avm_stitch/osg_scene.hpp"
-#include "avm_stitch/osg_view.hpp"
-#include "avm_stitch/stitch_engine.hpp"
-#include "avm_stitch/view_config.hpp"
+#include "avm_stitch/geometry/bowl_model.hpp"
+#include "avm_stitch/render/egl_headless_context.hpp"
+#include "avm_stitch/geometry/mesh_bake.hpp"
+#include "avm_stitch/render/osg_scene.hpp"
+#include "avm_stitch/render/osg_view.hpp"
+#include "avm_stitch/core/stitch_engine.hpp"
+#include "avm_stitch/util/view_config.hpp"
 
 #include <osg/Camera>
 #include <osg/Geode>

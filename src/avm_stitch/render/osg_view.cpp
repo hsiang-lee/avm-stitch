@@ -1,6 +1,6 @@
-#include "avm_stitch/osg_view.hpp"
+#include "avm_stitch/render/osg_view.hpp"
 
-#include "avm_stitch/egl_headless_context.hpp"
+#include "avm_stitch/render/egl_headless_context.hpp"
 
 #include <osg/Drawable>
 #include <osg/Geode>

@@ -1,4 +1,4 @@
-#include "avm_stitch/osg_scene.hpp"
+#include "avm_stitch/render/osg_scene.hpp"
 
 #include <osg/Geode>
 #include <osg/Program>

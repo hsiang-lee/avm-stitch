@@ -1,6 +1,6 @@
 #pragma once
 
-#include "avm_stitch/stitch_backend.hpp"
+#include "avm_stitch/core/stitch_backend.hpp"
 
 #include <functional>
 #include <stdexcept>

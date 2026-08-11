@@ -5,7 +5,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "avm_stitch/bowl_model.hpp"
+#include "avm_stitch/geometry/bowl_model.hpp"
 
 #include <algorithm>
 #include <cmath>

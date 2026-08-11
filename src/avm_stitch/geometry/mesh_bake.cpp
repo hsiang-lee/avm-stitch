@@ -1,6 +1,6 @@
-#include "avm_stitch/mesh_bake.hpp"
+#include "avm_stitch/geometry/mesh_bake.hpp"
 
-#include "avm_stitch/blend_weights.hpp"
+#include "avm_stitch/geometry/blend_weights.hpp"
 
 #include <vector>
 

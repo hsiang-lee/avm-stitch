@@ -1,10 +1,10 @@
-#include "avm_stitch/stitch_engine.hpp"
+#include "avm_stitch/core/stitch_engine.hpp"
 
-#include "avm_stitch/blend_weights.hpp"
-#include "avm_stitch/mesh_bake.hpp"
-#include "avm_stitch/osg_scene.hpp"
-#include "avm_stitch/osg_view.hpp"
-#include "avm_stitch/view_config.hpp"
+#include "avm_stitch/geometry/blend_weights.hpp"
+#include "avm_stitch/geometry/mesh_bake.hpp"
+#include "avm_stitch/render/osg_scene.hpp"
+#include "avm_stitch/render/osg_view.hpp"
+#include "avm_stitch/util/view_config.hpp"
 
 #include <osg/Geode>
 #include <osg/StateSet>

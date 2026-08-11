@@ -1,4 +1,4 @@
-#include "avm_stitch/subprocess_backend.hpp"
+#include "avm_stitch/core/subprocess_backend.hpp"
 
 #include <stdexcept>
 #include <utility>

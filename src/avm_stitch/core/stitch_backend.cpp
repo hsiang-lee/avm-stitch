@@ -1,7 +1,7 @@
-#include "avm_stitch/stitch_backend.hpp"
+#include "avm_stitch/core/stitch_backend.hpp"
 
-#include "avm_stitch/osg_backend.hpp"
-#include "avm_stitch/subprocess_backend.hpp"
+#include "avm_stitch/core/osg_backend.hpp"
+#include "avm_stitch/core/subprocess_backend.hpp"
 
 #include <utility>
 

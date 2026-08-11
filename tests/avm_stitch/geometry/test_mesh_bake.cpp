@@ -3,9 +3,9 @@
 
 #include <gtest/gtest.h>
 
-#include "avm_stitch/bowl_model.hpp"
-#include "avm_stitch/projection.hpp"
-#include "avm_stitch/mesh_bake.hpp"
+#include "avm_stitch/geometry/bowl_model.hpp"
+#include "avm_stitch/geometry/projection.hpp"
+#include "avm_stitch/geometry/mesh_bake.hpp"
 
 #include <cmath>
 #include <vector>

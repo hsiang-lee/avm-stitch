@@ -3,10 +3,10 @@
 
 #include <gtest/gtest.h>
 
-#include "avm_stitch/bowl_model.hpp"
-#include "avm_stitch/projection.hpp"
-#include "avm_stitch/view_config.hpp"
-#include "avm_stitch/stitch_engine.hpp"
+#include "avm_stitch/geometry/bowl_model.hpp"
+#include "avm_stitch/geometry/projection.hpp"
+#include "avm_stitch/util/view_config.hpp"
+#include "avm_stitch/core/stitch_engine.hpp"
 
 #include <stdexcept>
 

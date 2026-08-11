@@ -3,7 +3,7 @@
 // N-camera blend weights by azimuth sector (pure math).
 // Interface only — implementation in blend_weights.cpp.
 
-#include "avm_stitch/projection.hpp"
+#include "avm_stitch/geometry/projection.hpp"
 
 #include <opencv2/core.hpp>
 #include <vector>

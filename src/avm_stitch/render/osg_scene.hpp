@@ -8,8 +8,8 @@
 //   - BuildOSGScene: geode + stateset (program, uniforms, texture).
 // Structural construction only — no GL context required.
 
-#include "avm_stitch/bowl_model.hpp"
-#include "avm_stitch/mesh_bake.hpp"
+#include "avm_stitch/geometry/bowl_model.hpp"
+#include "avm_stitch/geometry/mesh_bake.hpp"
 
 #include <osg/Geometry>
 #include <osg/Group>

@@ -1,4 +1,4 @@
-#include "avm_stitch/blend_weights.hpp"
+#include "avm_stitch/geometry/blend_weights.hpp"
 
 #include <algorithm>
 #include <cmath>

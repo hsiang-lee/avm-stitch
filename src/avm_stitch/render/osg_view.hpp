@@ -10,7 +10,7 @@
 // EGL does not touch X), while the osgViewer viewer realize() still happens
 // lazily on the first render, so Configure() performs no GL rendering.
 
-#include "avm_stitch/view_config.hpp"
+#include "avm_stitch/util/view_config.hpp"
 
 #include <osg/Camera>
 #include <osg/Group>

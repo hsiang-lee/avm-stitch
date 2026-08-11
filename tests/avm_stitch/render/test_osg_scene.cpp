@@ -3,9 +3,9 @@
 
 #include <gtest/gtest.h>
 
-#include "avm_stitch/bowl_model.hpp"
-#include "avm_stitch/mesh_bake.hpp"
-#include "avm_stitch/osg_scene.hpp"
+#include "avm_stitch/geometry/bowl_model.hpp"
+#include "avm_stitch/geometry/mesh_bake.hpp"
+#include "avm_stitch/render/osg_scene.hpp"
 
 #include <osg/Geometry>
 #include <osg/Group>

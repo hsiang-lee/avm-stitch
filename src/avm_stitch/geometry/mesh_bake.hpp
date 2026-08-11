@@ -3,8 +3,8 @@
 // Per-vertex mesh bake: UV + blend weights per camera slot (pure math).
 // Interface only — implementation in mesh_bake.cpp.
 
-#include "avm_stitch/bowl_model.hpp"
-#include "avm_stitch/projection.hpp"
+#include "avm_stitch/geometry/bowl_model.hpp"
+#include "avm_stitch/geometry/projection.hpp"
 
 #include <vector>
 

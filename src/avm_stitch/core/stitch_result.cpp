@@ -1,4 +1,4 @@
-#include "avm_stitch/stitch_result.hpp"
+#include "avm_stitch/core/stitch_result.hpp"
 
 #include "eval_metrics/eval_metrics.hpp"
 

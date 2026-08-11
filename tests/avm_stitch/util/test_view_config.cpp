@@ -3,7 +3,7 @@
 
 #include <gtest/gtest.h>
 
-#include "avm_stitch/view_config.hpp"
+#include "avm_stitch/util/view_config.hpp"
 
 using namespace avm_worker::avm_stitch;
 

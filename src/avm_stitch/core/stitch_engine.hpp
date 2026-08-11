@@ -9,8 +9,8 @@
 //     the 5 fixed views (topdown, 3d_front, 3d_rear, 3d_left, 3d_right).
 // PIMPL hides all OSG headers from callers.
 
-#include "avm_stitch/bowl_model.hpp"
-#include "avm_stitch/projection.hpp"
+#include "avm_stitch/geometry/bowl_model.hpp"
+#include "avm_stitch/geometry/projection.hpp"
 
 #include <opencv2/core.hpp>
 

@@ -1,9 +1,9 @@
-#include "avm_stitch/osg_backend.hpp"
+#include "avm_stitch/core/osg_backend.hpp"
 
-#include "avm_stitch/bowl_model.hpp"
-#include "avm_stitch/camera_name.hpp"
-#include "avm_stitch/stitch_engine.hpp"
-#include "avm_stitch/stitch_result.hpp"
+#include "avm_stitch/geometry/bowl_model.hpp"
+#include "avm_stitch/util/camera_name.hpp"
+#include "avm_stitch/core/stitch_engine.hpp"
+#include "avm_stitch/core/stitch_result.hpp"
 #include "common/base64.h"
 
 #include <opencv2/imgcodecs.hpp>
