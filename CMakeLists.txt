@@ -28,16 +28,16 @@ endfunction()
 
 # -- avm_stitch static library --
 add_library(avm_stitch STATIC
-    src/avm_stitch/blend_weights.cpp
-    src/avm_stitch/egl_headless_context.cpp
-    src/avm_stitch/mesh_bake.cpp
-    src/avm_stitch/osg_scene.cpp
-    src/avm_stitch/osg_view.cpp
-    src/avm_stitch/stitch_engine.cpp
-    src/avm_stitch/stitch_backend.cpp
-    src/avm_stitch/osg_backend.cpp
-    src/avm_stitch/subprocess_backend.cpp
-    src/avm_stitch/stitch_result.cpp
+    src/avm_stitch/geometry/blend_weights.cpp
+    src/avm_stitch/render/egl_headless_context.cpp
+    src/avm_stitch/geometry/mesh_bake.cpp
+    src/avm_stitch/render/osg_scene.cpp
+    src/avm_stitch/render/osg_view.cpp
+    src/avm_stitch/core/stitch_engine.cpp
+    src/avm_stitch/core/stitch_backend.cpp
+    src/avm_stitch/core/osg_backend.cpp
+    src/avm_stitch/core/subprocess_backend.cpp
+    src/avm_stitch/core/stitch_result.cpp
 )
 # PUBLIC include: src/ 提供 avm_stitch/xxx; 仓库根提供 common/ 和 eval_metrics/
 target_include_directories(avm_stitch PUBLIC
@@ -59,7 +59,7 @@ include(GoogleTest)
 
 # -- test_bowl_model (header-only bowl_model.hpp)
 add_executable(test_bowl_model
-    tests/avm_stitch/test_bowl_model.cpp
+    tests/avm_stitch/geometry/test_bowl_model.cpp
 )
 target_include_directories(test_bowl_model PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_bowl_model PRIVATE
@@ -71,7 +71,7 @@ gtest_discover_tests(test_bowl_model)
 
 # -- test_projection (header-only projection.hpp)
 add_executable(test_projection
-    tests/avm_stitch/test_projection.cpp
+    tests/avm_stitch/geometry/test_projection.cpp
 )
 target_include_directories(test_projection PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_projection PRIVATE
@@ -82,8 +82,8 @@ gtest_discover_tests(test_projection)
 
 # -- test_blend_weights
 add_executable(test_blend_weights
-    tests/avm_stitch/test_blend_weights.cpp
-    src/avm_stitch/blend_weights.cpp
+    tests/avm_stitch/geometry/test_blend_weights.cpp
+    src/avm_stitch/geometry/blend_weights.cpp
 )
 target_include_directories(test_blend_weights PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_blend_weights PRIVATE
@@ -94,9 +94,9 @@ gtest_discover_tests(test_blend_weights)
 
 # -- test_mesh_bake
 add_executable(test_mesh_bake
-    tests/avm_stitch/test_mesh_bake.cpp
-    src/avm_stitch/blend_weights.cpp
-    src/avm_stitch/mesh_bake.cpp
+    tests/avm_stitch/geometry/test_mesh_bake.cpp
+    src/avm_stitch/geometry/blend_weights.cpp
+    src/avm_stitch/geometry/mesh_bake.cpp
 )
 target_include_directories(test_mesh_bake PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_mesh_bake PRIVATE
@@ -107,7 +107,7 @@ gtest_discover_tests(test_mesh_bake)
 
 # -- test_view_config (header-only view_config.hpp)
 add_executable(test_view_config
-    tests/avm_stitch/test_view_config.cpp
+    tests/avm_stitch/util/test_view_config.cpp
 )
 target_include_directories(test_view_config PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_view_config PRIVATE
@@ -118,10 +118,10 @@ gtest_discover_tests(test_view_config)
 
 # -- test_osg_scene (OSG scene graph construction; structural, no GL) --
 add_executable(test_osg_scene
-    tests/avm_stitch/test_osg_scene.cpp
-    src/avm_stitch/blend_weights.cpp
-    src/avm_stitch/mesh_bake.cpp
-    src/avm_stitch/osg_scene.cpp
+    tests/avm_stitch/render/test_osg_scene.cpp
+    src/avm_stitch/geometry/blend_weights.cpp
+    src/avm_stitch/geometry/mesh_bake.cpp
+    src/avm_stitch/render/osg_scene.cpp
 )
 target_include_directories(test_osg_scene PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_osg_scene PRIVATE
@@ -134,13 +134,13 @@ gtest_discover_tests(test_osg_scene)
 
 # -- test_stitch_engine (OSGViewRenderer + StitchEngine; GL-gated rendering) --
 add_executable(test_stitch_engine
-    tests/avm_stitch/test_stitch_engine.cpp
-    src/avm_stitch/blend_weights.cpp
-    src/avm_stitch/egl_headless_context.cpp
-    src/avm_stitch/mesh_bake.cpp
-    src/avm_stitch/osg_scene.cpp
-    src/avm_stitch/osg_view.cpp
-    src/avm_stitch/stitch_engine.cpp
+    tests/avm_stitch/core/test_stitch_engine.cpp
+    src/avm_stitch/geometry/blend_weights.cpp
+    src/avm_stitch/render/egl_headless_context.cpp
+    src/avm_stitch/geometry/mesh_bake.cpp
+    src/avm_stitch/render/osg_scene.cpp
+    src/avm_stitch/render/osg_view.cpp
+    src/avm_stitch/core/stitch_engine.cpp
 )
 target_include_directories(test_stitch_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_stitch_engine PRIVATE
@@ -155,8 +155,8 @@ gtest_discover_tests(test_stitch_engine)
 
 # -- test_egl_headless_context (headless EGL surfaceless GL context) --
 add_executable(test_egl_headless_context
-    tests/avm_stitch/test_egl_headless_context.cpp
-    src/avm_stitch/egl_headless_context.cpp
+    tests/avm_stitch/render/test_egl_headless_context.cpp
+    src/avm_stitch/render/egl_headless_context.cpp
 )
 target_include_directories(test_egl_headless_context PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_egl_headless_context PRIVATE
@@ -170,7 +170,7 @@ gtest_discover_tests(test_egl_headless_context)
 
 # -- test_stitch_engine_regression (public-API smoke tests, links avm_stitch) --
 add_executable(test_stitch_engine_regression
-    tests/avm_stitch/test_stitch_engine_regression.cpp
+    tests/avm_stitch/core/test_stitch_engine_regression.cpp
 )
 target_include_directories(test_stitch_engine_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_stitch_engine_regression PRIVATE
