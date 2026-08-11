@@ -1,0 +1,17 @@
+{
+  "name": "avm-stitch",
+  "version": "0.1.0",
+  "dependencies": [
+    "nlohmann-json",
+    "gtest",
+    {
+      "name": "opencv4",
+      "default-features": false,
+      "features": ["calib3d", "jpeg", "png"]
+    },
+    {
+      "name": "osg",
+      "default-features": false
+    }
+  ]
+}

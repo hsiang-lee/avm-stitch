@@ -1,0 +1,12 @@
+# Build artifacts
+build/
+vcpkg_installed/
+*.o
+*.a
+*.so
+# Editor
+.vscode/
+.idea/
+# CMake
+CMakeCache.txt
+CMakeFiles/
