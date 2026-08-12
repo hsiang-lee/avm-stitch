@@ -10,6 +10,20 @@ find_package(unofficial-osg CONFIG REQUIRED)
 find_package(OpenGL REQUIRED COMPONENTS EGL)
 find_package(GTest CONFIG REQUIRED)
 
+# -- avm-renderer (private registry, optional for renderer backend) --
+# avm_renderer's exported targets reference CLI11::CLI11 in their link
+# interface but the config file does not find_dependency(CLI11); find it
+# explicitly so the imported target exists when avm_rendererTargets loads.
+find_package(CLI11 CONFIG REQUIRED)
+find_package(avm_renderer CONFIG)
+set(AVMRENDERER_AVAILABLE OFF)
+if(avm_renderer_FOUND)
+    set(AVMRENDERER_AVAILABLE ON)
+    message(STATUS "avm-renderer found: renderer backend enabled")
+else()
+    message(STATUS "avm-renderer not found: renderer backend will return errors in production")
+endif()
+
 # -- OSG static libs need --whole-archive (X11 WSI static registration) --
 function(target_osg_whole_archive target)
     set(_osg_libs osg osgViewer osgDB osgUtil)
@@ -38,6 +52,12 @@ add_library(avm_stitch STATIC
     src/core/osg_backend.cpp
     src/core/subprocess_backend.cpp
     src/core/stitch_result.cpp
+    src/core/renderer_backend.cpp
+    src/core/real_renderer.cpp
+    src/core/calib_files_generator.cpp
+    src/common/image_converter.cpp
+    src/core/view_mapping.cpp
+    src/render/fbo_manager.cpp
 )
 # PUBLIC include: src/ 提供 geometry/ render/ core/ util/ common/ eval_metrics/
 target_include_directories(avm_stitch PUBLIC
@@ -52,6 +72,15 @@ target_link_libraries(avm_stitch PUBLIC
 # Same whole-archive requirement: vcpkg osg is a static build; without
 # --whole-archive the X11 WSI static-registration object is not pulled in.
 target_osg_whole_archive(avm_stitch)
+
+# -- avm-renderer (private registry, optional for renderer backend) --
+if(AVMRENDERER_AVAILABLE)
+    target_link_libraries(avm_stitch PUBLIC
+        avm_renderer::avm_renderer_lib
+        avm_renderer::avm_fbs
+    )
+    target_compile_definitions(avm_stitch PUBLIC AVMRENDERER_AVAILABLE)
+endif()
 
 enable_testing()
 include(GoogleTest)
@@ -177,3 +206,14 @@ target_link_libraries(test_stitch_engine_regression PRIVATE
     avm_stitch
 )
 gtest_discover_tests(test_stitch_engine_regression)
+
+# -- test_view_mapping (view name → AVMDisplayMode int, no external deps) --
+add_executable(test_view_mapping
+    tests/core/test_view_mapping.cpp
+    src/core/view_mapping.cpp
+)
+target_include_directories(test_view_mapping PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(test_view_mapping PRIVATE
+    GTest::gtest_main
+)
+gtest_discover_tests(test_view_mapping)
