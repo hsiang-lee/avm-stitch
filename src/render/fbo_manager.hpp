@@ -46,6 +46,18 @@ public:
     void Destroy();
 
 private:
+    /// Create the RGBA color attachment texture (no FBO yet).
+    /// @return true if the texture was created
+    bool CreateColorTexture(int width, int height);
+
+    /// Create the FBO with the color texture attached and verify completeness.
+    /// @return true if the FBO is complete
+    bool CreateFbo();
+
+    /// Null out another instance's handles without touching GL resources
+    /// (used by move operations so the moved-from object is empty).
+    static void ResetSource(FboManager& other) noexcept;
+
     GLuint fbo_id_ = 0;
     GLuint color_tex_id_ = 0;
     int width_ = 0;

@@ -23,11 +23,7 @@ FboManager::FboManager(FboManager&& other) noexcept
     , width_(other.width_)
     , height_(other.height_)
     , initialized_(other.initialized_) {
-    other.fbo_id_ = 0;
-    other.color_tex_id_ = 0;
-    other.width_ = 0;
-    other.height_ = 0;
-    other.initialized_ = false;
+    ResetSource(other);
 }
 
 FboManager& FboManager::operator=(FboManager&& other) noexcept {
@@ -38,11 +34,7 @@ FboManager& FboManager::operator=(FboManager&& other) noexcept {
         width_ = other.width_;
         height_ = other.height_;
         initialized_ = other.initialized_;
-        other.fbo_id_ = 0;
-        other.color_tex_id_ = 0;
-        other.width_ = 0;
-        other.height_ = 0;
-        other.initialized_ = false;
+        ResetSource(other);
     }
     return *this;
 }
@@ -54,7 +46,18 @@ bool FboManager::Init(int width, int height) {
     width_ = width;
     height_ = height;
 
-    // Create texture as color attachment
+    if (!CreateColorTexture(width, height)) {
+        return false;
+    }
+    if (!CreateFbo()) {
+        return false;
+    }
+
+    initialized_ = true;
+    return true;
+}
+
+bool FboManager::CreateColorTexture(int width, int height) {
     glGenTextures(1, &color_tex_id_);
     glBindTexture(GL_TEXTURE_2D, color_tex_id_);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
@@ -64,8 +67,10 @@ bool FboManager::Init(int width, int height) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glBindTexture(GL_TEXTURE_2D, 0);
+    return true;
+}
 
-    // Create FBO
+bool FboManager::CreateFbo() {
     glGenFramebuffers(1, &fbo_id_);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo_id_);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
@@ -79,8 +84,6 @@ bool FboManager::Init(int width, int height) {
         Destroy();
         return false;
     }
-
-    initialized_ = true;
     return true;
 }
 
@@ -112,6 +115,14 @@ void FboManager::Destroy() {
     width_ = 0;
     height_ = 0;
     initialized_ = false;
+}
+
+void FboManager::ResetSource(FboManager& other) noexcept {
+    other.fbo_id_ = 0;
+    other.color_tex_id_ = 0;
+    other.width_ = 0;
+    other.height_ = 0;
+    other.initialized_ = false;
 }
 
 }} // namespace avm_worker::avm_stitch
