@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs calib3d)
 find_package(unofficial-osg CONFIG REQUIRED)
-find_package(OpenGL REQUIRED COMPONENTS EGL)
+find_package(OpenGL REQUIRED COMPONENTS EGL GLES3)
 find_package(GTest CONFIG REQUIRED)
 
 # -- avm-renderer (private registry, optional for renderer backend) --
@@ -226,6 +226,17 @@ target_link_libraries(test_fbo_manager PRIVATE
 )
 target_osg_whole_archive(test_fbo_manager)
 gtest_discover_tests(test_fbo_manager)
+
+# -- test_egl_gles3_context (standalone EGL surfaceless GLES3 context) --
+add_executable(test_egl_gles3_context
+    tests/render/test_egl_gles3_context.cpp
+)
+target_include_directories(test_egl_gles3_context PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(test_egl_gles3_context PRIVATE
+    GTest::gtest_main
+    OpenGL::EGL OpenGL::GLES3
+)
+gtest_discover_tests(test_egl_gles3_context)
 
 # -- test_view_mapping (view name → AVMDisplayMode int, no external deps) --
 add_executable(test_view_mapping
