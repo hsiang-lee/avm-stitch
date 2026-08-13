@@ -212,20 +212,17 @@ target_link_libraries(test_stitch_engine_regression PRIVATE
 )
 gtest_discover_tests(test_stitch_engine_regression)
 
-# -- test_fbo_manager (GL-gated: requires EGL surfaceless context) --
+# -- test_fbo_manager (GL-gated: requires EGL surfaceless GLES3 context) --
 add_executable(test_fbo_manager
     tests/render/test_fbo_manager.cpp
     src/render/fbo_manager.cpp
-    src/render/egl_headless_context.cpp
+    src/render/egl_gles3_context.cpp
 )
 target_include_directories(test_fbo_manager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_fbo_manager PRIVATE
     GTest::gtest_main
-    ${OpenCV_LIBS}
-    unofficial::osg::osg unofficial::osg::osgViewer unofficial::osg::osgDB unofficial::osg::osgUtil
-    OpenGL::EGL OpenGL::OpenGL
+    OpenGL::EGL OpenGL::GLES3
 )
-target_osg_whole_archive(test_fbo_manager)
 gtest_discover_tests(test_fbo_manager)
 
 # -- test_egl_gles3_context (standalone EGL surfaceless GLES3 context) --

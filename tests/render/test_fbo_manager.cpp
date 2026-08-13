@@ -1,17 +1,15 @@
 // Layer 2 component test: FboManager requires a live GL context.
-// Uses the EGL surfaceless headless context; when EGL/GL is unavailable the
-// tests are skipped (GTEST_SKIP) instead of crashing.
+// Uses the EGL surfaceless GLES3 context (EglGles3Context); when EGL/GLES3
+// is unavailable the tests are skipped (GTEST_SKIP) instead of crashing.
+// FboManager compiles against GRAPHICS_API_OPENGL_ES3 (#version 300 es
+// shaders) in avm_renderer, so it must use the GLES3 API, not desktop GL.
 
-// GL_GLEXT_PROTOTYPES must be defined before <GL/gl.h> is first included:
-// the vcpkg osg GL2 build only defines it for GL3 builds, and the FBO
-// functions (glGenFramebuffers/glFramebufferTexture2D/...) need prototypes.
-#define GL_GLEXT_PROTOTYPES
-#include <GL/gl.h>
+#include <GLES3/gl3.h>
 
 #include <gtest/gtest.h>
 
 #include "render/fbo_manager.hpp"
-#include "render/egl_headless_context.hpp"
+#include "render/egl_gles3_context.hpp"
 
 #include <cstdint>
 #include <vector>
@@ -19,28 +17,16 @@
 using namespace avm_worker::avm_stitch;
 
 // ── GL-gated test fixture ──
-// Creates a surfaceless EGL context before each test; skips if EGL/GL
-// unavailable so the tests never crash on machines without a GPU.
+// Creates a surfaceless EGL GLES3 context before each test; skips if
+// EGL/GLES3 unavailable so the tests never crash on machines without a GPU.
 class FboManagerTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        egl_ctx_ = CreateEGLHeadlessContext(64, 64);
-        if (!egl_ctx_ || !egl_ctx_->valid()) {
-            GTEST_SKIP() << "EGL surfaceless context unavailable — skipping GL test";
-        }
-        egl_ctx_->realizeImplementation();
-        if (!egl_ctx_->makeCurrentImplementation()) {
-            GTEST_SKIP() << "EGL context makeCurrent failed — skipping GL test";
-        }
+        if (!ctx_.Init() || !ctx_.valid())
+            GTEST_SKIP() << "EGL GLES3 surfaceless context unavailable — skipping GL test";
     }
 
-    void TearDown() override {
-        if (egl_ctx_) {
-            egl_ctx_->closeImplementation();
-        }
-    }
-
-    osg::ref_ptr<EGLHeadlessContext> egl_ctx_;
+    EglGles3Context ctx_;
 };
 
 TEST_F(FboManagerTest, InitReturnsValidFboId) {
@@ -102,4 +88,19 @@ TEST_F(FboManagerTest, DoubleDestroyIsSafe) {
     ASSERT_TRUE(fbo.Init(64, 64));
     fbo.Destroy();
     ASSERT_NO_THROW(fbo.Destroy());
+}
+
+TEST_F(FboManagerTest, InitCreatesColorAndDepthAttachments) {
+    FboManager fbo;
+    ASSERT_TRUE(fbo.Init(64, 64));
+    EXPECT_NE(fbo.GetColorId(), 0u);
+    EXPECT_NE(fbo.GetDepthId(), 0u);
+}
+
+TEST_F(FboManagerTest, DepthAttachmentSurvivesReinit) {
+    FboManager fbo;
+    ASSERT_TRUE(fbo.Init(64, 64));
+    ASSERT_NE(fbo.GetDepthId(), 0u);
+    ASSERT_TRUE(fbo.Init(32, 32));
+    EXPECT_NE(fbo.GetDepthId(), 0u);
 }
