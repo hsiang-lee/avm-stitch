@@ -247,3 +247,15 @@ target_link_libraries(test_view_mapping PRIVATE
     GTest::gtest_main
 )
 gtest_discover_tests(test_view_mapping)
+
+# -- test_real_renderer (RealRenderer avm-renderer wrapper; Layer 1 no-GL
+#    guards + GL-gated integration, links avm_stitch) --
+add_executable(test_real_renderer
+    tests/core/test_real_renderer.cpp
+)
+target_include_directories(test_real_renderer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(test_real_renderer PRIVATE
+    GTest::gtest_main
+    avm_stitch
+)
+gtest_discover_tests(test_real_renderer)
