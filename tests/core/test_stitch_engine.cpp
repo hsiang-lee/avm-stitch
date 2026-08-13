@@ -100,10 +100,12 @@ TestScene BuildTestSceneWithExtrinsics(int num_cameras,
     return ts;
 }
 
+// MakeLookAtCameras is defined below (after the scene builders); forward-
+// declare it so BuildTestScene can call it.
+std::vector<CameraExtrinsics> MakeLookAtCameras(int num_cameras);
+
 TestScene BuildTestScene(int num_cameras) {
-    std::vector<double> azimuths;
-    for (int i = 0; i < num_cameras; ++i) azimuths.push_back(i * 360.0 / num_cameras);
-    return BuildTestSceneWithExtrinsics(num_cameras, MakeSideCameras(azimuths));
+    return BuildTestSceneWithExtrinsics(num_cameras, MakeLookAtCameras(num_cameras));
 }
 
 // Synthetic BGR frames, one distinct colour per camera (BGR order).
