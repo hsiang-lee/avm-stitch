@@ -15,6 +15,10 @@ find_package(GTest CONFIG REQUIRED)
 # interface but the config file does not find_dependency(CLI11); find it
 # explicitly so the imported target exists when avm_rendererTargets loads.
 find_package(CLI11 CONFIG REQUIRED)
+# avm_renderer's exported targets reference a bare `glfw` target in their
+# link interface but the config file does not find_dependency(glfw3); find
+# it explicitly so the imported target exists and -lglfw is not emitted.
+find_package(glfw3 CONFIG REQUIRED)
 find_package(avm_renderer CONFIG)
 set(AVMRENDERER_AVAILABLE OFF)
 if(avm_renderer_FOUND)
