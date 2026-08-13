@@ -48,6 +48,7 @@ endfunction()
 add_library(avm_stitch STATIC
     src/geometry/blend_weights.cpp
     src/render/egl_headless_context.cpp
+    src/render/egl_gles3_context.cpp
     src/geometry/mesh_bake.cpp
     src/render/osg_scene.cpp
     src/render/osg_view.cpp
@@ -71,7 +72,7 @@ target_link_libraries(avm_stitch PUBLIC
     nlohmann_json::nlohmann_json
     ${OpenCV_LIBS}
     unofficial::osg::osg unofficial::osg::osgViewer unofficial::osg::osgDB unofficial::osg::osgUtil
-    OpenGL::EGL OpenGL::OpenGL
+    OpenGL::EGL OpenGL::GLES3
 )
 # Same whole-archive requirement: vcpkg osg is a static build; without
 # --whole-archive the X11 WSI static-registration object is not pulled in.
@@ -230,6 +231,7 @@ gtest_discover_tests(test_fbo_manager)
 # -- test_egl_gles3_context (standalone EGL surfaceless GLES3 context) --
 add_executable(test_egl_gles3_context
     tests/render/test_egl_gles3_context.cpp
+    src/render/egl_gles3_context.cpp
 )
 target_include_directories(test_egl_gles3_context PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_egl_gles3_context PRIVATE
