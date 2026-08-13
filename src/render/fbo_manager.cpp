@@ -1,7 +1,6 @@
-// GL_GLEXT_PROTOTYPES must be defined before <GL/gl.h> is first included
-// (the vcpkg osg GL2 build only defines it for GL3 builds): the FBO functions
-// (glGenFramebuffers/glFramebufferTexture2D/...) need their prototypes.
-#define GL_GLEXT_PROTOTYPES
+// GLES3 gl3.h ships prototypes for all core functions (unlike the vcpkg osg
+// GL2 <GL/gl.h>, which only defines them for GL3 builds), so no
+// GL_GLEXT_PROTOTYPES define is needed.
 #include "render/fbo_manager.hpp"
 
 namespace avm_worker { namespace avm_stitch {
@@ -20,6 +19,7 @@ FboManager::~FboManager() {
 FboManager::FboManager(FboManager&& other) noexcept
     : fbo_id_(other.fbo_id_)
     , color_tex_id_(other.color_tex_id_)
+    , depth_rbo_id_(other.depth_rbo_id_)
     , width_(other.width_)
     , height_(other.height_)
     , initialized_(other.initialized_) {
@@ -31,6 +31,7 @@ FboManager& FboManager::operator=(FboManager&& other) noexcept {
         Destroy();
         fbo_id_ = other.fbo_id_;
         color_tex_id_ = other.color_tex_id_;
+        depth_rbo_id_ = other.depth_rbo_id_;
         width_ = other.width_;
         height_ = other.height_;
         initialized_ = other.initialized_;
@@ -47,6 +48,9 @@ bool FboManager::Init(int width, int height) {
     height_ = height;
 
     if (!CreateColorTexture(width, height)) {
+        return false;
+    }
+    if (!CreateDepthBuffer(width, height)) {
         return false;
     }
     if (!CreateFbo()) {
@@ -70,11 +74,21 @@ bool FboManager::CreateColorTexture(int width, int height) {
     return true;
 }
 
+bool FboManager::CreateDepthBuffer(int width, int height) {
+    glGenRenderbuffers(1, &depth_rbo_id_);
+    glBindRenderbuffer(GL_RENDERBUFFER, depth_rbo_id_);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+    return true;
+}
+
 bool FboManager::CreateFbo() {
     glGenFramebuffers(1, &fbo_id_);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo_id_);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                            GL_TEXTURE_2D, color_tex_id_, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                              GL_RENDERBUFFER, depth_rbo_id_);
 
     GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -110,8 +124,10 @@ std::vector<std::uint8_t> FboManager::GlReadPixels(int width, int height,
 void FboManager::Destroy() {
     glDeleteFramebuffers(1, &fbo_id_);
     glDeleteTextures(1, &color_tex_id_);
+    glDeleteRenderbuffers(1, &depth_rbo_id_);
     fbo_id_ = 0;
     color_tex_id_ = 0;
+    depth_rbo_id_ = 0;
     width_ = 0;
     height_ = 0;
     initialized_ = false;
@@ -120,6 +136,7 @@ void FboManager::Destroy() {
 void FboManager::ResetSource(FboManager& other) noexcept {
     other.fbo_id_ = 0;
     other.color_tex_id_ = 0;
+    other.depth_rbo_id_ = 0;
     other.width_ = 0;
     other.height_ = 0;
     other.initialized_ = false;
