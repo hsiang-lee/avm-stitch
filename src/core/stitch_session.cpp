@@ -80,8 +80,40 @@ void StitchSession::StartSession(const nlohmann::json& calibration,
     impl_->task_base_dir_ = task_base_dir;
 }
 
-nlohmann::json StitchSession::FeedFrame(const nlohmann::json&) {
-    throw std::runtime_error("FeedFrame not implemented");
+nlohmann::json StitchSession::FeedFrame(const nlohmann::json& images) {
+    std::array<DecodedImage, 4> imgs;
+    int iw = 0, ih = 0;
+    auto buffers = DecodeRoleBuffers(images, impl_->calibration_, iw, ih, imgs);
+
+    nlohmann::json images_obj = nlohmann::json::object();
+    nlohmann::json view_errors = nlohmann::json::object();
+    for (const char* view : kRenderViewNames) {
+        if (!impl_->renderer->UpdateView(MapViewNameToDisplayMode(view))) {
+            view_errors[view] = "UpdateView failed";
+            continue;
+        }
+        if (!impl_->renderer->UpdateFrame(buffers, iw, ih, 0)) {
+            view_errors[view] = "UpdateFrame failed";
+            continue;
+        }
+        if (!impl_->renderer->Render()) {
+            view_errors[view] = "Render failed";
+            continue;
+        }
+        images_obj[view] = ReadbackViewAsBase64Png(
+            impl_->fbo, kOutputWidth, kOutputHeight);
+    }
+
+    if (images_obj.empty()) {
+        throw std::runtime_error("All views failed");
+    }
+
+    nlohmann::json result;
+    result["images"] = images_obj;
+    if (!view_errors.empty()) {
+        result["view_errors"] = view_errors;
+    }
+    return result;
 }
 
 void StitchSession::EndSession() {
