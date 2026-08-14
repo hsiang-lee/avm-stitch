@@ -1,10 +1,22 @@
 #include "core/stitch_session.hpp"
 
+#include "common/image_converter.hpp"
+#include "core/calib_files_generator.hpp"
+#include "core/renderer_helpers.hpp"
+#include "core/view_mapping.hpp"
 #include "render/egl_gles3_context.hpp"
 #include "render/fbo_manager.hpp"
 
+#include <nlohmann/json.hpp>
+
+#include <array>
+#include <cstdint>
+#include <cstdlib>
+#include <filesystem>
 #include <stdexcept>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace avm_worker { namespace avm_stitch {
 
@@ -16,6 +28,8 @@ public:
     std::unique_ptr<RendererInterface> renderer;
     EglGles3Context egl;
     FboManager fbo;
+    nlohmann::json calibration_;
+    std::string task_base_dir_;
     bool egl_current_ = false;
 };
 
@@ -26,10 +40,44 @@ StitchSession::~StitchSession() {
     EndSession();
 }
 
-void StitchSession::StartSession(const nlohmann::json&,
-                                 const std::string&,
-                                 const std::string&) {
-    throw std::runtime_error("StartSession not implemented");
+void StitchSession::StartSession(const nlohmann::json& calibration,
+                                 const std::string& car_model_base64,
+                                 const std::string& task_base_dir) {
+    // car_model_base64 保留签名；当前 renderer 管线不消费。
+    (void)car_model_base64;
+
+    if (!impl_->renderer) {
+        throw std::runtime_error("avm-renderer library not available");
+    }
+
+    std::filesystem::create_directories(task_base_dir + "/calib/data");
+    std::filesystem::create_directories(task_base_dir + "/resources/config");
+
+    const char* td = std::getenv("TEMPLATES_DIR");
+    std::string templates = td ? td : "tools";
+    CalibFilesGenerator(templates).Generate(calibration, task_base_dir);
+
+    // model_creator 子进程 —— 仅此一次（会话初始化）。
+    RunModelCreator(task_base_dir);
+
+    CopyResources(task_base_dir);
+
+    if (!impl_->egl.Init() || !impl_->egl.MakeCurrent()) {
+        throw std::runtime_error("EGL GLES3 context init failed");
+    }
+    impl_->egl_current_ = true;
+
+    if (!impl_->fbo.Init(kOutputWidth, kOutputHeight)) {
+        throw std::runtime_error("FBO init failed");
+    }
+
+    if (!impl_->renderer->Init(task_base_dir + "/calib", impl_->fbo.GetFboId(),
+                               kOutputWidth, kOutputHeight, 0)) {
+        throw std::runtime_error("avm-renderer init failed");
+    }
+
+    impl_->calibration_ = calibration;
+    impl_->task_base_dir_ = task_base_dir;
 }
 
 nlohmann::json StitchSession::FeedFrame(const nlohmann::json&) {
