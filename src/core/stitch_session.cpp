@@ -81,6 +81,10 @@ void StitchSession::StartSession(const nlohmann::json& calibration,
 }
 
 nlohmann::json StitchSession::FeedFrame(const nlohmann::json& images) {
+    if (!impl_->renderer) {
+        throw std::runtime_error("avm-renderer library not available");
+    }
+
     std::array<DecodedImage, 4> imgs;
     int iw = 0, ih = 0;
     auto buffers = DecodeRoleBuffers(images, impl_->calibration_, iw, ih, imgs);
@@ -119,6 +123,7 @@ nlohmann::json StitchSession::FeedFrame(const nlohmann::json& images) {
 void StitchSession::EndSession() {
     if (impl_->renderer) {
         impl_->renderer->Destroy();
+        impl_->renderer.reset();  // Destroy 只执行一次，EndSession 幂等
     }
     if (impl_->egl_current_) {
         impl_->fbo.Destroy();
