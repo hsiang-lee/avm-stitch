@@ -25,6 +25,12 @@ public:
     explicit Impl(std::unique_ptr<RendererInterface> r)
         : renderer(std::move(r)) {}
 
+    void EnsureRenderer() const {
+        if (!renderer) {
+            throw std::runtime_error("avm-renderer library not available");
+        }
+    }
+
     std::unique_ptr<RendererInterface> renderer;
     EglGles3Context egl;
     FboManager fbo;
@@ -46,9 +52,7 @@ void StitchSession::StartSession(const nlohmann::json& calibration,
     // car_model_base64 保留签名；当前 renderer 管线不消费。
     (void)car_model_base64;
 
-    if (!impl_->renderer) {
-        throw std::runtime_error("avm-renderer library not available");
-    }
+    impl_->EnsureRenderer();
 
     std::filesystem::create_directories(task_base_dir + "/calib/data");
     std::filesystem::create_directories(task_base_dir + "/resources/config");
@@ -81,9 +85,7 @@ void StitchSession::StartSession(const nlohmann::json& calibration,
 }
 
 nlohmann::json StitchSession::FeedFrame(const nlohmann::json& images) {
-    if (!impl_->renderer) {
-        throw std::runtime_error("avm-renderer library not available");
-    }
+    impl_->EnsureRenderer();
 
     std::array<DecodedImage, 4> imgs;
     int iw = 0, ih = 0;
