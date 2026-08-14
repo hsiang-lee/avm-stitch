@@ -55,7 +55,6 @@ add_library(avm_stitch STATIC
     src/core/stitch_engine.cpp
     src/core/stitch_backend.cpp
     src/core/osg_backend.cpp
-    src/core/subprocess_backend.cpp
     src/core/stitch_result.cpp
     src/core/renderer_backend.cpp
     src/core/real_renderer.cpp
@@ -63,6 +62,7 @@ add_library(avm_stitch STATIC
     src/common/image_converter.cpp
     src/core/view_mapping.cpp
     src/render/fbo_manager.cpp
+    src/core/renderer_helpers.cpp
 )
 # PUBLIC include: src/ 提供 geometry/ render/ core/ util/ common/ eval_metrics/
 target_include_directories(avm_stitch PUBLIC
