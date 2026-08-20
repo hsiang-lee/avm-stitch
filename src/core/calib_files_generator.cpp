@@ -50,13 +50,37 @@ std::string render_template(const std::string& tmpl_path,
     return content;
 }
 
+// Fail fast when any {{...}} placeholder survived rendering: model_creator
+// parses unreplaced literals as DBL_MAX and still exits 0, silently
+// producing black frames (production incident). Throwing here — naming the
+// output file and the leftover placeholders (camera role info) — turns the
+// mismatch into a visible stitch_error instead.
+void EnsureNoUnreplacedPlaceholders(const std::string& content,
+                                    const std::string& out_path) {
+    size_t pos = content.find("{{");
+    if (pos == std::string::npos) return;
+
+    std::string leftovers;
+    for (int shown = 0; pos != std::string::npos && shown < 4; ++shown) {
+        size_t end = content.find("}}", pos);
+        size_t len = (end == std::string::npos) ? std::string::npos
+                                                : end + 2 - pos;
+        leftovers += (shown ? ", " : "") + content.substr(pos, len);
+        pos = (end == std::string::npos) ? std::string::npos : end + 2;
+    }
+    throw std::runtime_error(
+        "Unreplaced template placeholders [" + leftovers +
+        "] in generated calib XML: " + out_path +
+        " (camera labels do not match the template's camera roles)");
+}
+
 // Iterates calib["cameras"], resolves label-style tags (Front/Rear/Left/Right
 // matching {{FX_Front}} style placeholders), fills `vars` via the per-field
 // populator, then renders the template and writes the output. Mirrors
 // stitch_eval.cpp's GenCalibXml.
 using CalibFieldPopulator = void (*)(std::map<std::string, std::string>& vars,
-                                     const std::string& tag,
-                                     const nlohmann::json& cam);
+                                      const std::string& tag,
+                                      const nlohmann::json& cam);
 
 void GenCalibXml(const nlohmann::json& calib,
                  const std::string& tmpl_path,
@@ -70,6 +94,7 @@ void GenCalibXml(const nlohmann::json& calib,
     }
 
     std::string xml = render_template(tmpl_path, vars);
+    EnsureNoUnreplacedPlaceholders(xml, out_path);  // before any disk write
     std::ofstream f(out_path);
     if (!f.is_open()) throw std::runtime_error("Cannot write: " + out_path);
     f << xml;
