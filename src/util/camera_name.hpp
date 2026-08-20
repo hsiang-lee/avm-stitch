@@ -9,41 +9,58 @@
 
 namespace avm_worker { namespace avm_stitch {
 
+// Canonical camera role tags: the capitalized forms used by the calib XML
+// templates' placeholders ({{FX_Front}}) and by index-based fallback.
+// Single source for both role matching and the legacy index slot order.
+inline constexpr std::string_view kRoleTags[] = {"Front", "Rear", "Left",
+                                                 "Right"};
+
+// Case-insensitive match of a raw camera id/label against the canonical role
+// tags. Returns the canonical tag view ("Front"...) on hit, empty on miss.
+inline std::string_view CanonicalRoleTag(std::string_view raw) {
+    for (std::string_view tag : kRoleTags) {
+        if (tag.size() == raw.size() &&
+            std::equal(tag.begin(), tag.end(), raw.begin(),
+                       [](char a, char b) {
+                           return std::tolower(static_cast<unsigned char>(a)) ==
+                                  std::tolower(static_cast<unsigned char>(b));
+                       })) {
+            return tag;
+        }
+    }
+    return {};
+}
+
 // Resolve the label-style name used for subprocess OUTPUT filenames and XML
 // tags (e.g. Front.png, {{FX_Front}}). Resolution order:
-// cam["label"] -> legacy Front/Rear/Left/Right by index (i<4) -> "CAM{i}".
-// The id is deliberately NOT used: the API keys images by lowercase id
-// ("front"), but files/tags must use the capitalized label ("Front") to
-// match the calib XML templates and the user's file naming requirement.
+// 1. cam["id"] role match (real-car main path): on the real-car link
+//    calibration.cameras[].id IS the role (front/rear/left/right,
+//    system-guaranteed), while the label is a user-configured display name
+//    (often Chinese, e.g. "前置相机") with no role semantics — so the id must
+//    resolve the tag first, regardless of the label.
+// 2. cam["label"] role match (sim fallback): sim ids are cam_N (no role
+//    semantics), so only the label can name the role there. Placeholders are
+//    replaced case-sensitively, so a role-naming label in any case
+//    ("front"/"FRONT") must normalize to the canonical tag.
+// 3. Non-role label: returned unchanged. Such user labels cannot match the
+//    templates' role placeholders; EnsureNoUnreplacedPlaceholders in
+//    CalibFilesGenerator turns that into an explicit, visible error
+//    (production incident: silent black frames before the fail-fast).
+// 4./5. Legacy Front/Rear/Left/Right by index (i<4), else "CAM{i}".
 inline std::string ResolveCameraLabel(const nlohmann::json& cam, size_t index) {
-    static const char* legacy_tags[] = {"Front", "Rear", "Left", "Right"};
+    if (cam.contains("id") && cam["id"].is_string()) {
+        const std::string_view role =
+            CanonicalRoleTag(cam["id"].get<std::string>());
+        if (!role.empty()) return std::string(role);
+    }
     if (cam.contains("label") && cam["label"].is_string() &&
         !cam["label"].get<std::string>().empty()) {
         const std::string label = cam["label"].get<std::string>();
-        // Incoming labels may use any case ("front"/"FRONT"), but the calib
-        // XML templates' placeholders are capitalized ({{FX_Front}}) and are
-        // replaced case-sensitively. A label naming a known role must be
-        // normalized to the canonical tag, otherwise nothing gets replaced
-        // and model_creator parses the leftover {{...}} literals as DBL_MAX
-        // (production incident: silent black frames). Other labels pass
-        // through unchanged (the placeholder fail-fast in
-        // CalibFilesGenerator makes such mismatches a visible error).
-        for (const char* tag : legacy_tags) {
-            const std::string_view t(tag);
-            if (t.size() == label.size() &&
-                std::equal(t.begin(), t.end(), label.begin(),
-                           [](char a, char b) {
-                               return std::tolower(static_cast<unsigned char>(
-                                          a)) ==
-                                      std::tolower(static_cast<unsigned char>(
-                                          b));
-                           })) {
-                return std::string(t);
-            }
-        }
+        const std::string_view role = CanonicalRoleTag(label);
+        if (!role.empty()) return std::string(role);
         return label;
     }
-    if (index < 4) return legacy_tags[index];
+    if (index < 4) return std::string(kRoleTags[index]);
     return "CAM" + std::to_string(index);
 }
 
