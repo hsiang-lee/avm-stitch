@@ -91,6 +91,9 @@ nlohmann::json StitchSession::FeedFrame(const nlohmann::json& images) {
     int iw = 0, ih = 0;
     auto buffers = DecodeRoleBuffers(images, impl_->calibration_, iw, ih, imgs);
 
+    // Save raw fisheye images for debugging (best-effort).
+    SaveDecodedRoleImages(imgs, impl_->task_base_dir_);
+
     nlohmann::json images_obj = nlohmann::json::object();
     nlohmann::json view_errors = nlohmann::json::object();
     for (const char* view : kRenderViewNames) {

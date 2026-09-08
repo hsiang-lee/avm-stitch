@@ -106,6 +106,9 @@ nlohmann::json RendererBackend::Run(const nlohmann::json& task) {
         int iw = 0, ih = 0;
         auto buffers = DecodeRoleBuffers(images, calibration, iw, ih, imgs);
 
+        // 4b. Save raw fisheye images for debugging (best-effort).
+        SaveDecodedRoleImages(imgs, tmp_base);
+
         // 5. Calibration files (template dir: TEMPLATES_DIR or "tools").
         const char* td = std::getenv("TEMPLATES_DIR");
         std::string templates = td ? td : "tools";

@@ -40,6 +40,13 @@ std::vector<const std::uint8_t*> DecodeRoleBuffers(
         const nlohmann::json& calibration, int& w, int& h,
         std::array<DecodedImage, 4>& storage);
 
+// Save the 4 decoded fisheye images as PNGs under tmp_base for debugging.
+// Writes {tmp_base}/{role}.png for role in [left, right, front, rear].
+// Best-effort: a write failure is reported to stderr and does NOT throw
+// (debugging aid must not break the stitch pipeline).
+void SaveDecodedRoleImages(const std::array<DecodedImage, 4>& imgs,
+                           const std::string& tmp_base);
+
 // Run model_creator for the three model kinds (bowl_boat / aerial / distort).
 // Throws on a non-zero exit code.
 void RunModelCreator(const std::string& tmp_base);

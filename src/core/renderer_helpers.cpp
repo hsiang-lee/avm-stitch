@@ -12,11 +12,15 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace avm_worker { namespace avm_stitch {
+
+// The AVM_INPUT_FRAME camera layout used by the decode/save helpers.
+static const char* kRoleNames[4] = {"left", "right", "front", "rear"};
 
 // Build the standard stitch_error JSON envelope (same contract as the
 // subprocess/OSG backends).
@@ -75,12 +79,11 @@ std::vector<const std::uint8_t*> DecodeRoleBuffers(
         const nlohmann::json& images,
         const nlohmann::json& calibration, int& w, int& h,
         std::array<DecodedImage, 4>& storage) {
-    static const char* roles[4] = {"left", "right", "front", "rear"};
     for (int i = 0; i < 4; ++i) {
-        std::string key = FindImageKeyForRole(images, calibration, roles[i]);
+        std::string key = FindImageKeyForRole(images, calibration, kRoleNames[i]);
         if (key.empty()) {
             throw std::runtime_error(
-                "Missing image for camera: " + std::string(roles[i]));
+                "Missing image for camera: " + std::string(kRoleNames[i]));
         }
         storage[i] = DecodeBase64JpegToRgba(images[key].get<std::string>());
     }
@@ -100,6 +103,24 @@ std::vector<const std::uint8_t*> DecodeRoleBuffers(
         ptrs.push_back(d.rgba_data.data());
     }
     return ptrs;
+}
+
+// Save the 4 decoded fisheye images as PNGs under tmp_base for debugging.
+// Best-effort: write failures go to stderr and do not throw.
+void SaveDecodedRoleImages(const std::array<DecodedImage, 4>& imgs,
+                           const std::string& tmp_base) {
+    for (int i = 0; i < 4; ++i) {
+        const auto& d = imgs[i];
+        if (d.rgba_data.empty() || d.width <= 0 || d.height <= 0) continue;
+        cv::Mat rgba(d.height, d.width, CV_8UC4,
+                     const_cast<std::uint8_t*>(d.rgba_data.data()));
+        cv::Mat bgr;
+        cv::cvtColor(rgba, bgr, cv::COLOR_RGBA2BGR);
+        const std::string path = tmp_base + "/" + kRoleNames[i] + ".png";
+        if (!cv::imwrite(path, bgr)) {
+            std::cerr << "[avm-stitch] Failed to write " << path << std::endl;
+        }
+    }
 }
 
 // Run model_creator for the three model kinds (bowl_boat / aerial / distort).
