@@ -56,7 +56,7 @@ AVM(环视,亦称 Bird's Eye View / 360 全景)系统在车辆前后左右安装
 
 ### 3.1 碗形模型(`src/geometry/bowl_model.hpp`)
 
-header-only 纯数学,无 GL 依赖。`CreateBowlMesh(params)` 生成碗面三角网格:
+header-only 纯数学,无 GL 依赖。`BowlMesh mesh(params)`(构造函数,原 `CreateBowlMesh`)生成碗面三角网格,数据经 const getters(`vertices()` / `normals()` / `triangles()` / `rows()` / `cols()`)零拷贝读取:
 
 ```
  z ^      rim:  z = k_slop * rd^z_exp   (max_z 封顶)
@@ -98,7 +98,7 @@ header-only,把 3D 世界点投影到鱼眼像素。核心委托 `cv::fisheye::p
 
 ### 3.3 网格烘焙(`src/geometry/mesh_bake.cpp`)
 
-`BakeMesh(bowl_mesh, intrinsics, extrinsics)` 逐顶点把"看什么、怎么混"预计算进顶点属性——这是整个设计的关键:**运行时 GPU 零几何计算**。
+`BakedMesh baked(bowl_mesh, intrinsics, extrinsics)`(构造函数,原 `BakeMesh`)逐顶点把"看什么、怎么混"预计算进顶点属性——这是整个设计的关键:**运行时 GPU 零几何计算**。烘焙结果经 `vertices()` / `num_cameras()` 读取。
 
 每个碗面顶点得到:
 
@@ -134,7 +134,7 @@ header-only,把 3D 世界点投影到鱼眼像素。核心委托 `cv::fisheye::p
         near weight = 0.5 * (1 - cos(t*pi))   cosine smoothstep
 ```
 
-扇区之外,`BakeMesh` 还会叠加鱼眼边缘羽化(3.2)后再归一化,保证黑区不进接缝。
+扇区之外,`BakedMesh` 构造(烘焙)还会叠加鱼眼边缘羽化(3.2)后再归一化,保证黑区不进接缝。
 
 ### 3.5 GPU 渲染(`src/render/`)
 
@@ -264,7 +264,7 @@ auto views = engine.RenderFrame(bgr_images);   // 每帧: map<视图名, cv::Mat
 | 顶点属性槽位 | `src/geometry/mesh_bake.hpp` `BakedVertex` | 固定 `uv[8][2]` + `weight[8]` |
 | GLSL 属性布局 | `src/render/osg_scene.cpp:18-22` | UV 打包 4×vec4(location 2-5),权重打包 2×vec4(location 6-7),共 8 location,恰好覆盖 8 路 |
 | 片元着色器展开 | `GetFragmentShaderSource` | 手动展开 8 路 `if (fragNumCameras > k ...)` 分支 |
-| Configure 校验 | `src/core/stitch_engine.cpp:53-55` | `N ∈ [1,8]`,超出抛 `std::invalid_argument` |
+| Configure 校验 | `src/core/stitch_engine.cpp` `ValidateConfigureArgs` | `N ∈ [1,8]`,超出抛 `std::invalid_argument` |
 
 扩到 16 路需要动:
 
@@ -272,7 +272,7 @@ auto views = engine.RenderFrame(bgr_images);   // 每帧: map<视图名, cv::Mat
 2. `BuildOSGGeometry` 重新打包:UV 需 8×vec4(location 2-9),权重需 4×vec4(location 10-13)——注意 GLSL 330 保证的顶点属性数至少 16,layout 0-13 仍在安全范围,但需在目标 GPU 上验证
 3. 片元着色器展开 16 路分支;`WEIGHT_MIN` 阈值机制可沿用
 4. `Configure` 校验上限放到 16
-5. **不需要动**:`ComputeBlendWeights`(N 无关,过渡半角自动变为 52/16 = 3.25°)、`CreateBowlMesh`、`UploadCameraImages`(纹理数组层数即 N)
+5. **不需要动**:`ComputeBlendWeights`(N 无关,过渡半角自动变为 52/16 = 3.25°)、`BowlMesh` 构造、`UploadCameraImages`(纹理数组层数即 N)
 
 ## 10. 已知限制
 

@@ -61,7 +61,7 @@ BowlMesh MakeCoarseBowl(double r_outter) {
     BowlParams bowl = BowlParams::Default();
     bowl.step = 1.0;        // coarse grid for test speed
     bowl.r_outter = r_outter;
-    return CreateBowlMesh(bowl);
+    return BowlMesh(bowl);
 }
 
 // Bake a coarse bowl for N side cameras and build the OSG scene for it.
@@ -77,9 +77,9 @@ TestScene BuildTestSceneWithExtrinsics(int num_cameras,
     TestScene ts;
     auto mesh = MakeCoarseBowl(12.6);
     std::vector<CameraIntrinsics> intrs(num_cameras, MakeIntrinsics());
-    auto baked = BakeMesh(mesh, intrs, extrs);
+    auto baked = BakedMesh(mesh, intrs, extrs);
 
-    for (const auto& bv : baked.vertices) {
+    for (const auto& bv : baked.vertices()) {
         double sum = 0.0;
         for (int j = 0; j < num_cameras; ++j) sum += bv.weight[j];
         if (sum > 1e-9) { ts.has_visible_vertices = true; break; }

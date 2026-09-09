@@ -1,4 +1,4 @@
-// Tests for avm_stitch bowl model (BowlParams + CreateBowlMesh).
+// Tests for avm_stitch bowl model (BowlParams + BowlMesh).
 // Pure math, no GL / OSG dependency.
 
 #include <gtest/gtest.h>
@@ -16,7 +16,7 @@ namespace {
 // Count vertices that lie strictly inside the flat (rd == 0) region.
 size_t CountFlatVertices(const BowlMesh& mesh, double x_half, double y_half) {
     size_t count = 0;
-    for (const auto& v : mesh.vertices) {
+    for (const auto& v : mesh.vertices()) {
         if (std::abs(v[0]) < x_half - 1e-9 && std::abs(v[1]) < y_half - 1e-9) {
             count++;
         }
@@ -43,28 +43,28 @@ TEST(BowlParamsTest, Default_SetsCorrectDefaults) {
 }
 
 // ---------------------------------------------------------------------------
-// CreateBowlMesh
+// BowlMesh construction
 // ---------------------------------------------------------------------------
 
 TEST(BowlMeshTest, ReturnsNonEmptyMesh) {
-    auto mesh = CreateBowlMesh(BowlParams::Default());
-    EXPECT_GT(mesh.vertices.size(), 0u);
-    EXPECT_GT(mesh.triangles.size(), 0u);
-    EXPECT_GT(mesh.rows, 0);
-    EXPECT_GT(mesh.cols, 0);
+    const BowlMesh mesh(BowlParams::Default());
+    EXPECT_GT(mesh.vertices().size(), 0u);
+    EXPECT_GT(mesh.triangles().size(), 0u);
+    EXPECT_GT(mesh.rows(), 0);
+    EXPECT_GT(mesh.cols(), 0);
 }
 
 TEST(BowlMeshTest, GridSizeMatchesParams) {
-    auto mesh = CreateBowlMesh(BowlParams::Default());
+    const BowlMesh mesh(BowlParams::Default());
     // r_outter=12.6, step=0.1 -> (12.6/0.1)*2 = 252 (rounded, not truncated)
-    EXPECT_EQ(252, mesh.rows);
-    EXPECT_EQ(252, mesh.cols);
+    EXPECT_EQ(252, mesh.rows());
+    EXPECT_EQ(252, mesh.cols());
 }
 
 TEST(BowlMeshTest, VerticesInXyBounds) {
-    auto mesh = CreateBowlMesh(BowlParams::Default());
-    ASSERT_GT(mesh.vertices.size(), 0u);
-    for (const auto& v : mesh.vertices) {
+    const BowlMesh mesh(BowlParams::Default());
+    ASSERT_GT(mesh.vertices().size(), 0u);
+    for (const auto& v : mesh.vertices()) {
         EXPECT_GE(v[0], -12.6 - 1e-9);
         EXPECT_LE(v[0], 12.6 + 1e-9);
         EXPECT_GE(v[1], -12.6 - 1e-9);
@@ -73,9 +73,9 @@ TEST(BowlMeshTest, VerticesInXyBounds) {
 }
 
 TEST(BowlMeshTest, VerticesZInRange) {
-    auto mesh = CreateBowlMesh(BowlParams::Default());
-    ASSERT_GT(mesh.vertices.size(), 0u);
-    for (const auto& v : mesh.vertices) {
+    const BowlMesh mesh(BowlParams::Default());
+    ASSERT_GT(mesh.vertices().size(), 0u);
+    for (const auto& v : mesh.vertices()) {
         EXPECT_GE(v[2], 0.0);
         EXPECT_LE(v[2], 8.6 + 1e-9);
     }
@@ -88,9 +88,9 @@ TEST(BowlMeshTest, FlatCenterRegion) {
     params.round_l = 0.5;
     double x_half = params.car_length / 2.0 + params.round_l; // 1.5
     double y_half = params.car_width / 2.0 + params.round_l;  // 1.0
-    auto mesh = CreateBowlMesh(params);
+    const BowlMesh mesh(params);
     bool found_flat = false;
-    for (const auto& v : mesh.vertices) {
+    for (const auto& v : mesh.vertices()) {
         if (std::abs(v[0]) < x_half - 1e-9 && std::abs(v[1]) < y_half - 1e-9) {
             found_flat = true;
             EXPECT_DOUBLE_EQ(0.0, v[2]);
@@ -101,24 +101,24 @@ TEST(BowlMeshTest, FlatCenterRegion) {
 
 TEST(BowlMeshTest, EdgesMonotonic) {
     // Along a fixed row (fixed u/x), z must be a non-decreasing function of rd.
-    auto mesh = CreateBowlMesh(BowlParams::Default());
-    ASSERT_GT(mesh.rows, 0);
+    const BowlMesh mesh(BowlParams::Default());
+    ASSERT_GT(mesh.rows(), 0);
     const double x_half = 5.6 / 2.0 + 2.0;
     const double y_half = 2.2 / 2.0 + 2.0;
     const double r_outter = 12.6;
 
     // Group vertices into rows (recover grid row i from world x), O(n).
-    std::vector<std::vector<std::pair<double, double>>> rows(mesh.rows + 1);
-    for (const auto& v : mesh.vertices) {
+    std::vector<std::vector<std::pair<double, double>>> rows(mesh.rows() + 1);
+    for (const auto& v : mesh.vertices()) {
         double u = v[0] / r_outter;
-        int i = std::lround((u + 1.0) / 2.0 * mesh.rows);
+        int i = std::lround((u + 1.0) / 2.0 * mesh.rows());
         double dx = std::max(0.0, std::abs(v[0]) - x_half);
         double dy = std::max(0.0, std::abs(v[1]) - y_half);
         double rd = std::sqrt(dx * dx + dy * dy);
-        if (i >= 0 && i <= mesh.rows) rows[i].emplace_back(rd, v[2]);
+        if (i >= 0 && i <= mesh.rows()) rows[i].emplace_back(rd, v[2]);
     }
 
-    for (int i = 0; i <= mesh.rows; ++i) {
+    for (int i = 0; i <= mesh.rows(); ++i) {
         auto& row = rows[i];
         if (row.size() < 2) continue;
         std::sort(row.begin(), row.end());
@@ -130,9 +130,9 @@ TEST(BowlMeshTest, EdgesMonotonic) {
 }
 
 TEST(BowlMeshTest, NormalsAreUnitLength) {
-    auto mesh = CreateBowlMesh(BowlParams::Default());
-    ASSERT_EQ(mesh.vertices.size(), mesh.normals.size());
-    for (const auto& n : mesh.normals) {
+    const BowlMesh mesh(BowlParams::Default());
+    ASSERT_EQ(mesh.vertices().size(), mesh.normals().size());
+    for (const auto& n : mesh.normals()) {
         double len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
         EXPECT_NEAR(1.0, len, 1e-6);
     }
@@ -145,13 +145,13 @@ TEST(BowlMeshTest, FlatCenterNormalsUpward) {
     params.round_l = 0.5;
     double x_half = 1.5;
     double y_half = 1.0;
-    auto mesh = CreateBowlMesh(params);
+    const BowlMesh mesh(params);
     bool found_flat = false;
-    for (size_t k = 0; k < mesh.vertices.size(); ++k) {
-        const auto& v = mesh.vertices[k];
+    for (size_t k = 0; k < mesh.vertices().size(); ++k) {
+        const auto& v = mesh.vertices()[k];
         if (std::abs(v[0]) < x_half - 1e-9 && std::abs(v[1]) < y_half - 1e-9) {
             found_flat = true;
-            const auto& n = mesh.normals[k];
+            const auto& n = mesh.normals()[k];
             EXPECT_NEAR(0.0, n[0], 1e-6);
             EXPECT_NEAR(0.0, n[1], 1e-6);
             EXPECT_NEAR(1.0, n[2], 1e-6);
@@ -161,12 +161,12 @@ TEST(BowlMeshTest, FlatCenterNormalsUpward) {
 }
 
 TEST(BowlMeshTest, TrianglesHaveValidIndices) {
-    auto mesh = CreateBowlMesh(BowlParams::Default());
-    ASSERT_GT(mesh.triangles.size(), 0u);
-    for (const auto& tri : mesh.triangles) {
+    const BowlMesh mesh(BowlParams::Default());
+    ASSERT_GT(mesh.triangles().size(), 0u);
+    for (const auto& tri : mesh.triangles()) {
         for (int idx : tri) {
             EXPECT_GE(idx, 0);
-            EXPECT_LT(idx, static_cast<int>(mesh.vertices.size()));
+            EXPECT_LT(idx, static_cast<int>(mesh.vertices().size()));
         }
     }
 }
@@ -176,12 +176,12 @@ TEST(BowlMeshTest, DifferentCarSizeChangesFlatRegion) {
     truck_params.car_length = 18.0;
     truck_params.car_width = 2.5;
     truck_params.step = 0.5;   // coarse for speed
-    auto truck_mesh = CreateBowlMesh(truck_params);
-    EXPECT_GT(truck_mesh.vertices.size(), 0u);
+    const BowlMesh truck_mesh(truck_params);
+    EXPECT_GT(truck_mesh.vertices().size(), 0u);
 
     BowlParams default_params;
     default_params.step = 0.5; // coarse for speed
-    auto default_mesh = CreateBowlMesh(default_params);
+    const BowlMesh default_mesh(default_params);
 
     size_t truck_flat = CountFlatVertices(truck_mesh, 18.0 / 2.0 + 2.0, 2.5 / 2.0 + 2.0);
     size_t default_flat = CountFlatVertices(default_mesh, 5.6 / 2.0 + 2.0, 2.2 / 2.0 + 2.0);
@@ -192,14 +192,14 @@ TEST(BowlMeshTest, MinimalParams_OneCellMesh) {
     BowlParams params;
     params.step = 12.6;    // step == r_outter -> 1 cell per axis
     params.r_outter = 12.6;
-    auto mesh = CreateBowlMesh(params);
-    EXPECT_EQ(2, mesh.rows);
-    EXPECT_EQ(2, mesh.cols);
-    EXPECT_GT(mesh.vertices.size(), 0u);   // center + edge points retained
+    const BowlMesh mesh(params);
+    EXPECT_EQ(2, mesh.rows());
+    EXPECT_EQ(2, mesh.cols());
+    EXPECT_GT(mesh.vertices().size(), 0u);   // center + edge points retained
     // must not crash; indices still valid
-    for (const auto& tri : mesh.triangles) {
+    for (const auto& tri : mesh.triangles()) {
         for (int idx : tri) {
-            EXPECT_LT(idx, static_cast<int>(mesh.vertices.size()));
+            EXPECT_LT(idx, static_cast<int>(mesh.vertices().size()));
         }
     }
 }

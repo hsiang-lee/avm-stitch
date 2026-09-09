@@ -52,6 +52,12 @@ public:
     int GetNumCameras() const;
 
 private:
+    /// Validate Configure arguments (N range, size match, shared image size,
+    /// bowl params). Throws std::invalid_argument on the first violation.
+    void ValidateConfigureArgs(const std::vector<CameraIntrinsics>& intrinsics,
+                               const std::vector<CameraExtrinsics>& extrinsics,
+                               const BowlParams& bowl_params) const;
+
     struct Impl;
     std::unique_ptr<Impl> impl_;
     bool configured_ = false;

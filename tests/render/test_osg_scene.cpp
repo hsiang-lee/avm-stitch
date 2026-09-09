@@ -40,7 +40,7 @@ BowlMesh MakeCoarseBowl(double r_outter) {
     BowlParams bowl = BowlParams::Default();
     bowl.step = 1.0;        // coarse grid for test speed
     bowl.r_outter = r_outter;
-    return CreateBowlMesh(bowl);
+    return BowlMesh(bowl);
 }
 
 // Bake a coarse bowl for N side cameras. Returns a valid baked mesh with the
@@ -51,7 +51,7 @@ BakedMesh MakeBaked(int num_cameras) {
     std::vector<double> azimuths;
     for (int i = 0; i < num_cameras; ++i) azimuths.push_back(i * 360.0 / num_cameras);
     auto extrs = MakeSideCameras(azimuths);
-    return BakeMesh(mesh, intrs, extrs);
+    return BakedMesh(mesh, intrs, extrs);
 }
 
 } // namespace
@@ -64,13 +64,13 @@ TEST(OSGSceneTest, BuildOSGGeometry_PositionAttributeCorrect) {
 
     auto* va = dynamic_cast<osg::Vec3Array*>(geom->getVertexArray());
     ASSERT_NE(nullptr, va);
-    ASSERT_EQ(bowl.vertices.size(), va->size());
+    ASSERT_EQ(bowl.vertices().size(), va->size());
 
     // VCS -> OpenGL: (x, y, z) -> (x, z, -y)
-    for (size_t i = 0; i < bowl.vertices.size(); ++i) {
-        EXPECT_NEAR(bowl.vertices[i][0], (*va)[i].x(), 1e-6);
-        EXPECT_NEAR(bowl.vertices[i][2], (*va)[i].y(), 1e-6);
-        EXPECT_NEAR(-bowl.vertices[i][1], (*va)[i].z(), 1e-6);
+    for (size_t i = 0; i < bowl.vertices().size(); ++i) {
+        EXPECT_NEAR(bowl.vertices()[i][0], (*va)[i].x(), 1e-6);
+        EXPECT_NEAR(bowl.vertices()[i][2], (*va)[i].y(), 1e-6);
+        EXPECT_NEAR(-bowl.vertices()[i][1], (*va)[i].z(), 1e-6);
     }
 }
 
@@ -105,7 +105,7 @@ TEST(OSGSceneTest, BuildOSGGeometry_IndexCount) {
         auto* de = dynamic_cast<osg::DrawElementsUInt*>(geom->getPrimitiveSet(k));
         if (de) index_count += de->getNumIndices();
     }
-    EXPECT_EQ(bowl.triangles.size() * 3u, static_cast<size_t>(index_count));
+    EXPECT_EQ(bowl.triangles().size() * 3u, static_cast<size_t>(index_count));
     EXPECT_GT(index_count, 0);
 }
 

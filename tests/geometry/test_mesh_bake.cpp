@@ -44,7 +44,7 @@ BowlMesh MakeCoarseBowl(double r_outter) {
     BowlParams bowl = BowlParams::Default();
     bowl.step = 1.0;        // coarse grid for test speed
     bowl.r_outter = r_outter;
-    return CreateBowlMesh(bowl);
+    return BowlMesh(bowl);
 }
 
 } // namespace
@@ -53,23 +53,23 @@ TEST(BakeMeshTest, SingleCamera_UVMatchesProjection) {
     CameraIntrinsics intr = MakeIntrinsics();
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
     auto mesh = MakeCoarseBowl(5.0);
-    ASSERT_GT(mesh.vertices.size(), 0u);
+    ASSERT_GT(mesh.vertices().size(), 0u);
 
-    auto baked = BakeMesh(mesh, {intr}, {extr});
-    ASSERT_EQ(baked.vertices.size(), mesh.vertices.size());
-    ASSERT_EQ(1, baked.num_cameras);
+    auto baked = BakedMesh(mesh, {intr}, {extr});
+    ASSERT_EQ(baked.vertices().size(), mesh.vertices().size());
+    ASSERT_EQ(1, baked.num_cameras());
 
     int checked = 0;
-    for (size_t i = 0; i < mesh.vertices.size(); ++i) {
-        if (!IsVertexVisibleToCamera(mesh.vertices[i], intr, extr)) continue;
+    for (size_t i = 0; i < mesh.vertices().size(); ++i) {
+        if (!IsVertexVisibleToCamera(mesh.vertices()[i], intr, extr)) continue;
         ++checked;
         double u_px, v_px;
-        ProjectWorldToFishEye(mesh.vertices[i], intr, extr, u_px, v_px);
-        EXPECT_NEAR(baked.vertices[i].uv[0][0], u_px / intr.width, 1e-6);
+        ProjectWorldToFishEye(mesh.vertices()[i], intr, extr, u_px, v_px);
+        EXPECT_NEAR(baked.vertices()[i].uv[0][0], u_px / intr.width, 1e-6);
         // OpenCV/T_wc convention: camera y axis points DOWN, so v_px grows toward
         // the image bottom directly and is already a UV V coordinate. No flip.
-        EXPECT_NEAR(baked.vertices[i].uv[0][1], v_px / intr.height, 1e-6);
-        EXPECT_NEAR(baked.vertices[i].weight[0], 1.0, 1e-6);
+        EXPECT_NEAR(baked.vertices()[i].uv[0][1], v_px / intr.height, 1e-6);
+        EXPECT_NEAR(baked.vertices()[i].weight[0], 1.0, 1e-6);
     }
     EXPECT_GT(checked, 0);   // some vertices must actually be visible
 }
@@ -78,27 +78,27 @@ TEST(BakeMeshTest, N4_VertexCountMatches) {
     auto mesh = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
-    auto baked = BakeMesh(mesh, intrs, extrs);
-    ASSERT_EQ(baked.vertices.size(), mesh.vertices.size());
-    ASSERT_EQ(4, baked.num_cameras);
+    auto baked = BakedMesh(mesh, intrs, extrs);
+    ASSERT_EQ(baked.vertices().size(), mesh.vertices().size());
+    ASSERT_EQ(4, baked.num_cameras());
 }
 
 TEST(BakeMeshTest, N4_NumCameras) {
     auto mesh = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
-    auto baked = BakeMesh(mesh, intrs, extrs);
-    EXPECT_EQ(4, baked.num_cameras);
+    auto baked = BakedMesh(mesh, intrs, extrs);
+    EXPECT_EQ(4, baked.num_cameras());
 }
 
 TEST(BakeMeshTest, N4_WeightsSumToOne_WhenVisible) {
     auto mesh = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
-    auto baked = BakeMesh(mesh, intrs, extrs);
+    auto baked = BakedMesh(mesh, intrs, extrs);
 
     int visible_vertices = 0;
-    for (const auto& bv : baked.vertices) {
+    for (const auto& bv : baked.vertices()) {
         double sum = 0.0;
         for (int j = 0; j < 4; ++j) sum += bv.weight[j];
         if (sum > 1e-9) {
@@ -113,9 +113,9 @@ TEST(BakeMeshTest, N4_UVInNormalizedRange) {
     auto mesh = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
-    auto baked = BakeMesh(mesh, intrs, extrs);
+    auto baked = BakedMesh(mesh, intrs, extrs);
 
-    for (const auto& bv : baked.vertices) {
+    for (const auto& bv : baked.vertices()) {
         for (int j = 0; j < 4; ++j) {
             EXPECT_GE(bv.uv[j][0], 0.0f);
             EXPECT_LE(bv.uv[j][0], 1.0f);
@@ -129,18 +129,18 @@ TEST(BakeMeshTest, N4_InvisibleCameraHasZeroWeight) {
     auto mesh = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
-    auto baked = BakeMesh(mesh, intrs, extrs);
+    auto baked = BakedMesh(mesh, intrs, extrs);
 
     // Every vertex that a camera reports as behind it must carry weight 0.
     // The flat centre (z=0) is below the z=1 camera ring: invisible to all.
     bool found_invisible_pair = false;
     bool found_flat_vertex = false;
-    for (size_t i = 0; i < mesh.vertices.size(); ++i) {
-        if (mesh.vertices[i][2] == 0.0) found_flat_vertex = true;
+    for (size_t i = 0; i < mesh.vertices().size(); ++i) {
+        if (mesh.vertices()[i][2] == 0.0) found_flat_vertex = true;
         for (int j = 0; j < 4; ++j) {
-            if (!IsVertexVisibleToCamera(mesh.vertices[i], intrs[j], extrs[j])) {
+            if (!IsVertexVisibleToCamera(mesh.vertices()[i], intrs[j], extrs[j])) {
                 found_invisible_pair = true;
-                EXPECT_FLOAT_EQ(0.0f, baked.vertices[i].weight[j]);
+                EXPECT_FLOAT_EQ(0.0f, baked.vertices()[i].weight[j]);
             }
         }
     }
@@ -152,13 +152,13 @@ TEST(BakeMeshTest, N4_AllVerticesHaveAtLeastOneVisible) {
     auto mesh = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
-    auto baked = BakeMesh(mesh, intrs, extrs);
+    auto baked = BakedMesh(mesh, intrs, extrs);
 
     // The bowl rim rises above the camera ring -> at least some vertices get
     // blend weight; the flat centre is below it -> some stay invisible.
     int visible_vertices = 0;
     int invisible_vertices = 0;
-    for (const auto& bv : baked.vertices) {
+    for (const auto& bv : baked.vertices()) {
         double sum = 0.0;
         for (int j = 0; j < 4; ++j) sum += bv.weight[j];
         if (sum > 1e-9) ++visible_vertices;
@@ -172,11 +172,11 @@ TEST(BakeMeshTest, N8_AllSlotsFilledCorrectly) {
     auto mesh = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(8, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 45, 90, 135, 180, 225, 270, 315});
-    auto baked = BakeMesh(mesh, intrs, extrs);
-    ASSERT_EQ(8, baked.num_cameras);
+    auto baked = BakedMesh(mesh, intrs, extrs);
+    ASSERT_EQ(8, baked.num_cameras());
 
     bool slot7_used = false;
-    for (const auto& bv : baked.vertices) {
+    for (const auto& bv : baked.vertices()) {
         double sum = 0.0;
         for (int j = 0; j < 8; ++j) sum += bv.weight[j];
         if (sum > 1e-9) EXPECT_NEAR(1.0, sum, 1e-6);
@@ -192,10 +192,10 @@ TEST(BakeMeshTest, N6_UnusedSlotsZero) {
     auto mesh = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(6, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 60, 120, 180, 240, 300});
-    auto baked = BakeMesh(mesh, intrs, extrs);
-    ASSERT_EQ(6, baked.num_cameras);
+    auto baked = BakedMesh(mesh, intrs, extrs);
+    ASSERT_EQ(6, baked.num_cameras());
 
-    for (const auto& bv : baked.vertices) {
+    for (const auto& bv : baked.vertices()) {
         EXPECT_FLOAT_EQ(0.0f, bv.weight[6]);
         EXPECT_FLOAT_EQ(0.0f, bv.weight[7]);
         EXPECT_FLOAT_EQ(0.0f, bv.uv[6][0]);
@@ -237,22 +237,21 @@ TEST(BakeMeshTest, PointInRectButOutsideFisheyeCircle_Invisible) {
     ASSERT_LT(std::hypot(u_in - intr.cx, v_in - intr.cy), 240.0);
     ASSERT_GT(std::hypot(u_out - intr.cx, v_out - intr.cy), 240.0);
 
-    BowlMesh mesh;
-    mesh.vertices = {inside, outside};
-    mesh.normals = {cv::Vec3d(0.0, 0.0, 1.0), cv::Vec3d(0.0, 0.0, 1.0)};
+    BowlMesh mesh({inside, outside},
+                  {cv::Vec3d(0.0, 0.0, 1.0), cv::Vec3d(0.0, 0.0, 1.0)});
 
-    auto baked = BakeMesh(mesh, {intr}, {extr});
+    auto baked = BakedMesh(mesh, {intr}, {extr});
 
     // In-circle point: visible with full weight and matching UV.
-    EXPECT_NEAR(1.0, baked.vertices[0].weight[0], 1e-6);
-    EXPECT_NEAR(u_in / intr.width, baked.vertices[0].uv[0][0], 1e-6);
-    EXPECT_NEAR(v_in / intr.height, baked.vertices[0].uv[0][1], 1e-6);
+    EXPECT_NEAR(1.0, baked.vertices()[0].weight[0], 1e-6);
+    EXPECT_NEAR(u_in / intr.width, baked.vertices()[0].uv[0][0], 1e-6);
+    EXPECT_NEAR(v_in / intr.height, baked.vertices()[0].uv[0][1], 1e-6);
 
     // Out-of-circle point (still inside the rect): must stay invisible —
     // weight 0 and UV 0 (black dead zone, must not feed the blender).
-    EXPECT_FLOAT_EQ(0.0f, baked.vertices[1].weight[0]);
-    EXPECT_FLOAT_EQ(0.0f, baked.vertices[1].uv[0][0]);
-    EXPECT_FLOAT_EQ(0.0f, baked.vertices[1].uv[0][1]);
+    EXPECT_FLOAT_EQ(0.0f, baked.vertices()[1].weight[0]);
+    EXPECT_FLOAT_EQ(0.0f, baked.vertices()[1].uv[0][0]);
+    EXPECT_FLOAT_EQ(0.0f, baked.vertices()[1].uv[0][1]);
 }
 
 TEST(BakeMeshTest, NoCrashWithAllInvisible) {
@@ -261,10 +260,10 @@ TEST(BakeMeshTest, NoCrashWithAllInvisible) {
     auto mesh = MakeCoarseBowl(5.0);
     CameraIntrinsics intr = MakeIntrinsics();
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
-    auto baked = BakeMesh(mesh, {intr}, {extr});
-    ASSERT_EQ(baked.vertices.size(), mesh.vertices.size());
+    auto baked = BakedMesh(mesh, {intr}, {extr});
+    ASSERT_EQ(baked.vertices().size(), mesh.vertices().size());
 
-    for (const auto& bv : baked.vertices) {
+    for (const auto& bv : baked.vertices()) {
         EXPECT_FLOAT_EQ(0.0f, bv.weight[0]);
         EXPECT_FLOAT_EQ(0.0f, bv.uv[0][0]);
         EXPECT_FLOAT_EQ(0.0f, bv.uv[0][1]);
@@ -282,13 +281,11 @@ TEST(BakeMeshTest, SingleCamera_NormalPointWeightOne) {
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
 
     // World point that projects to the image centre (r_px = 0, feather = 1.0).
-    BowlMesh mesh;
-    mesh.vertices = {cv::Vec3d(0.0, 0.0, 10.0)};
-    mesh.normals = {cv::Vec3d(0.0, 0.0, 1.0)};
-    auto baked = BakeMesh(mesh, {intr}, {extr});
+    BowlMesh mesh({cv::Vec3d(0.0, 0.0, 10.0)}, {cv::Vec3d(0.0, 0.0, 1.0)});
+    auto baked = BakedMesh(mesh, {intr}, {extr});
 
-    ASSERT_GT(baked.vertices.size(), 0u);
-    EXPECT_NEAR(1.0, baked.vertices[0].weight[0], 1e-6);
+    ASSERT_GT(baked.vertices().size(), 0u);
+    EXPECT_NEAR(1.0, baked.vertices()[0].weight[0], 1e-6);
 }
 
 // In the overlap of two cameras, the feather must attenuate the camera whose
@@ -312,16 +309,14 @@ TEST(BakeMeshTest, FeatherAttenuatesNearEdgeCameraInOverlap) {
     ASSERT_NEAR(230.0, std::hypot(u0 - intr.cx, v0 - intr.cy), 1e-6);
     ASSERT_NEAR(0.0, std::hypot(u1 - intr.cx, v1 - intr.cy), 1e-6);
 
-    BowlMesh mesh;
-    mesh.vertices = {P};
-    mesh.normals = {cv::Vec3d(0.0, 0.0, 1.0)};
-    auto baked = BakeMesh(mesh, {intr, intr}, {cam0, cam1});
+    BowlMesh mesh({P}, {cv::Vec3d(0.0, 0.0, 1.0)});
+    auto baked = BakedMesh(mesh, {intr, intr}, {cam0, cam1});
 
     // Raw blend weights are symmetric (0.5 / 0.5); only the feather breaks the
     // tie: cam0's edge sample (feather ~0.625) must lose to cam1's centre one.
-    EXPECT_LT(baked.vertices[0].weight[0], baked.vertices[0].weight[1]);
-    EXPECT_LT(baked.vertices[0].weight[0], 0.5f);
-    EXPECT_GT(baked.vertices[0].weight[1], 0.5f);
+    EXPECT_LT(baked.vertices()[0].weight[0], baked.vertices()[0].weight[1]);
+    EXPECT_LT(baked.vertices()[0].weight[0], 0.5f);
+    EXPECT_GT(baked.vertices()[0].weight[1], 0.5f);
     // Normalization invariant is preserved.
-    EXPECT_NEAR(1.0, baked.vertices[0].weight[0] + baked.vertices[0].weight[1], 1e-6);
+    EXPECT_NEAR(1.0, baked.vertices()[0].weight[0] + baked.vertices()[0].weight[1], 1e-6);
 }

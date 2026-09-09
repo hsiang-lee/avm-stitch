@@ -23,17 +23,24 @@ struct BakedVertex {
     }
 };
 
-struct BakedMesh {
-    std::vector<BakedVertex> vertices;
-    int num_cameras = 0;
-};
+// Per-vertex baked UV + blend weights. Immutable data holder: read via the
+// const getters (zero-copy).
+class BakedMesh {
+public:
+    /// Bake per-vertex UV coordinates and blend weights.
+    /// @param bowl_mesh   generated bowl mesh (VCS coordinates)
+    /// @param intrinsics  camera intrinsics (size N)
+    /// @param extrinsics  camera extrinsics T_wc (size N, must match intrinsics)
+    BakedMesh(const BowlMesh& bowl_mesh,
+              const std::vector<CameraIntrinsics>& intrinsics,
+              const std::vector<CameraExtrinsics>& extrinsics);
 
-/// Bake per-vertex UV coordinates and blend weights.
-/// @param bowl_mesh   generated bowl mesh (VCS coordinates)
-/// @param intrinsics  camera intrinsics (size N)
-/// @param extrinsics  camera extrinsics T_wc (size N, must match intrinsics)
-BakedMesh BakeMesh(const BowlMesh& bowl_mesh,
-                   const std::vector<CameraIntrinsics>& intrinsics,
-                   const std::vector<CameraExtrinsics>& extrinsics);
+    const std::vector<BakedVertex>& vertices() const { return vertices_; }
+    int num_cameras() const { return num_cameras_; }
+
+private:
+    std::vector<BakedVertex> vertices_;
+    int num_cameras_ = 0;
+};
 
 } // namespace avm_stitch

@@ -6,17 +6,16 @@
 
 namespace avm_stitch {
 
-BakedMesh BakeMesh(const BowlMesh& bowl_mesh,
-                   const std::vector<CameraIntrinsics>& intrinsics,
-                   const std::vector<CameraExtrinsics>& extrinsics) {
+BakedMesh::BakedMesh(const BowlMesh& bowl_mesh,
+                     const std::vector<CameraIntrinsics>& intrinsics,
+                     const std::vector<CameraExtrinsics>& extrinsics) {
     const int N = static_cast<int>(intrinsics.size());
-    BakedMesh baked;
-    baked.num_cameras = N;
-    baked.vertices.resize(bowl_mesh.vertices.size());
+    num_cameras_ = N;
+    vertices_.resize(bowl_mesh.vertices().size());
 
-    for (size_t i = 0; i < bowl_mesh.vertices.size(); ++i) {
-        const auto& P = bowl_mesh.vertices[i];
-        auto& bv = baked.vertices[i];
+    for (size_t i = 0; i < bowl_mesh.vertices().size(); ++i) {
+        const auto& P = bowl_mesh.vertices()[i];
+        auto& bv = vertices_[i];
 
         const auto raw_weights = ComputeBlendWeights(P, extrinsics);
 
@@ -65,8 +64,6 @@ BakedMesh BakeMesh(const BowlMesh& bowl_mesh,
             }
         }
     }
-
-    return baked;
 }
 
 } // namespace avm_stitch

@@ -44,11 +44,10 @@ StitchEngine::StitchEngine() : impl_(std::make_unique<Impl>()) {}
 
 StitchEngine::~StitchEngine() = default;
 
-void StitchEngine::Configure(
+void StitchEngine::ValidateConfigureArgs(
     const std::vector<CameraIntrinsics>& intrinsics,
     const std::vector<CameraExtrinsics>& extrinsics,
-    const BowlParams& bowl_params,
-    int output_width, int output_height) {
+    const BowlParams& bowl_params) const {
     const int N = static_cast<int>(intrinsics.size());
     if (N == 0 || N > 8) {
         throw std::invalid_argument(
@@ -93,10 +92,19 @@ void StitchEngine::Configure(
             "StitchEngine::Configure: bowl_params.z_exp must be >= 0, got " +
             std::to_string(bowl_params.z_exp));
     }
+}
+
+void StitchEngine::Configure(
+    const std::vector<CameraIntrinsics>& intrinsics,
+    const std::vector<CameraExtrinsics>& extrinsics,
+    const BowlParams& bowl_params,
+    int output_width, int output_height) {
+    ValidateConfigureArgs(intrinsics, extrinsics, bowl_params);
+    const int N = static_cast<int>(intrinsics.size());
 
     // Phase 1 pipeline: bowl mesh -> bake UV/weights -> OSG scene graph.
-    const BowlMesh mesh = CreateBowlMesh(bowl_params);
-    const BakedMesh baked = BakeMesh(mesh, intrinsics, extrinsics);
+    const BowlMesh mesh(bowl_params);
+    const BakedMesh baked(mesh, intrinsics, extrinsics);
 
     const int img_w = intrinsics[0].width;
     const int img_h = intrinsics[0].height;
