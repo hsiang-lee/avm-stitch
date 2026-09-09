@@ -11,7 +11,7 @@ C++20 AVM(Around View Monitor,环视/360 鸟瞰)拼接静态库。
 
 ## 1. 项目简介
 
-avm-stitch 把 N 路鱼眼摄像头画面实时拼接成车辆周围的"鸟瞰"视图。库内含两套渲染路径:本库自研的 **OSG 引擎**(碗形模型 + 方位角融合,GLSL 330 着色器),以及对闭源 `avm-renderer` 库的**代理后端**。两者共用同一套任务 JSON 契约(见[第 8 节](#8-集成方式))。
+avm-stitch 把 N 路鱼眼摄像头画面实时拼接成车辆周围的"鸟瞰"视图。本库是**自研 OSG 拼接引擎**(碗形模型 + 方位角融合,GLSL 330 着色器)的单路径实现。曾内置的闭源 `avm-renderer` 代理路径已整体迁移至其唯一消费者 avm-worker(与 OSG 引擎是并列关系的算法实现,二者共用同一任务 JSON 契约,由 worker 侧统一分发)。任务 JSON 契约见[第 8 节](#8-集成方式)。
 
 核心技术决策:
 
@@ -184,13 +184,11 @@ OSG(OpenSceneGraph)场景图 + GLSL 330 着色器,全离屏:
                           stitch_result JSON
 ```
 
-三条使用路径,统一入口是工厂 `CreateStitchBackend(name)`(`src/core/stitch_backend.cpp`):
+使用路径,统一入口是工厂 `CreateStitchBackend(name)`(`src/core/stitch_backend.cpp`)。工厂只识别 `"osg"`,`"renderer"` 与任何未知名均返回 nullptr(renderer 代理路径已迁移至 avm-worker,由 worker 本地构造):
 
 | 路径 | 入口 | 说明 |
 |------|------|------|
 | OSG 引擎 | `CreateStitchBackend("osg")` → `OSGBackend::Run(task)` | 本库自研管线,8 步流程:校验 `images`/`calibration` → `ParseCalibration` → `DecodeCameraImages`(按相机 id/label 匹配图像键,大小写不敏感)→ `BowlParams::FromJson` → `StitchEngine::Configure` → `RenderFrame` → `EncodeViewsAsBase64` → `BuildStitchResult`。任何异常都转成 `stitch_error` JSON,**永不抛出**(`src/core/osg_backend.cpp:163-222`) |
-| Renderer 代理 | `CreateStitchBackend("renderer")` → `RendererBackend::Run(task)` | 代理闭源 `avm-renderer` 库:生成标定 XML → 跑 `model_creator` 子程序生成模型 → EGL **GLES3** 上下文 + FBO → `RealRenderer` 渲染 5 视图。构建时找不到 avm-renderer(无 `AVMRENDERER_AVAILABLE` 宏)则注入 nullptr,`Run` 直接返回 `stitch_error: "avm-renderer library not available"` |
-| 流式会话 | `StitchSession::StartSession / FeedFrame / EndSession` | 会话式接口,把"重初始化"(标定文件 + model_creator)和"逐帧渲染"分开:`StartSession` 一次,`FeedFrame` 每帧只做解码 + 渲染。同样依赖 avm-renderer,接口抽象(`StitchSessionInterface`)便于上层注入 mock |
 
 ## 5. 目录结构
 
@@ -204,36 +202,24 @@ src/
 ├── render/                        GPU / OSG
 │   ├── osg_scene.hpp / .cpp       场景图装配, GLSL 330 着色器, 纹理数组
 │   ├── osg_view.hpp / .cpp        离屏 5 视图渲染 (FBO 相机 + 回读)
-│   ├── egl_headless_context.hpp / .cpp   EGL surfaceless 桌面 GL 3.3 (OSG 路径)
-│   ├── egl_gles3_context.hpp / .cpp      EGL surfaceless GLES3 (renderer 路径)
-│   └── fbo_manager.hpp / .cpp     GLES3 FBO 封装 (renderer 路径)
+│   └── egl_headless_context.hpp / .cpp   EGL surfaceless 桌面 GL 3.3 (OSG 路径)
 ├── core/                          门面与后端
 │   ├── stitch_engine.hpp / .cpp   两阶段引擎: Configure + RenderFrame (PIMPL)
 │   ├── stitch_backend.hpp / .cpp  后端接口 + CreateStitchBackend 工厂
 │   ├── osg_backend.hpp / .cpp     task JSON -> OSG 引擎 -> stitch_result
-│   ├── renderer_backend.hpp / .cpp  task JSON -> avm-renderer 代理
-│   ├── renderer_interface.hpp     avm-renderer C API 抽象 (mock 注入点)
-│   ├── real_renderer.hpp / .cpp   avm-renderer 真实包装 (无宏时为 stub)
-│   ├── stitch_session.hpp / .cpp  流式会话: StartSession/FeedFrame/EndSession
-│   ├── stitch_result.hpp / .cpp   stitch_result JSON 信封
-│   ├── calib_files_generator.hpp / .cpp  标定 XML/JSON 模板渲染 (renderer 路径)
-│   ├── renderer_helpers.hpp / .cpp       renderer 路径共享工具 (解码/model_creator/回读)
-│   └── view_mapping.hpp / .cpp    视图名 -> avm-renderer AVMDisplayMode 枚举值
+│   └── stitch_result.hpp / .cpp   stitch_result JSON 信封
 ├── util/
 │   ├── view_config.hpp            5 个默认视图位姿 (header-only)
 │   └── camera_name.hpp            相机 id/label -> 角色名解析 (header-only)
 ├── common/
-│   ├── base64.h                   base64 编解码 (header-only, 解码 10 MB 上限)
-│   └── image_converter.hpp / .cpp base64 JPEG -> RGBA8888
+│   └── base64.h                   base64 编解码 (header-only, 解码 10 MB 上限)
 └── eval_metrics/
     └── eval_metrics.hpp           拼接质量指标 —— 占位桩实现 (header-only)
 
-tests/                             13 个 gtest 目标, 共 135 个用例
+tests/                             9 个 gtest 目标
 ├── geometry/   test_projection / test_bowl_model / test_blend_weights / test_mesh_bake
-├── render/     test_osg_scene / test_egl_headless_context / test_egl_gles3_context /
-│               test_fbo_manager
-├── core/       test_stitch_engine / test_stitch_engine_regression /
-│               test_view_mapping / test_real_renderer
+├── render/     test_osg_scene / test_egl_headless_context
+├── core/       test_stitch_engine / test_stitch_engine_regression
 └── util/       test_view_config
 ```
 
@@ -249,22 +235,22 @@ tests/                             13 个 gtest 目标, 共 135 个用例
 | 4 | `src/render/osg_scene.cpp` | 烘焙数据怎么上 GPU:属性布局(location 0-7)、着色器源码、纹理数组。纯结构装配,不需要 GL | `tests/render/test_osg_scene.cpp` |
 | 5 | `src/render/osg_view.cpp` + `src/render/egl_headless_context.cpp` | 怎么无窗口渲染:每个视图一个 FBO 相机、MVP 手动传 uniform 的原因(vcpkg OSG GL2 构建怪癖)、回读翻转 | `tests/render/test_egl_headless_context.cpp` |
 | 6 | `src/core/stitch_engine.cpp` | 一切怎么串起来:`Configure`(建碗→烘焙→建场景,不做 GL 绘制,但会尝试创建离屏 EGL 上下文,创建失败不抛异常)与 `RenderFrame`(传纹理→渲 5 视图)两阶段 | `tests/core/test_stitch_engine.cpp`(校验 + GL 端到端) |
-| 7 | 后端家族:`src/core/stitch_backend.cpp` → `src/core/osg_backend.cpp` → `src/core/renderer_backend.cpp` / `src/core/stitch_session.cpp` | 库的对外形态:JSON 契约、工厂、错误信封、异常→`stitch_error` 的边界 | `tests/core/test_stitch_engine_regression.cpp`(公共 API 冒烟)、`tests/core/test_real_renderer.cpp` |
+| 7 | 后端家族:`src/core/stitch_backend.cpp` → `src/core/osg_backend.cpp` | 库的对外形态:JSON 契约、工厂、错误信封、异常→`stitch_error` 的边界 | `tests/core/test_stitch_engine_regression.cpp`(公共 API 冒烟 + 工厂契约) |
 
-辅助阅读:`src/util/view_config.hpp`(5 视图位姿的具体系数)、`src/util/camera_name.hpp`(相机 id/label 解析规则,含生产事故教训的注释)、`src/core/view_mapping.hpp`(视图名→AVMDisplayMode)。
+辅助阅读:`src/util/view_config.hpp`(5 视图位姿的具体系数)、`src/util/camera_name.hpp`(相机 id/label 解析规则,含生产事故教训的注释)。视图名→AVMDisplayMode 的映射(view_mapping)已随 renderer 代理路径迁移至 avm-worker。
 
 ## 7. 构建与测试
 
-依赖经 vcpkg 管理(`vcpkg.json`):`nlohmann-json`、`gtest`、`opencv4`(features: calib3d/jpeg/png)、`osg`。EGL/GLES3 由系统 `find_package(OpenGL REQUIRED COMPONENTS EGL GLES3)` 提供,不在 vcpkg 中。可选依赖:`avm_renderer`(私有 registry)——avm_renderer 本体可选,找不到时 renderer 后端自动降级为 stub。但**当前 CMakeLists.txt 无条件 `find_package(CLI11 CONFIG REQUIRED)` 与 `find_package(glfw3 CONFIG REQUIRED)`**,这两个包不在 `vcpkg.json` 中(来自私有 registry/兄弟项目),需要私有 registry 或本地已安装;干净环境仅凭 `vcpkg.json` 配置会失败。后续可改进:将 CLI11/glfw3 的 `find_package` 移入 `avm_renderer_FOUND` 条件分支。
+依赖仅 `vcpkg.json` 所列公共 registry 包(nlohmann-json、gtest、opencv4、osg)+ 系统 EGL(`find_package(OpenGL COMPONENTS EGL)`)。无任何私有 registry / avm-renderer / CLI11 / glfw3 依赖,干净环境可直接自举。
 
 ```bash
 export VCPKG_ROOT=/path/to/vcpkg      # CMakePresets.json 的 default preset 依赖它
 cmake --preset default                # 配置 (Unix Makefiles, build/)
 cmake --build build                   # 增量编译, 不要删 build 目录
-ctest --test-dir build                # 13 个目标 / 135 个用例
+ctest --test-dir build                # 9 个目标
 ```
 
-说明:GL 相关用例自动探测 headless EGL 上下文,无 GL 环境(纯 CI 容器)会 **SKIP** 而非失败;`AVM_STITCH_TEST_GL=1` 可强制开启。
+说明:`tests/core/test_stitch_engine.cpp` 与 `tests/render/test_egl_headless_context.cpp` 的 GL 用例自动探测 headless EGL 上下文,无 GL 环境(纯 CI 容器)会 **SKIP** 而非失败;`AVM_STITCH_TEST_GL=1` 可强制开启。
 
 ## 8. 集成方式
 
@@ -307,8 +293,8 @@ ctest --test-dir build                # 13 个目标 / 135 个用例
 
 - `images` 的键按相机 `id` 或 `label` **大小写不敏感**匹配(`FindCameraImageKey`);相机按 `calibration.cameras[]` 的顺序取图
 - `rotation` 是 T_wc 行主序 9 元素;`translation` 3 元素,单位米
-- `fisheye_radius` 可省略(0 = 自动内切圆);`calibration.bowl` 优先于顶层 `bowl`,`car` 子对象仅 renderer 路径(标定文件生成)需要
-- `algorithm`:`"osg"` → OSGBackend,`"renderer"` → RendererBackend,未知值工厂返回 nullptr
+- `fisheye_radius` 可省略(0 = 自动内切圆);`calibration.bowl` 优先于顶层 `bowl`;`car` 子对象仅 renderer 路径需要(该路径已迁移至 avm-worker,标定文件生成在 worker 侧完成)
+- `algorithm`:本库工厂要求显式 `"osg"` → OSGBackend;缺省、空值、`"renderer"` 与未知值同样返回 nullptr(renderer 代理路径已迁移至 avm-worker,由 worker 侧负责缺省与分发)
 
 ### stitch_result(输出)
 
@@ -337,7 +323,7 @@ ctest --test-dir build                # 13 个目标 / 135 个用例
 }
 ```
 
-失败时(`RendererBackend` 部分视图失败会附带,全部失败则整体转为错误):
+失败时(`OSGBackend` 失败即整体转为错误):
 
 ```json
 {
@@ -348,7 +334,7 @@ ctest --test-dir build                # 13 个目标 / 135 个用例
 }
 ```
 
-`StitchSession::FeedFrame` 返回的是**裸结果**(无信封):`{"images": {...}, "view_errors": {...}}`。注意 `view_errors` 字段仅在存在失败视图时才出现。
+`FeedFrame` 式裸结果(无信封)的流式会话接口已随 renderer 代理路径迁移至 avm-worker。
 
 C++ 侧最小集成:
 
@@ -386,8 +372,5 @@ auto views = engine.RenderFrame(bgr_images);       // 每帧: map<视图名, Mat
 ## 10. 已知限制
 
 - **`eval_metrics` 是占位桩**:`ComputeStitchMetrics` 返回硬编码数值,`ComputeOverallScore` 按固定权重折算百分制(`src/eval_metrics/eval_metrics.hpp`)——`stitch_result` 里的 `metrics`/`overall_score` 目前**不反映真实质量**,仅保证字段契约
-- **renderer 路径需要闭源库**:无 `AVMRENDERER_AVAILABLE` 宏时 `RealRenderer` 为全 false 的 stub,`RendererBackend::Run` 返回 `stitch_error: "avm-renderer library not available"`;该路径还依赖外部 `model_creator` 工具(`MODEL_CREATOR_PATH` 环境变量,默认 `tools/model_creator`)、标定模板目录(`TEMPLATES_DIR`)与 `RESOURCES_DIR`
-- **renderer 路径固定 4 相机**:`DecodeRoleBuffers` 按 left/right/front/rear 四个角色解码(`std::array<DecodedImage, 4>`),不像 OSG 路径支持 N∈[1,8]
-- **GL 测试依赖环境**:`tests/core/test_stitch_engine.cpp` 等 GL 用例靠 EGL surfaceless 探测自动门控——无 GL 环境时 SKIP(`AVM_STITCH_TEST_GL=1` 强制);`test_real_renderer.cpp` 的集成用例还需 `AVM_CALIB_FIXTURE` 指向真实标定目录,否则 SKIP
-- **`StitchSession::StartSession` 的 `car_model_base64` 参数**:保留签名但当前管线不消费(`src/core/stitch_session.cpp:53`)
+- **GL 测试依赖环境**:`tests/core/test_stitch_engine.cpp` 与 `tests/render/test_egl_headless_context.cpp` 的 GL 用例靠 EGL surfaceless 探测自动门控——无 GL 环境时 SKIP(`AVM_STITCH_TEST_GL=1` 强制)
 - **vcpkg OSG 构建怪癖**:`osg_ModelViewProjectionMatrix` 不会被自动更新,GL uniform 必须用 `osg::Matrixf`(Matrixd 会触发 GL_INVALID_OPERATION),见 `src/render/osg_view.cpp:73-78` 注释——升级 OSG 构建时需复测

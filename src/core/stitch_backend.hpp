@@ -5,7 +5,8 @@
 
 namespace avm_worker { namespace avm_stitch {
 
-// Unified stitch backend interface. Both algorithms implement Run(task)->json.
+// Stitch backend interface: Run(task) -> json. The OSG engine implements it;
+// the renderer proxy (migrated to avm-worker) implements the same contract.
 class StitchBackend {
 public:
     virtual ~StitchBackend() = default;
@@ -14,8 +15,8 @@ public:
     virtual nlohmann::json Run(const nlohmann::json& task) = 0;
 };
 
-// Factory: task["algorithm"] == "osg" -> OSGBackend; "renderer" -> RendererBackend;
-// any unknown name -> nullptr (the host falls back to the renderer backend).
+// Factory: task["algorithm"] == "osg" -> OSGBackend; any other name
+// (including "renderer", whose proxy moved to avm-worker) -> nullptr.
 std::unique_ptr<StitchBackend> CreateStitchBackend(const std::string& name);
 
 }} // namespace avm_worker::avm_stitch

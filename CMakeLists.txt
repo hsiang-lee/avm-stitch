@@ -7,26 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs calib3d)
 find_package(unofficial-osg CONFIG REQUIRED)
-find_package(OpenGL REQUIRED COMPONENTS EGL GLES3)
+find_package(OpenGL REQUIRED COMPONENTS EGL)
 find_package(GTest CONFIG REQUIRED)
-
-# -- avm-renderer (private registry, optional for renderer backend) --
-# avm_renderer's exported targets reference CLI11::CLI11 in their link
-# interface but the config file does not find_dependency(CLI11); find it
-# explicitly so the imported target exists when avm_rendererTargets loads.
-find_package(CLI11 CONFIG REQUIRED)
-# avm_renderer's exported targets reference a bare `glfw` target in their
-# link interface but the config file does not find_dependency(glfw3); find
-# it explicitly so the imported target exists and -lglfw is not emitted.
-find_package(glfw3 CONFIG REQUIRED)
-find_package(avm_renderer CONFIG)
-set(AVMRENDERER_AVAILABLE OFF)
-if(avm_renderer_FOUND)
-    set(AVMRENDERER_AVAILABLE ON)
-    message(STATUS "avm-renderer found: renderer backend enabled")
-else()
-    message(STATUS "avm-renderer not found: renderer backend will return errors in production")
-endif()
 
 # -- OSG static libs need --whole-archive (X11 WSI static registration) --
 function(target_osg_whole_archive target)
@@ -48,7 +30,6 @@ endfunction()
 add_library(avm_stitch STATIC
     src/geometry/blend_weights.cpp
     src/render/egl_headless_context.cpp
-    src/render/egl_gles3_context.cpp
     src/geometry/mesh_bake.cpp
     src/render/osg_scene.cpp
     src/render/osg_view.cpp
@@ -56,14 +37,6 @@ add_library(avm_stitch STATIC
     src/core/stitch_backend.cpp
     src/core/osg_backend.cpp
     src/core/stitch_result.cpp
-    src/core/renderer_backend.cpp
-    src/core/real_renderer.cpp
-    src/core/calib_files_generator.cpp
-    src/common/image_converter.cpp
-    src/core/view_mapping.cpp
-    src/render/fbo_manager.cpp
-    src/core/renderer_helpers.cpp
-    src/core/stitch_session.cpp
 )
 # PUBLIC include: src/ 提供 geometry/ render/ core/ util/ common/ eval_metrics/
 target_include_directories(avm_stitch PUBLIC
@@ -73,20 +46,11 @@ target_link_libraries(avm_stitch PUBLIC
     nlohmann_json::nlohmann_json
     ${OpenCV_LIBS}
     unofficial::osg::osg unofficial::osg::osgViewer unofficial::osg::osgDB unofficial::osg::osgUtil
-    OpenGL::EGL OpenGL::GLES3
+    OpenGL::EGL
 )
 # Same whole-archive requirement: vcpkg osg is a static build; without
 # --whole-archive the X11 WSI static-registration object is not pulled in.
 target_osg_whole_archive(avm_stitch)
-
-# -- avm-renderer (private registry, optional for renderer backend) --
-if(AVMRENDERER_AVAILABLE)
-    target_link_libraries(avm_stitch PUBLIC
-        avm_renderer::avm_renderer_lib
-        avm_renderer::avm_fbs
-    )
-    target_compile_definitions(avm_stitch PUBLIC AVMRENDERER_AVAILABLE)
-endif()
 
 enable_testing()
 include(GoogleTest)
@@ -212,51 +176,3 @@ target_link_libraries(test_stitch_engine_regression PRIVATE
     avm_stitch
 )
 gtest_discover_tests(test_stitch_engine_regression)
-
-# -- test_fbo_manager (GL-gated: requires EGL surfaceless GLES3 context) --
-add_executable(test_fbo_manager
-    tests/render/test_fbo_manager.cpp
-    src/render/fbo_manager.cpp
-    src/render/egl_gles3_context.cpp
-)
-target_include_directories(test_fbo_manager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(test_fbo_manager PRIVATE
-    GTest::gtest_main
-    OpenGL::EGL OpenGL::GLES3
-)
-gtest_discover_tests(test_fbo_manager)
-
-# -- test_egl_gles3_context (standalone EGL surfaceless GLES3 context) --
-add_executable(test_egl_gles3_context
-    tests/render/test_egl_gles3_context.cpp
-    src/render/egl_gles3_context.cpp
-)
-target_include_directories(test_egl_gles3_context PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(test_egl_gles3_context PRIVATE
-    GTest::gtest_main
-    OpenGL::EGL OpenGL::GLES3
-)
-gtest_discover_tests(test_egl_gles3_context)
-
-# -- test_view_mapping (view name → AVMDisplayMode int, no external deps) --
-add_executable(test_view_mapping
-    tests/core/test_view_mapping.cpp
-    src/core/view_mapping.cpp
-)
-target_include_directories(test_view_mapping PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(test_view_mapping PRIVATE
-    GTest::gtest_main
-)
-gtest_discover_tests(test_view_mapping)
-
-# -- test_real_renderer (RealRenderer avm-renderer wrapper; Layer 1 no-GL
-#    guards + GL-gated integration, links avm_stitch) --
-add_executable(test_real_renderer
-    tests/core/test_real_renderer.cpp
-)
-target_include_directories(test_real_renderer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(test_real_renderer PRIVATE
-    GTest::gtest_main
-    avm_stitch
-)
-gtest_discover_tests(test_real_renderer)
