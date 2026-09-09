@@ -1,11 +1,14 @@
 #pragma once
 
-// Bowl model: car-parameterized bowl model generation (pure math).
+// Bowl model: car-parameterized bowl mesh generation + per-vertex bake
+// (UV / blend weights) — one geometry class owns both (pure math).
 // Algorithm mirrors the reference `create_block_boat_model` (bowlModel.hpp):
 //   z = k_slop * rd^z_exp outside the rounded-rectangle flat region,
 //   finite-difference normals on the curved rim.
-// Mesh generation lives in bowl_model.cpp; only lightweight accessors are
-// inline here.
+// Mesh generation + bake live in bowl_model.cpp; only lightweight accessors
+// are inline here.
+
+#include "geometry/projection.hpp"
 
 #include <opencv2/core.hpp>
 
@@ -28,9 +31,23 @@ struct BowlParams {
     static BowlParams Default() { return BowlParams{}; }
 };
 
-// Bowl surface triangle mesh generated from car parameters. Immutable data
-// holder: read via the fine-grained index accessors (the internal container
-// layout is an implementation detail, free to change e.g. to SoA).
+// Fixed 8 camera slots (N <= 8). Unused slots stay zero.
+struct BakedVertex {
+    float uv[8][2];     // normalized [0,1], unused slots = 0
+    float weight[8];    // normalized over visible cameras, unused slots = 0
+
+    BakedVertex() {
+        for (int j = 0; j < 8; ++j) {
+            uv[j][0] = uv[j][1] = 0.0f;
+            weight[j] = 0.0f;
+        }
+    }
+};
+
+// Bowl surface triangle mesh generated from car parameters, plus the
+// per-vertex baked UV + blend weights after Bake(). Immutable data holder:
+// read via the fine-grained index accessors and semantic queries (the
+// internal container layout is an implementation detail).
 class BowlModel {
 public:
     /// Generate the bowl model (VCS coordinates) from car parameters.
@@ -67,6 +84,35 @@ public:
     int rows() const { return rows_; }
     int cols() const { return cols_; }
 
+    // --- bake (per-vertex UV + blend weights) ---
+    /// Bake per-vertex UV coordinates and blend weights for N cameras
+    /// (1 <= N <= 8). Re-baking overwrites previous results. A camera slot
+    /// the vertex cannot see keeps zero weight.
+    /// @param intrinsics  camera intrinsics (size N)
+    /// @param extrinsics  camera extrinsics T_wc (size N, must match intrinsics)
+    void Bake(const std::vector<CameraIntrinsics>& intrinsics,
+              const std::vector<CameraExtrinsics>& extrinsics);
+
+    /// True if Bake() has been called on this model.
+    bool IsBaked() const { return baked_num_cameras_ > 0; }
+    /// Number of cameras from the last Bake() call.
+    /// Precondition: IsBaked().
+    int baked_num_cameras() const {
+        assert(baked_num_cameras_ > 0);
+        return baked_num_cameras_;
+    }
+    /// Baked vertex i (one per bowl vertex).
+    /// Precondition: IsBaked() && 0 <= i < vertex_count().
+    const BakedVertex& baked_vertex(int i) const {
+        assert(IsBaked());
+        assert(i >= 0 && i < static_cast<int>(baked_vertices_.size()));
+        return baked_vertices_[static_cast<size_t>(i)];
+    }
+    /// True if any baked vertex has a nonzero weight (sum > 1e-9) in any
+    /// camera slot — semantic query replacing external loops.
+    /// Precondition: IsBaked().
+    bool HasVisibleVertices() const;
+
 private:
     // Finite-difference normals: flat (z ~ 0) -> (0,0,1); curved -> unit normal
     // derived from dz/dx, dz/dy estimated from retained grid neighbours.
@@ -79,6 +125,9 @@ private:
     std::vector<std::array<int, 3>> triangles_;
     int rows_ = 0;
     int cols_ = 0;
+
+    std::vector<BakedVertex> baked_vertices_;
+    int baked_num_cameras_ = 0;
 };
 
 } // namespace avm_stitch

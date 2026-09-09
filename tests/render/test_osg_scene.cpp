@@ -4,7 +4,6 @@
 #include <gtest/gtest.h>
 
 #include "geometry/bowl_model.hpp"
-#include "geometry/mesh_bake.hpp"
 #include "render/osg_scene.hpp"
 
 #include <osg/Geometry>
@@ -43,23 +42,25 @@ BowlModel MakeCoarseBowl(double r_outter) {
     return BowlModel(bowl);
 }
 
-// Bake a coarse bowl for N side cameras. Returns a valid baked mesh with the
-// same vertex count as the bowl (unused camera slots stay zero).
-BakedMesh MakeBaked(int num_cameras) {
+// Bake a coarse bowl for N side cameras. Returns a valid baked model with
+// baked vertices for every bowl vertex (unused camera slots stay zero).
+BowlModel MakeBaked(int num_cameras) {
     auto bowl_model = MakeCoarseBowl(12.6);
     std::vector<CameraIntrinsics> intrs(num_cameras, MakeIntrinsics());
     std::vector<double> azimuths;
     for (int i = 0; i < num_cameras; ++i) azimuths.push_back(i * 360.0 / num_cameras);
     auto extrs = MakeSideCameras(azimuths);
-    return BakedMesh(bowl_model, intrs, extrs);
+    bowl_model.Bake(intrs, extrs);
+    return bowl_model;
 }
 
 } // namespace
 
 TEST(OSGSceneTest, BuildOSGGeometry_PositionAttributeCorrect) {
     auto bowl = MakeCoarseBowl(5.0);
-    auto baked = MakeBaked(4);
-    auto geom = BuildOSGGeometry(bowl, baked, 4);
+    bowl.Bake(std::vector<CameraIntrinsics>(4, MakeIntrinsics()),
+              MakeSideCameras({0, 90, 180, 270}));
+    auto geom = BuildOSGGeometry(bowl);
     ASSERT_TRUE(geom.valid());
 
     auto* va = dynamic_cast<osg::Vec3Array*>(geom->getVertexArray());
@@ -77,8 +78,9 @@ TEST(OSGSceneTest, BuildOSGGeometry_PositionAttributeCorrect) {
 
 TEST(OSGSceneTest, BuildOSGGeometry_UVArraysExist) {
     auto bowl = MakeCoarseBowl(5.0);
-    auto baked = MakeBaked(4);
-    auto geom = BuildOSGGeometry(bowl, baked, 4);
+    bowl.Bake(std::vector<CameraIntrinsics>(4, MakeIntrinsics()),
+              MakeSideCameras({0, 90, 180, 270}));
+    auto geom = BuildOSGGeometry(bowl);
     ASSERT_TRUE(geom.valid());
     for (int loc = 2; loc <= 5; ++loc) {
         EXPECT_NE(nullptr, geom->getVertexAttribArray(loc)) << "UV location " << loc;
@@ -87,8 +89,9 @@ TEST(OSGSceneTest, BuildOSGGeometry_UVArraysExist) {
 
 TEST(OSGSceneTest, BuildOSGGeometry_WeightArraysExist) {
     auto bowl = MakeCoarseBowl(5.0);
-    auto baked = MakeBaked(4);
-    auto geom = BuildOSGGeometry(bowl, baked, 4);
+    bowl.Bake(std::vector<CameraIntrinsics>(4, MakeIntrinsics()),
+              MakeSideCameras({0, 90, 180, 270}));
+    auto geom = BuildOSGGeometry(bowl);
     ASSERT_TRUE(geom.valid());
     for (int loc = 6; loc <= 7; ++loc) {
         EXPECT_NE(nullptr, geom->getVertexAttribArray(loc)) << "weight location " << loc;
@@ -97,8 +100,9 @@ TEST(OSGSceneTest, BuildOSGGeometry_WeightArraysExist) {
 
 TEST(OSGSceneTest, BuildOSGGeometry_IndexCount) {
     auto bowl = MakeCoarseBowl(5.0);
-    auto baked = MakeBaked(4);
-    auto geom = BuildOSGGeometry(bowl, baked, 4);
+    bowl.Bake(std::vector<CameraIntrinsics>(4, MakeIntrinsics()),
+              MakeSideCameras({0, 90, 180, 270}));
+    auto geom = BuildOSGGeometry(bowl);
     ASSERT_TRUE(geom.valid());
 
     int index_count = 0;
@@ -112,8 +116,9 @@ TEST(OSGSceneTest, BuildOSGGeometry_IndexCount) {
 
 TEST(OSGSceneTest, BuildOSGGeometry_NormalBinding) {
     auto bowl = MakeCoarseBowl(5.0);
-    auto baked = MakeBaked(4);
-    auto geom = BuildOSGGeometry(bowl, baked, 4);
+    bowl.Bake(std::vector<CameraIntrinsics>(4, MakeIntrinsics()),
+              MakeSideCameras({0, 90, 180, 270}));
+    auto geom = BuildOSGGeometry(bowl);
     ASSERT_TRUE(geom.valid());
     EXPECT_EQ(osg::Geometry::BIND_PER_VERTEX, geom->getNormalBinding());
     EXPECT_NE(nullptr, geom->getNormalArray());
@@ -159,17 +164,15 @@ TEST(OSGSceneTest, CreateCameraTextureArray_SetsCorrectSize) {
 }
 
 TEST(OSGSceneTest, BuildOSGScene_ReturnsNonNullGroup) {
-    auto bowl = MakeCoarseBowl(5.0);
     auto baked = MakeBaked(4);
-    auto root = BuildOSGScene(bowl, baked, 4, 1920, 1536);
+    auto root = BuildOSGScene(baked, 1920, 1536);
     ASSERT_TRUE(root.valid());
     EXPECT_GE(root->getNumChildren(), 1u);
 }
 
 TEST(OSGSceneTest, BuildOSGScene_ProgramAttached) {
-    auto bowl = MakeCoarseBowl(5.0);
     auto baked = MakeBaked(4);
-    auto root = BuildOSGScene(bowl, baked, 4, 1920, 1536);
+    auto root = BuildOSGScene(baked, 1920, 1536);
     ASSERT_TRUE(root.valid());
     ASSERT_GE(root->getNumChildren(), 1u);
 

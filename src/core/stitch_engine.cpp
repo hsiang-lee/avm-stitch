@@ -1,7 +1,6 @@
 #include "core/stitch_engine.hpp"
 
 #include "geometry/blend_weights.hpp"
-#include "geometry/mesh_bake.hpp"
 #include "render/osg_scene.hpp"
 #include "render/osg_view.hpp"
 #include "util/view_config.hpp"
@@ -101,12 +100,12 @@ struct StitchEngine::Impl {
         const int N = static_cast<int>(intrinsics.size());
 
         // Phase 1 pipeline: bowl model -> bake UV/weights -> OSG scene graph.
-        const BowlModel model(bowl_params);
-        const BakedMesh baked(model, intrinsics, extrinsics);
+        BowlModel model(bowl_params);
+        model.Bake(intrinsics, extrinsics);
 
         const int img_w = intrinsics[0].width;
         const int img_h = intrinsics[0].height;
-        root = BuildOSGScene(model, baked, N, img_w, img_h);
+        root = BuildOSGScene(model, img_w, img_h);
         // Upload into the texture that the scene's stateset actually binds.
         texture_array = FindSceneTexture(root.get());
 

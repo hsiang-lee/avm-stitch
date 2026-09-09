@@ -96,18 +96,18 @@ header-only,把 3D 世界点投影到鱼眼像素。核心委托 `cv::fisheye::p
 - **`IsInsideFisheyeCircle`**:投影像素是否落在鱼眼有效圆内——像素可能在图像**矩形**内、却在镜头圆盘**外**(四角是黑区),采样黑区会把接缝染黑
 - **`FisheyeEdgeFeather`**(默认羽化 16px):靠近有效圆边缘的像素权重线性衰减到 0,防止线性纹理过滤把黑区混进接缝
 
-### 3.3 网格烘焙(`src/geometry/mesh_bake.cpp`)
+### 3.3 BowlModel 烘焙(`src/geometry/bowl_model.cpp` 的 `Bake`)
 
-`BakedMesh baked(bowl_mesh, intrinsics, extrinsics)`(构造函数,原 `BakeMesh`)逐顶点把"看什么、怎么混"预计算进顶点属性——这是整个设计的关键:**运行时 GPU 零几何计算**。烘焙结果经细粒度索引访问(`vertex_count()` / `baked_vertex(i)`)与语义查询(`HasVisibleVertices()`:是否存在任一槽权重 > 1e-9 的顶点)、`num_cameras()` 读取,不暴露内部容器。
+碗网格生成与烘焙由同一个类 `BowlModel` 承载:构造生成网格,`model.Bake(intrinsics, extrinsics)` 逐顶点把"看什么、怎么混"预计算进顶点属性——这是整个设计的关键:**运行时 GPU 零几何计算**。烘焙结果经细粒度索引访问(`baked_vertex(i)`)与语义查询(`IsBaked()` / `baked_num_cameras()` / `HasVisibleVertices()`:是否存在任一槽权重 > 1e-9 的顶点)读取,不暴露内部容器;重复 `Bake` 覆盖上次结果。
 
 每个碗面顶点得到:
 
 - `uv[8][2]`:该顶点在每路相机图像上的归一化 UV(像素坐标 ÷ 图像宽高),不可见的相机槽位保持 `(0,0)`
 - `weight[8]`:该顶点在每路相机上的融合权重,**可见相机集合内归一化,和为 1**;不可见相机权重为 0
 
-`BakedVertex`(`src/geometry/mesh_bake.hpp`)的 8 槽是为 8 路架构上限预留的:配置 N < 8 路时,空槽的 UV 和权重全为 0,着色器按 `uNumCameras` 只激活前 N 路。
+`BakedVertex`(`src/geometry/bowl_model.hpp`)的 8 槽是为 8 路架构上限预留的:配置 N < 8 路时,空槽的 UV 和权重全为 0,着色器按 `uNumCameras` 只激活前 N 路。
 
-顶点级处理流程:对每路相机计算方位角融合原始权重(`ComputeBlendWeights`)→ 判定可见性(前向 + 图像矩形内 + 鱼眼有效圆内)→ 可见者乘上边缘羽化系数 → 在"可见且有权重"的相机集合内归一化。注意 v 坐标**不需要翻转**——T_wc/OpenCV 惯例下 `projectPoints` 输出的 v 已经朝图像下方增长(见 `src/geometry/mesh_bake.cpp:44-47` 的注释)。
+顶点级处理流程:对每路相机计算方位角融合原始权重(`ComputeBlendWeights`)→ 判定可见性(前向 + 图像矩形内 + 鱼眼有效圆内)→ 可见者乘上边缘羽化系数 → 在"可见且有权重"的相机集合内归一化。注意 v 坐标**不需要翻转**——T_wc/OpenCV 惯例下 `projectPoints` 输出的 v 已经朝图像下方增长(见 `BowlModel::Bake` 内的注释)。
 
 ### 3.4 融合权重(`src/geometry/blend_weights.cpp`)
 
@@ -134,7 +134,7 @@ header-only,把 3D 世界点投影到鱼眼像素。核心委托 `cv::fisheye::p
         near weight = 0.5 * (1 - cos(t*pi))   cosine smoothstep
 ```
 
-扇区之外,`BakedMesh` 构造(烘焙)还会叠加鱼眼边缘羽化(3.2)后再归一化,保证黑区不进接缝。
+扇区之外,`BowlModel::Bake`(烘焙)还会叠加鱼眼边缘羽化(3.2)后再归一化,保证黑区不进接缝。
 
 ### 3.5 GPU 渲染(`src/render/`)
 
@@ -187,8 +187,7 @@ JSON 任务契约(`queue:stitch` 任务解析、`algorithm` 分发、base64 图�
 src/
 ├── geometry/                      纯数学,CPU 预计算
 │   ├── projection.hpp             鱼眼投影: 世界点 -> 像素, 有效圆/羽化
-│   ├── bowl_model.hpp             碗形参数 + 碗网格生成 (header-only)
-│   ├── mesh_bake.hpp / .cpp       逐顶点烘焙 UV[8] + 融合权重 weight[8]
+│   ├── bowl_model.hpp / .cpp      碗形参数 + 碗网格生成 + 逐顶点烘焙 Bake(UV[8] + weight[8])
 │   └── blend_weights.hpp / .cpp   方位角扇区融合权重 (与 N 无关)
 ├── render/                        GPU / OSG
 │   ├── osg_scene.hpp / .cpp       场景图装配, GLSL 330 着色器, 纹理数组
@@ -199,8 +198,8 @@ src/
 └── util/
     └── view_config.hpp            5 个默认视图位姿 (header-only)
 
-tests/                             9 个 gtest 目标
-├── geometry/   test_projection / test_bowl_model / test_blend_weights / test_mesh_bake
+tests/                             8 个 gtest 目标
+├── geometry/   test_projection / test_bowl_model (含 Bake) / test_blend_weights
 ├── render/     test_osg_scene / test_egl_headless_context
 ├── core/       test_stitch_engine / test_stitch_engine_regression
 └── util/       test_view_config
@@ -216,7 +215,7 @@ JSON 集成层(`stitch_backend` / `osg_backend` / `stitch_result` / `camera_name
 |---|--------|-----------|---------------------|
 | 1 | `src/geometry/projection.hpp` | 鱼眼投影基础:内参 k1-k4、T_wc 约定、有效圆与羽化。全部 inline,单文件可读 | `tests/geometry/test_projection.cpp` |
 | 2 | `src/geometry/bowl_model.hpp` | 碗为什么长这样:8 参数含义、网格/法线生成 | `tests/geometry/test_bowl_model.cpp` |
-| 3 | `src/geometry/blend_weights.cpp` → `src/geometry/mesh_bake.cpp` | 接缝怎么融合:扇区边界、52°/N 过渡带、余弦 smoothstep;再看权重如何叠加可见性/羽化烘焙进顶点 | `tests/geometry/test_blend_weights.cpp`、`tests/geometry/test_mesh_bake.cpp` |
+| 3 | `src/geometry/blend_weights.cpp` → `src/geometry/bowl_model.cpp`(`Bake`) | 接缝怎么融合:扇区边界、52°/N 过渡带、余弦 smoothstep;再看权重如何叠加可见性/羽化烘焙进顶点 | `tests/geometry/test_blend_weights.cpp`、`tests/geometry/test_bowl_model.cpp`(BowlModelBake 套件) |
 | 4 | `src/render/osg_scene.cpp` | 烘焙数据怎么上 GPU:属性布局(location 0-7)、着色器源码、纹理数组。纯结构装配,不需要 GL | `tests/render/test_osg_scene.cpp` |
 | 5 | `src/render/osg_view.cpp` + `src/render/egl_headless_context.cpp` | 怎么无窗口渲染:每个视图一个 FBO 相机、MVP 手动传 uniform 的原因(vcpkg OSG GL2 构建怪癖)、回读翻转 | `tests/render/test_egl_headless_context.cpp` |
 | 6 | `src/core/stitch_engine.cpp` | 一切怎么串起来:`Configure`(建碗→烘焙→建场景,不做 GL 绘制,但会尝试创建离屏 EGL 上下文,创建失败不抛异常)与 `RenderFrame`(传纹理→渲 5 视图)两阶段 | `tests/core/test_stitch_engine.cpp`(校验 + GL 端到端) |
@@ -261,7 +260,7 @@ auto views = engine.RenderFrame(bgr_images);   // 每帧: map<视图名, cv::Mat
 
 | 瓶颈 | 位置 | 现状 |
 |------|------|------|
-| 顶点属性槽位 | `src/geometry/mesh_bake.hpp` `BakedVertex` | 固定 `uv[8][2]` + `weight[8]` |
+| 顶点属性槽位 | `src/geometry/bowl_model.hpp` `BakedVertex` | 固定 `uv[8][2]` + `weight[8]` |
 | GLSL 属性布局 | `src/render/osg_scene.cpp:18-22` | UV 打包 4×vec4(location 2-5),权重打包 2×vec4(location 6-7),共 8 location,恰好覆盖 8 路 |
 | 片元着色器展开 | `GetFragmentShaderSource` | 手动展开 8 路 `if (fragNumCameras > k ...)` 分支 |
 | Configure 校验 | `src/core/stitch_engine.cpp` `ValidateConfigureArgs` | `N ∈ [1,8]`,超出抛 `std::invalid_argument` |

@@ -9,7 +9,6 @@
 // Structural construction only — no GL context required.
 
 #include "geometry/bowl_model.hpp"
-#include "geometry/mesh_bake.hpp"
 
 #include <osg/Geometry>
 #include <osg/Group>
@@ -23,11 +22,9 @@ namespace avm_stitch {
 
 /// Build the bowl model geometry with per-vertex attributes.
 /// Vertex positions/normals are converted VCS -> OpenGL: (x,y,z) -> (x,z,-y).
-/// @param bowl         generated bowl model (VCS coordinates)
-/// @param baked        per-vertex baked UV + weights (same vertex count)
-/// @param num_cameras  number of cameras N (1..8)
-osg::ref_ptr<osg::Geometry> BuildOSGGeometry(
-    const BowlModel& bowl, const BakedMesh& baked, int num_cameras);
+/// @param bowl  generated + baked bowl model (precondition: bowl.IsBaked(),
+///              num_cameras is taken from bowl.baked_num_cameras())
+osg::ref_ptr<osg::Geometry> BuildOSGGeometry(const BowlModel& bowl);
 
 /// GLSL 330 vertex shader source (N-camera mapping shader).
 const char* GetVertexShaderSource();
@@ -45,8 +42,9 @@ void UploadCameraImages(osg::Texture2DArray* tex,
 
 /// Build the complete scene graph: Group containing the bowl Geode with the
 /// mapping program, uniforms and camera texture array stateset.
+/// @param bowl  generated + baked bowl model (num_cameras from
+///              bowl.baked_num_cameras(), image size from the caller)
 osg::ref_ptr<osg::Group> BuildOSGScene(
-    const BowlModel& bowl, const BakedMesh& baked,
-    int num_cameras, int image_w, int image_h);
+    const BowlModel& bowl, int image_w, int image_h);
 
 } // namespace avm_stitch

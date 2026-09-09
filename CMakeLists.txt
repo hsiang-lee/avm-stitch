@@ -30,7 +30,6 @@ add_library(avm_stitch STATIC
     src/geometry/bowl_model.cpp
     src/geometry/blend_weights.cpp
     src/render/egl_headless_context.cpp
-    src/geometry/mesh_bake.cpp
     src/render/osg_scene.cpp
     src/render/osg_view.cpp
     src/core/stitch_engine.cpp
@@ -54,10 +53,11 @@ target_osg_whole_archive(avm_stitch)
 enable_testing()
 include(GoogleTest)
 
-# -- test_bowl_model (bowl_model.hpp + bowl_model.cpp)
+# -- test_bowl_model (bowl_model.hpp + bowl_model.cpp, incl. Bake)
 add_executable(test_bowl_model
     tests/geometry/test_bowl_model.cpp
     src/geometry/bowl_model.cpp
+    src/geometry/blend_weights.cpp
 )
 target_include_directories(test_bowl_model PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_bowl_model PRIVATE
@@ -89,20 +89,6 @@ target_link_libraries(test_blend_weights PRIVATE
 )
 gtest_discover_tests(test_blend_weights)
 
-# -- test_mesh_bake
-add_executable(test_mesh_bake
-    tests/geometry/test_mesh_bake.cpp
-    src/geometry/bowl_model.cpp
-    src/geometry/blend_weights.cpp
-    src/geometry/mesh_bake.cpp
-)
-target_include_directories(test_mesh_bake PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(test_mesh_bake PRIVATE
-    GTest::gtest_main
-    ${OpenCV_LIBS}
-)
-gtest_discover_tests(test_mesh_bake)
-
 # -- test_view_config (header-only view_config.hpp)
 add_executable(test_view_config
     tests/util/test_view_config.cpp
@@ -119,7 +105,6 @@ add_executable(test_osg_scene
     tests/render/test_osg_scene.cpp
     src/geometry/bowl_model.cpp
     src/geometry/blend_weights.cpp
-    src/geometry/mesh_bake.cpp
     src/render/osg_scene.cpp
 )
 target_include_directories(test_osg_scene PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -136,7 +121,6 @@ add_executable(test_stitch_engine
     src/geometry/bowl_model.cpp
     src/geometry/blend_weights.cpp
     src/render/egl_headless_context.cpp
-    src/geometry/mesh_bake.cpp
     src/render/osg_scene.cpp
     src/render/osg_view.cpp
     src/core/stitch_engine.cpp

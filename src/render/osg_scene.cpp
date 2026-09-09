@@ -23,21 +23,19 @@ constexpr int kNumWeightSlots = 2;
 
 // Build a per-vertex packed Vec4 attribute array (one vec4 per baked vertex).
 template <typename Accessor>
-osg::ref_ptr<osg::Vec4Array> BuildPackedVec4(const BakedMesh& baked,
+osg::ref_ptr<osg::Vec4Array> BuildPackedVec4(const BowlModel& bowl,
                                              Accessor accessor) {
     auto arr = new osg::Vec4Array;
-    arr->reserve(baked.vertex_count());
-    for (int i = 0; i < baked.vertex_count(); ++i) {
-        arr->push_back(accessor(baked.baked_vertex(i)));
+    arr->reserve(bowl.vertex_count());
+    for (int i = 0; i < bowl.vertex_count(); ++i) {
+        arr->push_back(accessor(bowl.baked_vertex(i)));
     }
     return arr;
 }
 
 } // namespace
 
-osg::ref_ptr<osg::Geometry> BuildOSGGeometry(
-    const BowlModel& bowl, const BakedMesh& baked, int num_cameras) {
-    (void)num_cameras;
+osg::ref_ptr<osg::Geometry> BuildOSGGeometry(const BowlModel& bowl) {
     auto geom = new osg::Geometry;
 
     // ---- vertex positions (location 0), VCS -> OpenGL: (x,y,z) -> (x,z,-y)
@@ -63,7 +61,7 @@ osg::ref_ptr<osg::Geometry> BuildOSGGeometry(
     for (int slot = 0; slot < kNumUvSlots; ++slot) {
         int c0 = slot * 2;
         int c1 = c0 + 1;
-        auto uv_array = BuildPackedVec4(baked, [c0, c1](const BakedVertex& bv) {
+        auto uv_array = BuildPackedVec4(bowl, [c0, c1](const BakedVertex& bv) {
             return osg::Vec4(bv.uv[c0][0], bv.uv[c0][1], bv.uv[c1][0], bv.uv[c1][1]);
         });
         geom->setVertexAttribArray(kUvSlotBase + slot, uv_array);
@@ -74,7 +72,7 @@ osg::ref_ptr<osg::Geometry> BuildOSGGeometry(
     // ---- weight attributes (locations 6-7): 2 vec4 slots, 4 cameras per slot
     for (int slot = 0; slot < kNumWeightSlots; ++slot) {
         int c0 = slot * 4;
-        auto w_array = BuildPackedVec4(baked, [c0](const BakedVertex& bv) {
+        auto w_array = BuildPackedVec4(bowl, [c0](const BakedVertex& bv) {
             return osg::Vec4(bv.weight[c0], bv.weight[c0 + 1],
                              bv.weight[c0 + 2], bv.weight[c0 + 3]);
         });
@@ -237,11 +235,11 @@ void UploadCameraImages(osg::Texture2DArray* tex,
 }
 
 osg::ref_ptr<osg::Group> BuildOSGScene(
-    const BowlModel& bowl, const BakedMesh& baked,
-    int num_cameras, int image_w, int image_h) {
+    const BowlModel& bowl, int image_w, int image_h) {
     auto root = new osg::Group;
 
-    auto geom = BuildOSGGeometry(bowl, baked, num_cameras);
+    const int num_cameras = bowl.baked_num_cameras();
+    auto geom = BuildOSGGeometry(bowl);
 
     auto geode = new osg::Geode;
     geode->addDrawable(geom);

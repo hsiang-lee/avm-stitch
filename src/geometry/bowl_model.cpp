@@ -1,5 +1,7 @@
 #include "geometry/bowl_model.hpp"
 
+#include "geometry/blend_weights.hpp"
+
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -106,6 +108,82 @@ void BowlModel::ComputeBowlNormals(BowlModel& mesh,
             mesh.normals_[idx] = (len > 1e-9) ? n / len : cv::Vec3d(0.0, 0.0, 1.0);
         }
     }
+}
+
+// Per-vertex bake (reads the model's own mesh data via member access).
+void BowlModel::Bake(const std::vector<CameraIntrinsics>& intrinsics,
+                     const std::vector<CameraExtrinsics>& extrinsics) {
+    const int N = static_cast<int>(intrinsics.size());
+    baked_num_cameras_ = N;
+    baked_vertices_.resize(vertex_count());
+
+    for (int i = 0; i < vertex_count(); ++i) {
+        const cv::Vec3d& P = vertices_[i];
+        auto& bv = baked_vertices_[i];
+
+        const auto raw_weights = ComputeBlendWeights(P, extrinsics);
+
+        // Visibility tracked by an explicit flag (not UV values), since a
+        // visible point may legally project to normalized UV (0,0).
+        std::vector<bool> visible(N, false);
+        std::vector<double> edge_factor(N, 0.0);
+        double weight_sum = 0.0;
+        for (int j = 0; j < N; ++j) {
+            double u_px, v_px;
+            ProjectWorldToFishEye(P, intrinsics[j], extrinsics[j], u_px, v_px);
+
+            // Exclude the fisheye black dead zone: a pixel may be inside the
+            // image RECTANGLE but outside the effective lens circle (the
+            // corners beyond the disc are black) — sampling it would pollute
+            // the seam with black. Require the projected pixel to lie within
+            // the fisheye effective circle.
+            visible[j] = IsForwardFacing(P, extrinsics[j])
+                         && u_px >= 0.0 && u_px < intrinsics[j].width
+                         && v_px >= 0.0 && v_px < intrinsics[j].height
+                         && IsInsideFisheyeCircle(intrinsics[j], u_px, v_px);
+
+            if (visible[j]) {
+                bv.uv[j][0] = static_cast<float>(u_px / intrinsics[j].width);
+                // OpenCV/T_wc convention: camera y axis points DOWN, so v_px already grows
+                // toward the image bottom (projectPoints output is a direct image
+                // coordinate, same as solve_extrinsic). No V flip needed here — the old
+                // 1.0 - v_px/height flip was a compensation for the y-up convention.
+                bv.uv[j][1] = static_cast<float>(v_px / intrinsics[j].height);
+                // Feather near the fisheye circle edge so linear filtering does
+                // not mix the black dead-zone into the seam blend.
+                edge_factor[j] = FisheyeEdgeFeather(intrinsics[j], u_px, v_px);
+                weight_sum += raw_weights[j] * edge_factor[j];
+            }
+        }
+
+        // Normalize raw blend weights over the visible camera set only. A
+        // camera whose feather factor is 0 keeps weight 0 and does not
+        // participate in the normalization.
+        if (weight_sum > 1e-9) {
+            for (int j = 0; j < N; ++j) {
+                if (visible[j] && raw_weights[j] > 1e-9 && edge_factor[j] > 0.0) {
+                    bv.weight[j] = static_cast<float>(
+                        raw_weights[j] * edge_factor[j] / weight_sum);
+                }
+            }
+        }
+    }
+}
+
+bool BowlModel::HasVisibleVertices() const {
+    // Same visibility criterion as the former test helper in
+    // test_stitch_engine.cpp: a vertex counts as visible when the sum of its
+    // camera weights exceeds 1e-9. Since all weights are >= 0, the sum is
+    // > 1e-9 exactly when at least one slot is > 1e-9.
+    const int n = vertex_count();
+    const int cams = baked_num_cameras_;
+    for (int i = 0; i < n; ++i) {
+        const BakedVertex& bv = baked_vertices_[i];
+        double sum = 0.0;
+        for (int j = 0; j < cams; ++j) sum += bv.weight[j];
+        if (sum > 1e-9) return true;
+    }
+    return false;
 }
 
 } // namespace avm_stitch

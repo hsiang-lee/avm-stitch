@@ -6,7 +6,6 @@
 
 #include "geometry/bowl_model.hpp"
 #include "render/egl_headless_context.hpp"
-#include "geometry/mesh_bake.hpp"
 #include "render/osg_scene.hpp"
 #include "render/osg_view.hpp"
 #include "core/stitch_engine.hpp"
@@ -77,11 +76,11 @@ TestScene BuildTestSceneWithExtrinsics(int num_cameras,
     TestScene ts;
     auto model = MakeCoarseBowl(12.6);
     std::vector<CameraIntrinsics> intrs(num_cameras, MakeIntrinsics());
-    auto baked = BakedMesh(model, intrs, extrs);
+    model.Bake(intrs, extrs);
 
-    ts.has_visible_vertices = baked.HasVisibleVertices();
+    ts.has_visible_vertices = model.HasVisibleVertices();
 
-    ts.root = BuildOSGScene(model, baked, num_cameras, intrs[0].width, intrs[0].height);
+    ts.root = BuildOSGScene(model, intrs[0].width, intrs[0].height);
 
     // Pull the camera texture array out of the bowl geode's stateset so the
     // test can upload synthetic frames (RenderFrame does this internally).
