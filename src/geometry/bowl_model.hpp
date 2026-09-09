@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <vector>
 
@@ -28,7 +29,8 @@ struct BowlParams {
 };
 
 // Bowl surface triangle mesh generated from car parameters. Immutable data
-// holder: read via the const getters (zero-copy).
+// holder: read via the fine-grained index accessors (the internal container
+// layout is an implementation detail, free to change e.g. to SoA).
 class BowlMesh {
 public:
     /// Generate the bowl mesh (VCS coordinates) from car parameters.
@@ -38,9 +40,30 @@ public:
     /// taken as-is, no grid/normal recomputation, no triangles.
     BowlMesh(std::vector<cv::Vec3d> vertices, std::vector<cv::Vec3d> normals);
 
-    const std::vector<cv::Vec3d>& vertices() const { return vertices_; }
-    const std::vector<cv::Vec3d>& normals() const { return normals_; }
-    const std::vector<std::array<int, 3>>& triangles() const { return triangles_; }
+    // --- fine-grained read access (index + count, no container exposure) ---
+    /// Number of vertices (always == normal_count(), a construction invariant).
+    int vertex_count() const { return static_cast<int>(vertices_.size()); }
+    /// Vertex i in VCS coordinates. Precondition: 0 <= i < vertex_count().
+    const cv::Vec3d& vertex(int i) const {
+        assert(i >= 0 && i < vertex_count());
+        return vertices_[static_cast<size_t>(i)];
+    }
+    /// Number of normals (always == vertex_count(), a construction invariant).
+    int normal_count() const { return static_cast<int>(normals_.size()); }
+    /// Unit normal i. Precondition: 0 <= i < normal_count().
+    const cv::Vec3d& normal(int i) const {
+        assert(i >= 0 && i < normal_count());
+        return normals_[static_cast<size_t>(i)];
+    }
+    /// Number of triangles.
+    int triangle_count() const { return static_cast<int>(triangles_.size()); }
+    /// Triangle i as vertex indices (by value: small object).
+    /// Precondition: 0 <= i < triangle_count().
+    std::array<int, 3> triangle(int i) const {
+        assert(i >= 0 && i < triangle_count());
+        return triangles_[static_cast<size_t>(i)];
+    }
+
     int rows() const { return rows_; }
     int cols() const { return cols_; }
 

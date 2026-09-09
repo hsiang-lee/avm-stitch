@@ -6,6 +6,7 @@
 #include "geometry/bowl_model.hpp"
 #include "geometry/projection.hpp"
 
+#include <cassert>
 #include <vector>
 
 namespace avm_stitch {
@@ -24,7 +25,8 @@ struct BakedVertex {
 };
 
 // Per-vertex baked UV + blend weights. Immutable data holder: read via the
-// const getters (zero-copy).
+// fine-grained index accessors and semantic queries (the internal container
+// layout is an implementation detail).
 class BakedMesh {
 public:
     /// Bake per-vertex UV coordinates and blend weights.
@@ -35,7 +37,19 @@ public:
               const std::vector<CameraIntrinsics>& intrinsics,
               const std::vector<CameraExtrinsics>& extrinsics);
 
-    const std::vector<BakedVertex>& vertices() const { return vertices_; }
+    // --- fine-grained read access (index + count, no container exposure) ---
+    /// Number of baked vertices (one per bowl vertex).
+    int vertex_count() const { return static_cast<int>(vertices_.size()); }
+    /// Baked vertex i. Precondition: 0 <= i < vertex_count().
+    const BakedVertex& baked_vertex(int i) const {
+        assert(i >= 0 && i < vertex_count());
+        return vertices_[static_cast<size_t>(i)];
+    }
+
+    /// True if any baked vertex has a nonzero weight in any camera slot
+    /// (weight > 1e-9) — semantic query replacing external loops.
+    bool HasVisibleVertices() const;
+
     int num_cameras() const { return num_cameras_; }
 
 private:

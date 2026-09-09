@@ -64,13 +64,14 @@ TEST(OSGSceneTest, BuildOSGGeometry_PositionAttributeCorrect) {
 
     auto* va = dynamic_cast<osg::Vec3Array*>(geom->getVertexArray());
     ASSERT_NE(nullptr, va);
-    ASSERT_EQ(bowl.vertices().size(), va->size());
+    ASSERT_EQ(static_cast<size_t>(bowl.vertex_count()), va->size());
 
     // VCS -> OpenGL: (x, y, z) -> (x, z, -y)
-    for (size_t i = 0; i < bowl.vertices().size(); ++i) {
-        EXPECT_NEAR(bowl.vertices()[i][0], (*va)[i].x(), 1e-6);
-        EXPECT_NEAR(bowl.vertices()[i][2], (*va)[i].y(), 1e-6);
-        EXPECT_NEAR(-bowl.vertices()[i][1], (*va)[i].z(), 1e-6);
+    for (int i = 0; i < bowl.vertex_count(); ++i) {
+        const cv::Vec3d& v = bowl.vertex(i);
+        EXPECT_NEAR(v[0], (*va)[i].x(), 1e-6);
+        EXPECT_NEAR(v[2], (*va)[i].y(), 1e-6);
+        EXPECT_NEAR(-v[1], (*va)[i].z(), 1e-6);
     }
 }
 
@@ -105,7 +106,7 @@ TEST(OSGSceneTest, BuildOSGGeometry_IndexCount) {
         auto* de = dynamic_cast<osg::DrawElementsUInt*>(geom->getPrimitiveSet(k));
         if (de) index_count += de->getNumIndices();
     }
-    EXPECT_EQ(bowl.triangles().size() * 3u, static_cast<size_t>(index_count));
+    EXPECT_EQ(static_cast<size_t>(bowl.triangle_count()) * 3u, static_cast<size_t>(index_count));
     EXPECT_GT(index_count, 0);
 }
 

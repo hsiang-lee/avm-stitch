@@ -26,9 +26,9 @@ template <typename Accessor>
 osg::ref_ptr<osg::Vec4Array> BuildPackedVec4(const BakedMesh& baked,
                                              Accessor accessor) {
     auto arr = new osg::Vec4Array;
-    arr->reserve(baked.vertices().size());
-    for (const auto& bv : baked.vertices()) {
-        arr->push_back(accessor(bv));
+    arr->reserve(baked.vertex_count());
+    for (int i = 0; i < baked.vertex_count(); ++i) {
+        arr->push_back(accessor(baked.baked_vertex(i)));
     }
     return arr;
 }
@@ -42,16 +42,18 @@ osg::ref_ptr<osg::Geometry> BuildOSGGeometry(
 
     // ---- vertex positions (location 0), VCS -> OpenGL: (x,y,z) -> (x,z,-y)
     auto pos_array = new osg::Vec3Array;
-    pos_array->reserve(bowl.vertices().size());
-    for (const auto& v : bowl.vertices()) {
+    pos_array->reserve(bowl.vertex_count());
+    for (int i = 0; i < bowl.vertex_count(); ++i) {
+        const cv::Vec3d& v = bowl.vertex(i);
         pos_array->push_back(osg::Vec3(v[0], v[2], -v[1]));
     }
     geom->setVertexArray(pos_array);
 
     // ---- normals (location 1), same VCS -> OpenGL conversion
     auto normal_array = new osg::Vec3Array;
-    normal_array->reserve(bowl.normals().size());
-    for (const auto& n : bowl.normals()) {
+    normal_array->reserve(bowl.normal_count());
+    for (int i = 0; i < bowl.normal_count(); ++i) {
+        const cv::Vec3d& n = bowl.normal(i);
         normal_array->push_back(osg::Vec3(n[0], n[2], -n[1]));
     }
     geom->setNormalArray(normal_array);
@@ -83,8 +85,9 @@ osg::ref_ptr<osg::Geometry> BuildOSGGeometry(
 
     // ---- triangle indices
     auto indices = new osg::DrawElementsUInt(GL_TRIANGLES);
-    indices->reserve(bowl.triangles().size() * 3);
-    for (const auto& tri : bowl.triangles()) {
+    indices->reserve(bowl.triangle_count() * 3);
+    for (int t = 0; t < bowl.triangle_count(); ++t) {
+        const std::array<int, 3> tri = bowl.triangle(t);
         indices->push_back(static_cast<unsigned int>(tri[0]));
         indices->push_back(static_cast<unsigned int>(tri[1]));
         indices->push_back(static_cast<unsigned int>(tri[2]));

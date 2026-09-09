@@ -56,7 +56,7 @@ AVM(环视,亦称 Bird's Eye View / 360 全景)系统在车辆前后左右安装
 
 ### 3.1 碗形模型(`src/geometry/bowl_model.hpp`)
 
-header-only 纯数学,无 GL 依赖。`BowlMesh mesh(params)`(构造函数,原 `CreateBowlMesh`)生成碗面三角网格,数据经 const getters(`vertices()` / `normals()` / `triangles()` / `rows()` / `cols()`)零拷贝读取:
+header-only 纯数学,无 GL 依赖。`BowlMesh mesh(params)`(构造函数,原 `CreateBowlMesh`)生成碗面三角网格,数据经细粒度索引访问读取(`vertex_count()` / `vertex(i)` / `normal_count()` / `normal(i)` / `triangle_count()` / `triangle(i)`,另有网格规格查询 `rows()` / `cols()`)——不暴露内部容器,内部布局(将来可换 SoA 等)是纯实现细节:
 
 ```
  z ^      rim:  z = k_slop * rd^z_exp   (max_z 封顶)
@@ -98,7 +98,7 @@ header-only,把 3D 世界点投影到鱼眼像素。核心委托 `cv::fisheye::p
 
 ### 3.3 网格烘焙(`src/geometry/mesh_bake.cpp`)
 
-`BakedMesh baked(bowl_mesh, intrinsics, extrinsics)`(构造函数,原 `BakeMesh`)逐顶点把"看什么、怎么混"预计算进顶点属性——这是整个设计的关键:**运行时 GPU 零几何计算**。烘焙结果经 `vertices()` / `num_cameras()` 读取。
+`BakedMesh baked(bowl_mesh, intrinsics, extrinsics)`(构造函数,原 `BakeMesh`)逐顶点把"看什么、怎么混"预计算进顶点属性——这是整个设计的关键:**运行时 GPU 零几何计算**。烘焙结果经细粒度索引访问(`vertex_count()` / `baked_vertex(i)`)与语义查询(`HasVisibleVertices()`:是否存在任一槽权重 > 1e-9 的顶点)、`num_cameras()` 读取,不暴露内部容器。
 
 每个碗面顶点得到:
 

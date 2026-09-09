@@ -79,11 +79,7 @@ TestScene BuildTestSceneWithExtrinsics(int num_cameras,
     std::vector<CameraIntrinsics> intrs(num_cameras, MakeIntrinsics());
     auto baked = BakedMesh(mesh, intrs, extrs);
 
-    for (const auto& bv : baked.vertices()) {
-        double sum = 0.0;
-        for (int j = 0; j < num_cameras; ++j) sum += bv.weight[j];
-        if (sum > 1e-9) { ts.has_visible_vertices = true; break; }
-    }
+    ts.has_visible_vertices = baked.HasVisibleVertices();
 
     ts.root = BuildOSGScene(mesh, baked, num_cameras, intrs[0].width, intrs[0].height);
 

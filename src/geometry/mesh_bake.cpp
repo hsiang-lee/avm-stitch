@@ -11,10 +11,10 @@ BakedMesh::BakedMesh(const BowlMesh& bowl_mesh,
                      const std::vector<CameraExtrinsics>& extrinsics) {
     const int N = static_cast<int>(intrinsics.size());
     num_cameras_ = N;
-    vertices_.resize(bowl_mesh.vertices().size());
+    vertices_.resize(bowl_mesh.vertex_count());
 
-    for (size_t i = 0; i < bowl_mesh.vertices().size(); ++i) {
-        const auto& P = bowl_mesh.vertices()[i];
+    for (int i = 0; i < bowl_mesh.vertex_count(); ++i) {
+        const cv::Vec3d& P = bowl_mesh.vertex(i);
         auto& bv = vertices_[i];
 
         const auto raw_weights = ComputeBlendWeights(P, extrinsics);
@@ -64,6 +64,22 @@ BakedMesh::BakedMesh(const BowlMesh& bowl_mesh,
             }
         }
     }
+}
+
+bool BakedMesh::HasVisibleVertices() const {
+    // Same visibility criterion as the former test helper in
+    // test_stitch_engine.cpp: a vertex counts as visible when the sum of its
+    // camera weights exceeds 1e-9. Since all weights are >= 0, the sum is
+    // > 1e-9 exactly when at least one slot is > 1e-9.
+    const int n = vertex_count();
+    const int cams = num_cameras_;
+    for (int i = 0; i < n; ++i) {
+        const BakedVertex& bv = vertices_[i];
+        double sum = 0.0;
+        for (int j = 0; j < cams; ++j) sum += bv.weight[j];
+        if (sum > 1e-9) return true;
+    }
+    return false;
 }
 
 } // namespace avm_stitch
