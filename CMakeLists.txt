@@ -4,7 +4,6 @@ project(avm-stitch VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(nlohmann_json CONFIG REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs calib3d)
 find_package(unofficial-osg CONFIG REQUIRED)
 find_package(OpenGL REQUIRED COMPONENTS EGL)
@@ -34,16 +33,12 @@ add_library(avm_stitch STATIC
     src/render/osg_scene.cpp
     src/render/osg_view.cpp
     src/core/stitch_engine.cpp
-    src/core/stitch_backend.cpp
-    src/core/osg_backend.cpp
-    src/core/stitch_result.cpp
 )
-# PUBLIC include: src/ 提供 geometry/ render/ core/ util/ common/ eval_metrics/
+# PUBLIC include: src/ 提供 geometry/ render/ core/ util/
 target_include_directories(avm_stitch PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_libraries(avm_stitch PUBLIC
-    nlohmann_json::nlohmann_json
     ${OpenCV_LIBS}
     unofficial::osg::osg unofficial::osg::osgViewer unofficial::osg::osgDB unofficial::osg::osgUtil
     OpenGL::EGL
@@ -62,7 +57,6 @@ add_executable(test_bowl_model
 target_include_directories(test_bowl_model PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_bowl_model PRIVATE
     GTest::gtest_main
-    nlohmann_json::nlohmann_json
     ${OpenCV_LIBS}
 )
 gtest_discover_tests(test_bowl_model)
@@ -124,7 +118,6 @@ add_executable(test_osg_scene
 target_include_directories(test_osg_scene PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_osg_scene PRIVATE
     GTest::gtest_main
-    nlohmann_json::nlohmann_json
     ${OpenCV_LIBS}
     unofficial::osg::osg unofficial::osg::osgViewer unofficial::osg::osgDB unofficial::osg::osgUtil
 )
@@ -143,7 +136,6 @@ add_executable(test_stitch_engine
 target_include_directories(test_stitch_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_stitch_engine PRIVATE
     GTest::gtest_main
-    nlohmann_json::nlohmann_json
     ${OpenCV_LIBS}
     unofficial::osg::osg unofficial::osg::osgViewer unofficial::osg::osgDB unofficial::osg::osgUtil
     OpenGL::EGL OpenGL::OpenGL

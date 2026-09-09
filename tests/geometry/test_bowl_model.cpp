@@ -3,8 +3,6 @@
 
 #include <gtest/gtest.h>
 
-#include <nlohmann/json.hpp>
-
 #include "geometry/bowl_model.hpp"
 
 #include <algorithm>
@@ -42,90 +40,6 @@ TEST(BowlParamsTest, Default_SetsCorrectDefaults) {
     EXPECT_DOUBLE_EQ(0.09, p.k_slop);
     EXPECT_DOUBLE_EQ(2.2, p.z_exp);
     EXPECT_DOUBLE_EQ(8.6, p.max_z);
-}
-
-TEST(BowlParamsTest, FromJson_PriorityCalibrationBowl) {
-    nlohmann::json task = {
-        {"calibration", {{"bowl", {{"car_length", 18.0}, {"car_width", 2.5}}}}},
-        {"bowl", {{"car_length", 3.0}, {"car_width", 1.0}}}
-    };
-    auto p = BowlParams::FromJson(task);
-    // calibration.bowl takes priority over top-level bowl
-    EXPECT_DOUBLE_EQ(18.0, p.car_length);
-    EXPECT_DOUBLE_EQ(2.5, p.car_width);
-}
-
-TEST(BowlParamsTest, FromJson_FallbackToTopLevelBowl) {
-    nlohmann::json task = {
-        {"bowl", {{"car_length", 18.0}, {"car_width", 2.5}}}
-    };
-    auto p = BowlParams::FromJson(task);
-    EXPECT_DOUBLE_EQ(18.0, p.car_length);
-    EXPECT_DOUBLE_EQ(2.5, p.car_width);
-}
-
-TEST(BowlParamsTest, FromJson_MissingFieldsUseDefaults) {
-    nlohmann::json task = {
-        {"calibration", {{"bowl", {{"car_length", 18.0}}}}}
-    };
-    auto p = BowlParams::FromJson(task);
-    EXPECT_DOUBLE_EQ(18.0, p.car_length);
-    EXPECT_DOUBLE_EQ(2.2, p.car_width);   // default
-    EXPECT_DOUBLE_EQ(2.0, p.round_l);     // default
-    EXPECT_DOUBLE_EQ(0.1, p.step);        // default
-    EXPECT_DOUBLE_EQ(12.6, p.r_outter);   // default
-    EXPECT_DOUBLE_EQ(0.09, p.k_slop);     // default
-    EXPECT_DOUBLE_EQ(2.2, p.z_exp);       // default
-    EXPECT_DOUBLE_EQ(8.6, p.max_z);       // default
-}
-
-TEST(BowlParamsTest, FromJson_EmptyJsonUsesAllDefaults) {
-    auto p = BowlParams::FromJson(nlohmann::json::object());
-    auto def = BowlParams::Default();
-    EXPECT_DOUBLE_EQ(def.car_length, p.car_length);
-    EXPECT_DOUBLE_EQ(def.car_width, p.car_width);
-    EXPECT_DOUBLE_EQ(def.round_l, p.round_l);
-    EXPECT_DOUBLE_EQ(def.step, p.step);
-    EXPECT_DOUBLE_EQ(def.r_outter, p.r_outter);
-    EXPECT_DOUBLE_EQ(def.k_slop, p.k_slop);
-    EXPECT_DOUBLE_EQ(def.z_exp, p.z_exp);
-    EXPECT_DOUBLE_EQ(def.max_z, p.max_z);
-}
-
-TEST(BowlParamsTest, FromJson_IntegerValuesParsedAsDouble) {
-    nlohmann::json task = {
-        {"bowl", {{"car_length", 18}, {"car_width", 2}}}   // ints, not doubles
-    };
-    auto p = BowlParams::FromJson(task);
-    EXPECT_DOUBLE_EQ(18.0, p.car_length);
-    EXPECT_DOUBLE_EQ(2.0, p.car_width);
-}
-
-TEST(BowlParamsTest, FromJson_StringNumberFallsBackToDefault) {
-    // String-encoded numbers must not throw; spec says malformed -> default.
-    nlohmann::json task = {
-        {"bowl", {{"car_length", "18.0"}, {"car_width", "2.5"}}}
-    };
-    auto p = BowlParams::FromJson(task);
-    EXPECT_DOUBLE_EQ(5.6, p.car_length);   // default, string is not numeric
-    EXPECT_DOUBLE_EQ(2.2, p.car_width);    // default
-}
-
-TEST(BowlParamsTest, FromJson_NullAndWrongTypeFieldsUseDefaults) {
-    // null / boolean / object / array values must not throw either.
-    nlohmann::json task = {
-        {"bowl", {
-            {"step", nullptr},
-            {"r_outter", true},
-            {"k_slop", {{"nested", 1.0}}},
-            {"z_exp", {"1.0", "2.0"}}
-        }}
-    };
-    auto p = BowlParams::FromJson(task);
-    EXPECT_DOUBLE_EQ(0.1, p.step);        // default
-    EXPECT_DOUBLE_EQ(12.6, p.r_outter);   // default
-    EXPECT_DOUBLE_EQ(0.09, p.k_slop);     // default
-    EXPECT_DOUBLE_EQ(2.2, p.z_exp);       // default
 }
 
 // ---------------------------------------------------------------------------

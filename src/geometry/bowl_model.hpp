@@ -6,7 +6,6 @@
 //   finite-difference normals on the curved rim.
 
 #include <opencv2/core.hpp>
-#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <array>
@@ -26,35 +25,6 @@ struct BowlParams {
     double max_z = 8.6;
 
     static BowlParams Default() { return BowlParams{}; }
-
-    // Path priority: task["calibration"]["bowl"] -> task["bowl"] -> defaults.
-    // Missing fields keep defaults; numeric fields accept int or double.
-    // Malformed (non-numeric) fields fall back to defaults and never throw.
-    static BowlParams FromJson(const nlohmann::json& task) {
-        BowlParams p;
-        auto read = [&](const nlohmann::json& obj) {
-            // Safe extraction: missing or non-numeric (string/null/bool/etc.)
-            // values fall back to the default — do not let get<double>() throw.
-            auto read_param = [&obj](const char* key, double& target) {
-                auto it = obj.find(key);
-                if (it != obj.end() && it->is_number()) target = it->get<double>();
-            };
-            read_param("car_length", p.car_length);
-            read_param("car_width", p.car_width);
-            read_param("round_l", p.round_l);
-            read_param("step", p.step);
-            read_param("r_outter", p.r_outter);
-            read_param("k_slop", p.k_slop);
-            read_param("z_exp", p.z_exp);
-            read_param("max_z", p.max_z);
-        };
-        if (task.contains("calibration") && task["calibration"].contains("bowl")) {
-            read(task["calibration"]["bowl"]);
-        } else if (task.contains("bowl")) {
-            read(task["bowl"]);
-        }
-        return p;
-    }
 };
 
 struct BowlMesh {

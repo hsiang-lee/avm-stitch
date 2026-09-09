@@ -2,7 +2,7 @@
 
 C++20 AVM(Around View Monitor,环视/360 鸟瞰)拼接静态库。
 
-- **JSON-in / JSON-out**:输入任务 JSON(base64 鱼眼图 + 标定),输出 `stitch_result` JSON(base64 PNG 视图)
+- **纯算法 API**:结构体 / `cv::Mat` 进出(`Configure` + `RenderFrame`),无 JSON、无协议依赖
 - **Headless EGL 渲染**:EGL surfaceless 离屏上下文,无需 X server / 显示器,可直接跑在 Docker/CI
 - **可嵌入**:纯静态库,无 main,命名空间 `avm_stitch`,CMake + vcpkg 管理
 - **N 路相机**:架构上限 8 路,`Configure` 接受 N∈[1,8];典型配置为 4 路(前/后/左/右)
@@ -11,7 +11,7 @@ C++20 AVM(Around View Monitor,环视/360 鸟瞰)拼接静态库。
 
 ## 1. 项目简介
 
-avm-stitch 把 N 路鱼眼摄像头画面实时拼接成车辆周围的"鸟瞰"视图。本库是**自研 OSG 拼接引擎**(碗形模型 + 方位角融合,GLSL 330 着色器)的单路径实现。曾内置的闭源 `avm-renderer` 代理路径已整体迁移至其唯一消费者 avm-worker(与 OSG 引擎是并列关系的算法实现,二者共用同一任务 JSON 契约,由 worker 侧统一分发)。任务 JSON 契约见[第 8 节](#8-集成方式)。
+avm-stitch 把 N 路鱼眼摄像头画面实时拼接成车辆周围的"鸟瞰"视图。本库是**自研 OSG 拼接引擎**(碗形模型 + 方位角融合,GLSL 330 着色器)的**第三方中立算法库**:只暴露纯算法 API(结构体 / `cv::Mat` 进出),不感知任何任务协议。曾内置的 JSON 集成层(任务 JSON 契约、后端工厂、结果信封)与闭源 `avm-renderer` 代理路径均已整体迁移至其唯一消费者 avm-worker(由 worker 侧的 `avm_stitch_integration` / `avm_renderer_bridge` 库承载并统一分发)。C++ 算法 API 见[第 8 节](#8-集成方式)。
 
 核心技术决策:
 
@@ -20,7 +20,7 @@ avm-stitch 把 N 路鱼眼摄像头画面实时拼接成车辆周围的"鸟瞰"�
 | 几何/融合全部 CPU 预计算(烘焙到顶点),GPU 只做查表混合 | `src/geometry/` |
 | 融合算法与相机数量 N 无关,4 路和 8 路同一套代码 | `src/geometry/blend_weights.cpp` |
 | GPU 侧固定 8 槽顶点属性布局,少于 8 路时空槽权重为 0 | `src/render/osg_scene.cpp` |
-| 所有后端失败一律返回 `stitch_error` JSON,永不抛异常 | `src/core/osg_backend.cpp` |
+| 库内零 JSON 依赖:`StitchEngine` 以结构体与 `cv::Mat` 进出,错误以异常表达 | `src/core/stitch_engine.cpp` |
 
 ## 2. 什么是 AVM 拼接
 
@@ -83,7 +83,7 @@ header-only 纯数学,无 GL 依赖。`CreateBowlMesh(params)` 生成碗面三�
 | `k_slop` / `z_exp` | 0.09 / 2.2 | 坡度系数与幂次,控制碗沿抬升快慢 |
 | `max_z` | 8.6 | 碗沿最大高度,超出部分的顶点被裁剪 |
 
-`rd` 是顶点到圆角矩形(平坦区)边缘的最近距离:平坦区内 `rd=0, z=0`;平坦区外按幂函数抬升。法线用有限差分估计(`ComputeBowlNormals`)。`BowlParams::FromJson(task)` 按 `task["calibration"]["bowl"]` → `task["bowl"]` → 默认值 的优先级取值,字段缺失/类型错误一律回退默认值,绝不抛异常。
+`rd` 是顶点到圆角矩形(平坦区)边缘的最近距离:平坦区内 `rd=0, z=0`;平坦区外按幂函数抬升。法线用有限差分估计(`ComputeBowlNormals`)。`BowlParams` 以纯结构体进出(默认值来自 `BowlParams::Default()`);从任务 JSON 解析碗参数的集成层逻辑已迁至 avm-worker。
 
 ### 3.2 鱼眼投影(`src/geometry/projection.hpp`)
 
@@ -160,35 +160,26 @@ OSG(OpenSceneGraph)场景图 + GLSL 330 着色器,全离屏:
 
 ## 4. 架构与数据流
 
-文字版数据流(OSG 引擎路径):
+库的核心是 `StitchEngine` 两阶段 API(`src/core/stitch_engine.cpp`):`Configure`(一次性建碗→烘焙→建场景)+ `RenderFrame`(每帧渲染)。文字版数据流:
 
 ```
- task JSON
-    |  base64 解码 (src/common/base64.h, 10 MB 上限)
-    v
- N x BGR cv::Mat ---------+
-    |                      |        bowl mesh + baked
-    | upload               +---->    uv[8] / weight[8]
-    v                      |              |
- Texture2DArray -----------+-> osg::Geometry + GLSL 330
- (N layers)                      |
-    ^                            | fragment: sum_i w_i * tex(uv_i)
-    |                            v
- RenderFrame() ----------> 5 FBO cameras (one per ViewPose)
-    |                            |
-    |                            v
-    +-------------------> {"topdown": Mat, "3d_front": Mat, ...}
-                                  |
-                                  | PNG + base64 (EncodeViewsAsBase64)
-                                  v
-                          stitch_result JSON
+ Configure(intrinsics, extrinsics, BowlParams)      一次性
+     |
+     | bowl mesh + baked uv[8] / weight[8]  (CPU 预计算, src/geometry/)
+     v
+ osg::Geometry + GLSL 330                  (src/render/osg_scene.cpp)
+     ^
+     | upload                              每帧
+ RenderFrame(N x BGR cv::Mat) ------------> Texture2DArray (N layers)
+     |
+     v
+ 5 FBO cameras (one per ViewPose)          (src/render/osg_view.cpp)
+     |
+     v
+ {"topdown": Mat, "3d_front": Mat, ...}    map<视图名, cv::Mat>
 ```
 
-使用路径,统一入口是工厂 `CreateStitchBackend(name)`(`src/core/stitch_backend.cpp`)。工厂只识别 `"osg"`,`"renderer"` 与任何未知名均返回 nullptr(renderer 代理路径已迁移至 avm-worker,由 worker 本地构造):
-
-| 路径 | 入口 | 说明 |
-|------|------|------|
-| OSG 引擎 | `CreateStitchBackend("osg")` → `OSGBackend::Run(task)` | 本库自研管线,8 步流程:校验 `images`/`calibration` → `ParseCalibration` → `DecodeCameraImages`(按相机 id/label 匹配图像键,大小写不敏感)→ `BowlParams::FromJson` → `StitchEngine::Configure` → `RenderFrame` → `EncodeViewsAsBase64` → `BuildStitchResult`。任何异常都转成 `stitch_error` JSON,**永不抛出**(`src/core/osg_backend.cpp:163-222`) |
+JSON 任务契约(`queue:stitch` 任务解析、`algorithm` 分发、base64 图解码、`stitch_result` / `stitch_error` 信封、后端工厂 `CreateStitchBackend`)已整体迁至 avm-worker(集成层库 `avm_stitch_integration`),worker 消费本库的纯算法 API 完成协议适配。
 
 ## 5. 目录结构
 
@@ -203,18 +194,10 @@ src/
 │   ├── osg_scene.hpp / .cpp       场景图装配, GLSL 330 着色器, 纹理数组
 │   ├── osg_view.hpp / .cpp        离屏 5 视图渲染 (FBO 相机 + 回读)
 │   └── egl_headless_context.hpp / .cpp   EGL surfaceless 桌面 GL 3.3 (OSG 路径)
-├── core/                          门面与后端
-│   ├── stitch_engine.hpp / .cpp   两阶段引擎: Configure + RenderFrame (PIMPL)
-│   ├── stitch_backend.hpp / .cpp  后端接口 + CreateStitchBackend 工厂
-│   ├── osg_backend.hpp / .cpp     task JSON -> OSG 引擎 -> stitch_result
-│   └── stitch_result.hpp / .cpp   stitch_result JSON 信封
-├── util/
-│   ├── view_config.hpp            5 个默认视图位姿 (header-only)
-│   └── camera_name.hpp            相机 id/label -> 角色名解析 (header-only)
-├── common/
-│   └── base64.h                   base64 编解码 (header-only, 解码 10 MB 上限)
-└── eval_metrics/
-    └── eval_metrics.hpp           拼接质量指标 —— 占位桩实现 (header-only)
+├── core/
+│   └── stitch_engine.hpp / .cpp   两阶段引擎: Configure + RenderFrame (PIMPL)
+└── util/
+    └── view_config.hpp            5 个默认视图位姿 (header-only)
 
 tests/                             9 个 gtest 目标
 ├── geometry/   test_projection / test_bowl_model / test_blend_weights / test_mesh_bake
@@ -223,6 +206,8 @@ tests/                             9 个 gtest 目标
 └── util/       test_view_config
 ```
 
+JSON 集成层(`stitch_backend` / `osg_backend` / `stitch_result` / `camera_name` / `base64` / `eval_metrics`)已随 JSON 剥离迁移至 avm-worker。
+
 ## 6. ⭐ 代码阅读路径
 
 推荐由简到繁,每步都能独立理解、独立测试:
@@ -230,18 +215,17 @@ tests/                             9 个 gtest 目标
 | # | 读什么 | 能理解什么 | 配套测试(用法示例) |
 |---|--------|-----------|---------------------|
 | 1 | `src/geometry/projection.hpp` | 鱼眼投影基础:内参 k1-k4、T_wc 约定、有效圆与羽化。全部 inline,单文件可读 | `tests/geometry/test_projection.cpp` |
-| 2 | `src/geometry/bowl_model.hpp` | 碗为什么长这样:8 参数含义、网格/法线生成、`FromJson` 容错 | `tests/geometry/test_bowl_model.cpp`(含 JSON 解析优先级用例) |
+| 2 | `src/geometry/bowl_model.hpp` | 碗为什么长这样:8 参数含义、网格/法线生成 | `tests/geometry/test_bowl_model.cpp` |
 | 3 | `src/geometry/blend_weights.cpp` → `src/geometry/mesh_bake.cpp` | 接缝怎么融合:扇区边界、52°/N 过渡带、余弦 smoothstep;再看权重如何叠加可见性/羽化烘焙进顶点 | `tests/geometry/test_blend_weights.cpp`、`tests/geometry/test_mesh_bake.cpp` |
 | 4 | `src/render/osg_scene.cpp` | 烘焙数据怎么上 GPU:属性布局(location 0-7)、着色器源码、纹理数组。纯结构装配,不需要 GL | `tests/render/test_osg_scene.cpp` |
 | 5 | `src/render/osg_view.cpp` + `src/render/egl_headless_context.cpp` | 怎么无窗口渲染:每个视图一个 FBO 相机、MVP 手动传 uniform 的原因(vcpkg OSG GL2 构建怪癖)、回读翻转 | `tests/render/test_egl_headless_context.cpp` |
 | 6 | `src/core/stitch_engine.cpp` | 一切怎么串起来:`Configure`(建碗→烘焙→建场景,不做 GL 绘制,但会尝试创建离屏 EGL 上下文,创建失败不抛异常)与 `RenderFrame`(传纹理→渲 5 视图)两阶段 | `tests/core/test_stitch_engine.cpp`(校验 + GL 端到端) |
-| 7 | 后端家族:`src/core/stitch_backend.cpp` → `src/core/osg_backend.cpp` | 库的对外形态:JSON 契约、工厂、错误信封、异常→`stitch_error` 的边界 | `tests/core/test_stitch_engine_regression.cpp`(公共 API 冒烟 + 工厂契约) |
 
-辅助阅读:`src/util/view_config.hpp`(5 视图位姿的具体系数)、`src/util/camera_name.hpp`(相机 id/label 解析规则,含生产事故教训的注释)。视图名→AVMDisplayMode 的映射(view_mapping)已随 renderer 代理路径迁移至 avm-worker。
+辅助阅读:`src/util/view_config.hpp`(5 视图位姿的具体系数)。JSON 门面(后端工厂、任务契约、错误信封)与视图名→AVMDisplayMode 映射(view_mapping)、相机 id/label 解析(camera_name)均已在 avm-worker。
 
 ## 7. 构建与测试
 
-依赖仅 `vcpkg.json` 所列公共 registry 包(nlohmann-json、gtest、opencv4、osg)+ 系统 EGL(`find_package(OpenGL COMPONENTS EGL)`)。无任何私有 registry / avm-renderer / CLI11 / glfw3 依赖,干净环境可直接自举。
+依赖仅 `vcpkg.json` 所列公共 registry 包(gtest、opencv4、osg)+ 系统 EGL(`find_package(OpenGL COMPONENTS EGL)`)。无任何 JSON 依赖、私有 registry / avm-renderer / CLI11 / glfw3 依赖,干净环境可直接自举。
 
 ```bash
 export VCPKG_ROOT=/path/to/vcpkg      # CMakePresets.json 的 default preset 依赖它
@@ -254,101 +238,22 @@ ctest --test-dir build                # 9 个目标
 
 ## 8. 集成方式
 
-### 任务 JSON(输入)
-
-字段提取自 `OSGBackend::Run` / `ParseCalibration`(`src/core/osg_backend.cpp`)与 `BowlParams::FromJson`:
-
-```json
-{
-  "task_id": "task-001",
-  "project_id": "proj-77",
-  "algorithm": "osg",
-  "images": {
-    "front": "<base64 JPEG>",
-    "rear":  "<base64 JPEG>",
-    "left":  "<base64 JPEG>",
-    "right": "<base64 JPEG>"
-  },
-  "calibration": {
-    "cameras": [
-      {
-        "id": "front",
-        "label": "前置相机",
-        "width": 1920,
-        "height": 1536,
-        "fx": 956.2, "fy": 956.8, "cx": 958.1, "cy": 769.4,
-        "k1": 0.006, "k2": -0.012, "k3": 0.004, "k4": -0.001,
-        "fisheye_radius": 0,
-        "rotation":    [1, 0, 0,  0, 1, 0,  0, 0, 1],
-        "translation": [2.8, 0.0, 1.2]
-      }
-    ],
-    "car":  { "length": 5.6, "width": 2.2, "axis_x": 0.0, "axis_y": 0.0 }
-  },
-  "bowl": { "car_length": 18.0, "car_width": 2.5 }
-}
-```
-
-要点(均以代码为准):
-
-- `images` 的键按相机 `id` 或 `label` **大小写不敏感**匹配(`FindCameraImageKey`);相机按 `calibration.cameras[]` 的顺序取图
-- `rotation` 是 T_wc 行主序 9 元素;`translation` 3 元素,单位米
-- `fisheye_radius` 可省略(0 = 自动内切圆);`calibration.bowl` 优先于顶层 `bowl`;`car` 子对象仅 renderer 路径需要(该路径已迁移至 avm-worker,标定文件生成在 worker 侧完成)
-- `algorithm`:本库工厂要求显式 `"osg"` → OSGBackend;缺省、空值、`"renderer"` 与未知值同样返回 nullptr(renderer 代理路径已迁移至 avm-worker,由 worker 侧负责缺省与分发)
-
-### stitch_result(输出)
-
-字段来自 `BuildStitchResult`(`src/core/stitch_result.cpp`):
-
-```json
-{
-  "type": "stitch_result",
-  "task_id": "task-001",
-  "project_id": "proj-77",
-  "images": {
-    "topdown":   "<base64 PNG>",
-    "3d_front":  "<base64 PNG>",
-    "3d_rear":   "<base64 PNG>",
-    "3d_left":   "<base64 PNG>",
-    "3d_right":  "<base64 PNG>"
-  },
-  "bev_image_base64": "<与 images.topdown 相同>",
-  "metrics": {
-    "ssim": 0.92, "psnr": 38.5, "stitch_error": 0.23,
-    "edge_distortion": 0.31, "brightness_consistency": 92.5,
-    "structure_continuity": 0.89, "overall": 90.3
-  },
-  "overall_score": 90.3,
-  "processing_time_ms": 152
-}
-```
-
-失败时(`OSGBackend` 失败即整体转为错误):
-
-```json
-{
-  "type": "stitch_error",
-  "task_id": "task-001",
-  "project_id": "proj-77",
-  "error": "Missing 'images' in task"
-}
-```
-
-`FeedFrame` 式裸结果(无信封)的流式会话接口已随 renderer 代理路径迁移至 avm-worker。
-
-C++ 侧最小集成:
+本库是纯算法库,以 C++ 结构体 / `cv::Mat` 集成。最小用法:
 
 ```cpp
 using namespace avm_stitch;
 
-auto backend = CreateStitchBackend("osg");
-nlohmann::json result = backend->Run(task_json);   // 永不抛出
-
-// 或绕过 JSON,直接用引擎
 StitchEngine engine;
 engine.Configure(intrinsics, extrinsics, BowlParams::Default());  // 一次性
-auto views = engine.RenderFrame(bgr_images);       // 每帧: map<视图名, Mat>
+auto views = engine.RenderFrame(bgr_images);   // 每帧: map<视图名, cv::Mat>
 ```
+
+- `intrinsics` / `extrinsics`:`std::vector<CameraIntrinsics>` / `std::vector<CameraExtrinsics>`(`src/geometry/projection.hpp`,T_wc 约定)
+- `BowlParams`:碗形参数结构体(`src/geometry/bowl_model.hpp`,默认值 `BowlParams::Default()`)
+- `RenderFrame` 输入 N 路 BGR `cv::Mat`,输出 5 个视图(`topdown` / `3d_front` / `3d_rear` / `3d_left` / `3d_right`)
+- 错误以异常表达(如 `Configure` 对 N∈[1,8] 之外的输入抛 `std::invalid_argument`)
+
+**任务 JSON 契约(`queue:stitch` 任务、base64 图解码、`stitch_result` / `stitch_error` 信封、`CreateStitchBackend` 工厂、`ParseBowlParams`、流式会话接口)已迁至 avm-worker**(其 `avm_stitch_integration` / `avm_renderer_bridge` 库),由 worker 统一完成 redis 协议适配与算法分发;本库不再涉及任何 JSON 形态。
 
 ## 9. 扩展性:如何支持更多相机
 
@@ -371,6 +276,6 @@ auto views = engine.RenderFrame(bgr_images);       // 每帧: map<视图名, Mat
 
 ## 10. 已知限制
 
-- **`eval_metrics` 是占位桩**:`ComputeStitchMetrics` 返回硬编码数值,`ComputeOverallScore` 按固定权重折算百分制(`src/eval_metrics/eval_metrics.hpp`)——`stitch_result` 里的 `metrics`/`overall_score` 目前**不反映真实质量**,仅保证字段契约
+- **JSON 集成层已迁至 avm-worker**:任务 JSON 契约、后端工厂、结果信封、相机名解析等集成层代码由 avm-worker 的 `avm_stitch_integration` 库承载;本库仅保留纯算法 API,不为"可选 JSON 门面"预留编译开关
 - **GL 测试依赖环境**:`tests/core/test_stitch_engine.cpp` 与 `tests/render/test_egl_headless_context.cpp` 的 GL 用例靠 EGL surfaceless 探测自动门控——无 GL 环境时 SKIP(`AVM_STITCH_TEST_GL=1` 强制)
 - **vcpkg OSG 构建怪癖**:`osg_ModelViewProjectionMatrix` 不会被自动更新,GL uniform 必须用 `osg::Matrixf`(Matrixd 会触发 GL_INVALID_OPERATION),见 `src/render/osg_view.cpp:73-78` 注释——升级 OSG 构建时需复测
