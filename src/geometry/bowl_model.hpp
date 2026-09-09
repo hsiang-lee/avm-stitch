@@ -1,6 +1,6 @@
 #pragma once
 
-// Bowl model: car-parameterized bowl mesh generation (pure math).
+// Bowl model: car-parameterized bowl model generation (pure math).
 // Algorithm mirrors the reference `create_block_boat_model` (bowlModel.hpp):
 //   z = k_slop * rd^z_exp outside the rounded-rectangle flat region,
 //   finite-difference normals on the curved rim.
@@ -31,14 +31,14 @@ struct BowlParams {
 // Bowl surface triangle mesh generated from car parameters. Immutable data
 // holder: read via the fine-grained index accessors (the internal container
 // layout is an implementation detail, free to change e.g. to SoA).
-class BowlMesh {
+class BowlModel {
 public:
-    /// Generate the bowl mesh (VCS coordinates) from car parameters.
-    explicit BowlMesh(const BowlParams& params);
+    /// Generate the bowl model (VCS coordinates) from car parameters.
+    explicit BowlModel(const BowlParams& params);
 
     /// Wrap pre-built vertex data (for tests / custom geometry): normals are
     /// taken as-is, no grid/normal recomputation, no triangles.
-    BowlMesh(std::vector<cv::Vec3d> vertices, std::vector<cv::Vec3d> normals);
+    BowlModel(std::vector<cv::Vec3d> vertices, std::vector<cv::Vec3d> normals);
 
     // --- fine-grained read access (index + count, no container exposure) ---
     /// Number of vertices (always == normal_count(), a construction invariant).
@@ -70,7 +70,7 @@ public:
 private:
     // Finite-difference normals: flat (z ~ 0) -> (0,0,1); curved -> unit normal
     // derived from dz/dx, dz/dy estimated from retained grid neighbours.
-    static void ComputeBowlNormals(BowlMesh& mesh,
+    static void ComputeBowlNormals(BowlModel& mesh,
                                    const std::vector<int>& grid_to_index,
                                    const BowlParams& params, int rows, int cols);
 

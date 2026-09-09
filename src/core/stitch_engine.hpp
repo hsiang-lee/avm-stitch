@@ -2,7 +2,7 @@
 
 // Two-phase AVM stitch engine API:
 //   Phase 1 Configure(intrinsics, extrinsics, bowl_params) — one-time setup.
-//     Builds the bowl mesh, bakes per-vertex UV + blend weights, builds the
+//     Builds the bowl model, bakes per-vertex UV + blend weights, builds the
 //     OSG scene graph and prepares the offscreen renderer. GL-free.
 //   Phase 2 RenderFrame(images[N]) — per frame.
 //     Uploads the N fisheye images into the camera texture array and renders

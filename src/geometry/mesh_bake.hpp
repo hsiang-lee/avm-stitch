@@ -30,10 +30,10 @@ struct BakedVertex {
 class BakedMesh {
 public:
     /// Bake per-vertex UV coordinates and blend weights.
-    /// @param bowl_mesh   generated bowl mesh (VCS coordinates)
+    /// @param bowl_model  generated bowl model (VCS coordinates)
     /// @param intrinsics  camera intrinsics (size N)
     /// @param extrinsics  camera extrinsics T_wc (size N, must match intrinsics)
-    BakedMesh(const BowlMesh& bowl_mesh,
+    BakedMesh(const BowlModel& bowl_model,
               const std::vector<CameraIntrinsics>& intrinsics,
               const std::vector<CameraExtrinsics>& extrinsics);
 

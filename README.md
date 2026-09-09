@@ -56,7 +56,7 @@ AVM(环视,亦称 Bird's Eye View / 360 全景)系统在车辆前后左右安装
 
 ### 3.1 碗形模型(`src/geometry/bowl_model.hpp`)
 
-header-only 纯数学,无 GL 依赖。`BowlMesh mesh(params)`(构造函数,原 `CreateBowlMesh`)生成碗面三角网格,数据经细粒度索引访问读取(`vertex_count()` / `vertex(i)` / `normal_count()` / `normal(i)` / `triangle_count()` / `triangle(i)`,另有网格规格查询 `rows()` / `cols()`)——不暴露内部容器,内部布局(将来可换 SoA 等)是纯实现细节:
+header-only 纯数学,无 GL 依赖。`BowlModel model(params)`(构造函数,取代最初的工厂函数)生成碗面三角网格,数据经细粒度索引访问读取(`vertex_count()` / `vertex(i)` / `normal_count()` / `normal(i)` / `triangle_count()` / `triangle(i)`,另有网格规格查询 `rows()` / `cols()`)——不暴露内部容器,内部布局(将来可换 SoA 等)是纯实现细节:
 
 ```
  z ^      rim:  z = k_slop * rd^z_exp   (max_z 封顶)
@@ -165,7 +165,7 @@ OSG(OpenSceneGraph)场景图 + GLSL 330 着色器,全离屏:
 ```
  Configure(intrinsics, extrinsics, BowlParams)      一次性
      |
-     | bowl mesh + baked uv[8] / weight[8]  (CPU 预计算, src/geometry/)
+     | bowl model + baked uv[8] / weight[8]  (CPU 预计算, src/geometry/)
      v
  osg::Geometry + GLSL 330                  (src/render/osg_scene.cpp)
      ^
@@ -272,7 +272,7 @@ auto views = engine.RenderFrame(bgr_images);   // 每帧: map<视图名, cv::Mat
 2. `BuildOSGGeometry` 重新打包:UV 需 8×vec4(location 2-9),权重需 4×vec4(location 10-13)——注意 GLSL 330 保证的顶点属性数至少 16,layout 0-13 仍在安全范围,但需在目标 GPU 上验证
 3. 片元着色器展开 16 路分支;`WEIGHT_MIN` 阈值机制可沿用
 4. `Configure` 校验上限放到 16
-5. **不需要动**:`ComputeBlendWeights`(N 无关,过渡半角自动变为 52/16 = 3.25°)、`BowlMesh` 构造、`UploadCameraImages`(纹理数组层数即 N)
+5. **不需要动**:`ComputeBlendWeights`(N 无关,过渡半角自动变为 52/16 = 3.25°)、`BowlModel` 构造、`UploadCameraImages`(纹理数组层数即 N)
 
 ## 10. 已知限制
 

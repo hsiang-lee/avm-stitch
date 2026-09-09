@@ -36,22 +36,22 @@ std::vector<CameraExtrinsics> MakeSideCameras(
     return cams;
 }
 
-BowlMesh MakeCoarseBowl(double r_outter) {
+BowlModel MakeCoarseBowl(double r_outter) {
     BowlParams bowl = BowlParams::Default();
     bowl.step = 1.0;        // coarse grid for test speed
     bowl.r_outter = r_outter;
-    return BowlMesh(bowl);
+    return BowlModel(bowl);
 }
 
 // Bake a coarse bowl for N side cameras. Returns a valid baked mesh with the
 // same vertex count as the bowl (unused camera slots stay zero).
 BakedMesh MakeBaked(int num_cameras) {
-    auto mesh = MakeCoarseBowl(12.6);
+    auto bowl_model = MakeCoarseBowl(12.6);
     std::vector<CameraIntrinsics> intrs(num_cameras, MakeIntrinsics());
     std::vector<double> azimuths;
     for (int i = 0; i < num_cameras; ++i) azimuths.push_back(i * 360.0 / num_cameras);
     auto extrs = MakeSideCameras(azimuths);
-    return BakedMesh(mesh, intrs, extrs);
+    return BakedMesh(bowl_model, intrs, extrs);
 }
 
 } // namespace

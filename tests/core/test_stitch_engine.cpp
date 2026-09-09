@@ -57,11 +57,11 @@ std::vector<CameraExtrinsics> MakeSideCameras(
     return cams;
 }
 
-BowlMesh MakeCoarseBowl(double r_outter) {
+BowlModel MakeCoarseBowl(double r_outter) {
     BowlParams bowl = BowlParams::Default();
     bowl.step = 1.0;        // coarse grid for test speed
     bowl.r_outter = r_outter;
-    return BowlMesh(bowl);
+    return BowlModel(bowl);
 }
 
 // Bake a coarse bowl for N side cameras and build the OSG scene for it.
@@ -75,13 +75,13 @@ struct TestScene {
 TestScene BuildTestSceneWithExtrinsics(int num_cameras,
                                        const std::vector<CameraExtrinsics>& extrs) {
     TestScene ts;
-    auto mesh = MakeCoarseBowl(12.6);
+    auto model = MakeCoarseBowl(12.6);
     std::vector<CameraIntrinsics> intrs(num_cameras, MakeIntrinsics());
-    auto baked = BakedMesh(mesh, intrs, extrs);
+    auto baked = BakedMesh(model, intrs, extrs);
 
     ts.has_visible_vertices = baked.HasVisibleVertices();
 
-    ts.root = BuildOSGScene(mesh, baked, num_cameras, intrs[0].width, intrs[0].height);
+    ts.root = BuildOSGScene(model, baked, num_cameras, intrs[0].width, intrs[0].height);
 
     // Pull the camera texture array out of the bowl geode's stateset so the
     // test can upload synthetic frames (RenderFrame does this internally).
@@ -552,7 +552,7 @@ TEST(StitchEngineTest, ConfigureNegativeKSlopThrows) {
 TEST(StitchEngineTest, ConfigureNegativeZExpThrows) {
     // z_exp < 0 makes the bowl rise formula (z = k_slop * rd^z_exp) blow up
     // for rd < 1 — reject it with a clear error instead of emitting NaN/inf
-    // vertex positions into the mesh.
+    // vertex positions into the model.
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 90, 180, 270});
     BowlParams bowl = BowlParams::Default();

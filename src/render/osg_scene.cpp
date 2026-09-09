@@ -36,7 +36,7 @@ osg::ref_ptr<osg::Vec4Array> BuildPackedVec4(const BakedMesh& baked,
 } // namespace
 
 osg::ref_ptr<osg::Geometry> BuildOSGGeometry(
-    const BowlMesh& bowl, const BakedMesh& baked, int num_cameras) {
+    const BowlModel& bowl, const BakedMesh& baked, int num_cameras) {
     (void)num_cameras;
     auto geom = new osg::Geometry;
 
@@ -237,7 +237,7 @@ void UploadCameraImages(osg::Texture2DArray* tex,
 }
 
 osg::ref_ptr<osg::Group> BuildOSGScene(
-    const BowlMesh& bowl, const BakedMesh& baked,
+    const BowlModel& bowl, const BakedMesh& baked,
     int num_cameras, int image_w, int image_h) {
     auto root = new osg::Group;
 

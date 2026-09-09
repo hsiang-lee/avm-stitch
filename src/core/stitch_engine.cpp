@@ -100,13 +100,13 @@ struct StitchEngine::Impl {
         ValidateConfigureArgs(intrinsics, extrinsics, bowl_params);
         const int N = static_cast<int>(intrinsics.size());
 
-        // Phase 1 pipeline: bowl mesh -> bake UV/weights -> OSG scene graph.
-        const BowlMesh mesh(bowl_params);
-        const BakedMesh baked(mesh, intrinsics, extrinsics);
+        // Phase 1 pipeline: bowl model -> bake UV/weights -> OSG scene graph.
+        const BowlModel model(bowl_params);
+        const BakedMesh baked(model, intrinsics, extrinsics);
 
         const int img_w = intrinsics[0].width;
         const int img_h = intrinsics[0].height;
-        root = BuildOSGScene(mesh, baked, N, img_w, img_h);
+        root = BuildOSGScene(model, baked, N, img_w, img_h);
         // Upload into the texture that the scene's stateset actually binds.
         texture_array = FindSceneTexture(root.get());
 
