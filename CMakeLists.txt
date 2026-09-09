@@ -27,6 +27,7 @@ endfunction()
 
 # -- avm_stitch static library --
 add_library(avm_stitch STATIC
+    src/geometry/bowl_model.cpp
     src/geometry/blend_weights.cpp
     src/render/egl_headless_context.cpp
     src/geometry/mesh_bake.cpp
@@ -35,6 +36,9 @@ add_library(avm_stitch STATIC
     src/core/stitch_engine.cpp
 )
 # PUBLIC include: src/ 提供 geometry/ render/ core/ util/
+# NOTE: avm-worker's src/ mirrors these core/|geometry/|util/ paths (mutually
+# exclusive file sets by convention) — do not create same-name headers on
+# both sides.
 target_include_directories(avm_stitch PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
@@ -50,9 +54,10 @@ target_osg_whole_archive(avm_stitch)
 enable_testing()
 include(GoogleTest)
 
-# -- test_bowl_model (header-only bowl_model.hpp)
+# -- test_bowl_model (bowl_model.hpp + bowl_model.cpp)
 add_executable(test_bowl_model
     tests/geometry/test_bowl_model.cpp
+    src/geometry/bowl_model.cpp
 )
 target_include_directories(test_bowl_model PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_bowl_model PRIVATE
@@ -87,6 +92,7 @@ gtest_discover_tests(test_blend_weights)
 # -- test_mesh_bake
 add_executable(test_mesh_bake
     tests/geometry/test_mesh_bake.cpp
+    src/geometry/bowl_model.cpp
     src/geometry/blend_weights.cpp
     src/geometry/mesh_bake.cpp
 )
@@ -111,6 +117,7 @@ gtest_discover_tests(test_view_config)
 # -- test_osg_scene (OSG scene graph construction; structural, no GL) --
 add_executable(test_osg_scene
     tests/render/test_osg_scene.cpp
+    src/geometry/bowl_model.cpp
     src/geometry/blend_weights.cpp
     src/geometry/mesh_bake.cpp
     src/render/osg_scene.cpp
@@ -126,6 +133,7 @@ gtest_discover_tests(test_osg_scene)
 # -- test_stitch_engine (OSGViewRenderer + StitchEngine; GL-gated rendering) --
 add_executable(test_stitch_engine
     tests/core/test_stitch_engine.cpp
+    src/geometry/bowl_model.cpp
     src/geometry/blend_weights.cpp
     src/render/egl_headless_context.cpp
     src/geometry/mesh_bake.cpp
