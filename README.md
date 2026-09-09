@@ -54,9 +54,9 @@ AVM(环视,亦称 Bird's Eye View / 360 全景)系统在车辆前后左右安装
 
 五段算法讲解,每段给出直觉解释 + 对应代码位置。
 
-### 3.1 碗形模型(`src/geometry/bowl_model.hpp`)
+### 3.1 碗形模型(`src/geometry/bowl_model.hpp` / `.cpp`)
 
-header-only 纯数学,无 GL 依赖。`BowlModel model(params)`(构造函数,取代最初的工厂函数)生成碗面三角网格,数据经细粒度索引访问读取(`vertex_count()` / `vertex(i)` / `normal_count()` / `normal(i)` / `triangle_count()` / `triangle(i)`,另有网格规格查询 `rows()` / `cols()`)——不暴露内部容器,内部布局(将来可换 SoA 等)是纯实现细节:
+hpp/cpp 拆分,纯数学,无 GL 依赖。`BowlModel model(params)`(构造函数,取代最初的工厂函数)生成碗面三角网格,数据经细粒度索引访问读取(`vertex_count()` / `vertex(i)` / `normal_count()` / `normal(i)` / `triangle_count()` / `triangle(i)`,另有网格规格查询 `rows()` / `cols()`)——不暴露内部容器,内部布局(将来可换 SoA 等)是纯实现细节:
 
 ```
  z ^      rim:  z = k_slop * rd^z_exp   (max_z 封顶)

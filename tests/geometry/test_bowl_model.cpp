@@ -335,16 +335,6 @@ TEST(BowlModelBakeTest, SingleCamera_UVMatchesProjection) {
     EXPECT_GT(checked, 0);   // some vertices must actually be visible
 }
 
-TEST(BowlModelBakeTest, N4_VertexCountMatches) {
-    auto model = MakeCoarseBowl(12.6);
-    auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
-    auto extrs = MakeSideCameras({0, 180, 90, -90});
-    model.Bake(intrs, extrs);
-    // One baked vertex per bowl vertex (index range validated by the loop
-    // below via the accessor's bound assert).
-    ASSERT_EQ(4, model.baked_num_cameras());
-}
-
 TEST(BowlModelBakeTest, N4_NumCameras) {
     auto model = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
@@ -598,9 +588,14 @@ TEST(BowlModelBakeTest, IndexAccess_CountsMatchBowl) {
     auto model = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
+    EXPECT_FALSE(model.IsBaked());
     model.Bake(intrs, extrs);
-    // One baked vertex per bowl vertex (index range validated by the loop
-    // below via the accessor's bound assert).
+    EXPECT_TRUE(model.IsBaked());
+    // One baked vertex per bowl vertex: the full index range must be valid
+    // (an out-of-bounds index trips baked_vertex()'s bound assert).
+    for (int i = 0; i < model.vertex_count(); ++i) {
+        (void)model.baked_vertex(i);
+    }
 }
 
 TEST(BowlModelBakeTest, IndexAccess_BakedVertexWeightSemantics) {
@@ -640,4 +635,30 @@ TEST(BowlModelBakeTest, HasVisibleVertices_FalseWhenAllInvisible) {
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
     model.Bake({intr}, {extr});
     EXPECT_FALSE(model.HasVisibleVertices());
+}
+
+// Re-baking with fewer cameras must clear the stale higher slots: slots 4-7
+// from an 8-camera bake keep zero weight/uv after a 4-camera re-bake
+// (docs promise "Re-baking overwrites previous results").
+TEST(BowlModelBakeTest, RebakeClearsStaleSlots) {
+    auto model = MakeCoarseBowl(12.6);
+    auto intrs = std::vector<CameraIntrinsics>(8, MakeIntrinsics());
+    auto extrs8 = MakeSideCameras({0, 180, 90, -90, 45, 135, 225, 315});
+    model.Bake(intrs, extrs8);
+    ASSERT_EQ(8, model.baked_num_cameras());
+
+    // Re-bake with the first 4 cameras only.
+    auto extrs4 = MakeSideCameras({0, 180, 90, -90});
+    model.Bake(std::vector<CameraIntrinsics>(intrs.begin(), intrs.begin() + 4),
+               extrs4);
+    ASSERT_EQ(4, model.baked_num_cameras());
+
+    for (int i = 0; i < model.vertex_count(); ++i) {
+        const BakedVertex& bv = model.baked_vertex(i);
+        for (int j = 4; j < 8; ++j) {
+            EXPECT_FLOAT_EQ(0.0f, bv.weight[j]);
+            EXPECT_FLOAT_EQ(0.0f, bv.uv[j][0]);
+            EXPECT_FLOAT_EQ(0.0f, bv.uv[j][1]);
+        }
+    }
 }

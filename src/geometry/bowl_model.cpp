@@ -115,7 +115,9 @@ void BowlModel::Bake(const std::vector<CameraIntrinsics>& intrinsics,
                      const std::vector<CameraExtrinsics>& extrinsics) {
     const int N = static_cast<int>(intrinsics.size());
     baked_num_cameras_ = N;
-    baked_vertices_.resize(vertex_count());
+    // Force a fresh buffer: resize() alone would keep stale per-slot data from
+    // a previous (larger) bake; the docs promise re-baking overwrites.
+    baked_vertices_ = std::vector<BakedVertex>(vertex_count());
 
     for (int i = 0; i < vertex_count(); ++i) {
         const cv::Vec3d& P = vertices_[i];
