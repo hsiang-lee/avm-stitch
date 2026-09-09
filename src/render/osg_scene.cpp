@@ -11,7 +11,7 @@
 #include <cstring>
 #include <string>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 namespace {
 
@@ -269,4 +269,4 @@ osg::ref_ptr<osg::Group> BuildOSGScene(
     return root;
 }
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

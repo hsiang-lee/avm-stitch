@@ -8,7 +8,7 @@
 #include <opencv2/core.hpp>
 #include <vector>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 /// Compute sector boundary angles (degrees) for N cameras sorted by azimuth.
 /// @return N boundaries in [0, 360), midpoints between adjacent sorted cameras.
@@ -27,4 +27,4 @@ std::vector<double> ComputeBlendWeights(
     const cv::Vec3d& P_world,
     const std::vector<CameraExtrinsics>& extrinsics);
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

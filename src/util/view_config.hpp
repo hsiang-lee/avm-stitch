@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 struct ViewPose {
     std::string name;
@@ -27,4 +27,4 @@ inline std::vector<ViewPose> DefaultViewPoses() {
     };
 }
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

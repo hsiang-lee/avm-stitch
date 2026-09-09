@@ -4,7 +4,7 @@ C++20 AVM(Around View Monitor,环视/360 鸟瞰)拼接静态库。
 
 - **JSON-in / JSON-out**:输入任务 JSON(base64 鱼眼图 + 标定),输出 `stitch_result` JSON(base64 PNG 视图)
 - **Headless EGL 渲染**:EGL surfaceless 离屏上下文,无需 X server / 显示器,可直接跑在 Docker/CI
-- **可嵌入**:纯静态库,无 main,命名空间 `avm_worker::avm_stitch`,CMake + vcpkg 管理
+- **可嵌入**:纯静态库,无 main,命名空间 `avm_stitch`,CMake + vcpkg 管理
 - **N 路相机**:架构上限 8 路,`Configure` 接受 N∈[1,8];典型配置为 4 路(前/后/左/右)
 
 ---
@@ -339,7 +339,7 @@ ctest --test-dir build                # 9 个目标
 C++ 侧最小集成:
 
 ```cpp
-using namespace avm_worker::avm_stitch;
+using namespace avm_stitch;
 
 auto backend = CreateStitchBackend("osg");
 nlohmann::json result = backend->Run(task_json);   // 永不抛出

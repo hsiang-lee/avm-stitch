@@ -13,7 +13,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 namespace {
 
@@ -132,4 +132,4 @@ bool StitchEngine::IsConfigured() const { return configured_; }
 
 int StitchEngine::GetNumCameras() const { return num_cameras_; }
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

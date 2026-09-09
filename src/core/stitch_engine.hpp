@@ -19,7 +19,7 @@
 #include <string>
 #include <vector>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 class StitchEngine {
 public:
@@ -58,4 +58,4 @@ private:
     int num_cameras_ = 0;
 };
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

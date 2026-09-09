@@ -3,7 +3,7 @@
 #include <osg/Notify>
 #include <osg/State>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 EGLHeadlessContext::EGLHeadlessContext(osg::GraphicsContext::Traits* traits) {
     _traits = traits;
@@ -227,4 +227,4 @@ osg::ref_ptr<EGLHeadlessContext> CreateEGLHeadlessContext(int width, int height)
     return new EGLHeadlessContext(traits.get());
 }
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

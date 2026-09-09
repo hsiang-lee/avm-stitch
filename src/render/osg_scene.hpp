@@ -19,7 +19,7 @@
 
 #include <vector>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 /// Build the bowl mesh geometry with per-vertex attributes.
 /// Vertex positions/normals are converted VCS -> OpenGL: (x,y,z) -> (x,z,-y).
@@ -49,4 +49,4 @@ osg::ref_ptr<osg::Group> BuildOSGScene(
     const BowlMesh& bowl, const BakedMesh& baked,
     int num_cameras, int image_w, int image_h);
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

@@ -8,7 +8,7 @@
 
 #include <vector>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 // Fixed 8 camera slots (N <= 8). Unused slots stay zero.
 struct BakedVertex {
@@ -36,4 +36,4 @@ BakedMesh BakeMesh(const BowlMesh& bowl_mesh,
                    const std::vector<CameraIntrinsics>& intrinsics,
                    const std::vector<CameraExtrinsics>& extrinsics);
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

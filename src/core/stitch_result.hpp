@@ -3,7 +3,7 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 // Build the standard stitch_result JSON contract. Shared by the subprocess
 // and OSG backends so both produce an identical result envelope.
@@ -14,4 +14,4 @@ nlohmann::json BuildStitchResult(
     const nlohmann::json& view_errors_obj,
     long elapsed_ms);
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

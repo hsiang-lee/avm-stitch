@@ -2,7 +2,7 @@
 
 #include "eval_metrics/eval_metrics.hpp"
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 nlohmann::json BuildStitchResult(
     const std::string& task_id,
@@ -11,8 +11,8 @@ nlohmann::json BuildStitchResult(
     const nlohmann::json& view_errors_obj,
     long elapsed_ms) {
 
-    auto metrics = ComputeStitchMetrics();
-    double overall = ComputeOverallScore(metrics);
+    auto metrics = avm_worker::ComputeStitchMetrics();
+    double overall = avm_worker::ComputeOverallScore(metrics);
     metrics["overall"] = overall;
 
     nlohmann::json result;
@@ -35,4 +35,4 @@ nlohmann::json BuildStitchResult(
     return result;
 }
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

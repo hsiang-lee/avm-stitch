@@ -16,7 +16,7 @@
 #include <string>
 #include <vector>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 namespace {
 
@@ -108,7 +108,7 @@ ParsedCalibration ParseCalibration(const nlohmann::json& calibration) {
 // Decode a base64 JPEG payload; throws a camera-labelled error when the data
 // is empty/invalid or the image cannot be decoded.
 cv::Mat DecodeBase64Jpeg(const std::string& b64, const std::string& cam_key) {
-    auto jpeg_bytes = base64_decode(b64);
+    auto jpeg_bytes = avm_worker::base64_decode(b64);
     if (jpeg_bytes.empty()) {
         throw std::runtime_error("Empty or invalid base64 data for camera: " +
                                  cam_key);
@@ -153,7 +153,7 @@ nlohmann::json EncodeViewsAsBase64(
         if (!cv::imencode(".png", mat, png_buf)) {
             throw std::runtime_error("Failed to encode view: " + view_name);
         }
-        images_obj[view_name] = base64_encode(png_buf);
+        images_obj[view_name] = avm_worker::base64_encode(png_buf);
     }
     return images_obj;
 }
@@ -221,4 +221,4 @@ nlohmann::json OSGBackend::Run(const nlohmann::json& task) {
     }
 }
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

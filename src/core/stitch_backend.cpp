@@ -2,7 +2,7 @@
 
 #include "core/osg_backend.hpp"
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 std::unique_ptr<StitchBackend> CreateStitchBackend(const std::string& name) {
     if (name == "osg") {
@@ -11,4 +11,4 @@ std::unique_ptr<StitchBackend> CreateStitchBackend(const std::string& name) {
     return nullptr;
 }
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

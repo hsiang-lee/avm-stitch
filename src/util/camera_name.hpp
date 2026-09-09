@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 // Canonical camera role tags: the capitalized forms used by the calib XML
 // templates' placeholders ({{FX_Front}}) and by index-based fallback.
@@ -83,4 +83,4 @@ inline std::string ResolveCameraName(const nlohmann::json& cam, size_t index) {
     return ResolveCameraLabel(cam, index);
 }
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

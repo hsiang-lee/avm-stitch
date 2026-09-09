@@ -20,7 +20,7 @@
 #include <cstdlib>
 #include <string>
 
-using namespace avm_worker::avm_stitch;
+using namespace avm_stitch;
 
 // ---------------------------------------------------------------------------
 // GL fixture: skip the whole suite when no OpenGL context is available

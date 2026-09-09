@@ -9,7 +9,7 @@
 
 #include <opencv2/imgproc.hpp>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 namespace {
 
@@ -163,4 +163,4 @@ std::map<std::string, cv::Mat> OSGViewRenderer::RenderAllViews() {
     return results;
 }
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

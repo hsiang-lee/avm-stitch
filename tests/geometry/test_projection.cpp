@@ -10,7 +10,7 @@
 #include <cmath>
 #include <vector>
 
-using namespace avm_worker::avm_stitch;
+using namespace avm_stitch;
 
 namespace {
 

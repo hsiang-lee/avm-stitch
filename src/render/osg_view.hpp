@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 class OSGViewRenderer {
 public:
@@ -59,4 +59,4 @@ private:
     bool realized_ = false;
 };
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

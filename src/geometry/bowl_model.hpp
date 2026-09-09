@@ -13,7 +13,7 @@
 #include <cmath>
 #include <vector>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 struct BowlParams {
     double car_length = 5.6;
@@ -169,4 +169,4 @@ inline BowlMesh CreateBowlMesh(const BowlParams& params) {
     return mesh;
 }
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

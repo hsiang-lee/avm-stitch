@@ -3,7 +3,7 @@
 #include <memory>
 #include <string>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 // Stitch backend interface: Run(task) -> json. The OSG engine implements it;
 // the renderer proxy (migrated to avm-worker) implements the same contract.
@@ -19,4 +19,4 @@ public:
 // (including "renderer", whose proxy moved to avm-worker) -> nullptr.
 std::unique_ptr<StitchBackend> CreateStitchBackend(const std::string& name);
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch
