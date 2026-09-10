@@ -4,7 +4,7 @@
 #include <cmath>
 #include <utility>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 namespace {
 
@@ -128,4 +128,4 @@ std::vector<double> ComputeBlendWeights(
     return weights;
 }
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

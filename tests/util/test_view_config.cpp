@@ -5,7 +5,7 @@
 
 #include "util/view_config.hpp"
 
-using namespace avm_worker::avm_stitch;
+using namespace avm_stitch;
 
 TEST(ViewConfigTest, DefaultViewPoses_Returns5Views) {
     auto poses = DefaultViewPoses();

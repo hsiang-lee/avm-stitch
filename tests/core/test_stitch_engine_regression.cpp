@@ -9,9 +9,9 @@
 #include "core/stitch_engine.hpp"
 
 #include <stdexcept>
+#include <string>
 
-using namespace avm_worker;
-using namespace avm_worker::avm_stitch;
+using namespace avm_stitch;
 
 TEST(RegressionTest, PublicApiHeadersAreSelfContained) {
     // Compiling this translation unit already proves the avm_stitch public

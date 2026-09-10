@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 struct CameraIntrinsics {
     int width = 0, height = 0;
@@ -104,4 +104,4 @@ inline double FisheyeEdgeFeather(const CameraIntrinsics& intr,
     return margin / feather_px;
 }
 
-}} // namespace avm_worker::avm_stitch
+} // namespace avm_stitch

@@ -7,7 +7,7 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
-namespace avm_worker { namespace avm_stitch {
+namespace avm_stitch {
 
 /// Headless EGL surfaceless graphics window (desktop GL, no X11).
 class EGLHeadlessContext : public osgViewer::GraphicsWindow {
@@ -45,4 +45,4 @@ private:
 /// Create an EGLHeadlessContext from default traits (width x height, 3.3 compat).
 osg::ref_ptr<EGLHeadlessContext> CreateEGLHeadlessContext(int width, int height);
 
-}} // namespace
+} // namespace avm_stitch
