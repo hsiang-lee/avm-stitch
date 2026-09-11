@@ -30,11 +30,11 @@ add_library(avm_stitch STATIC
     src/geometry/bowl_model.cpp
     src/geometry/blend_weights.cpp
     src/render/egl_headless_context.cpp
-    src/render/osg_scene.cpp
-    src/render/osg_view.cpp
+    src/render/stitch_scene.cpp
+    src/render/osg_view_renderer.cpp
     src/core/stitch_engine.cpp
 )
-# PUBLIC include: src/ 提供 geometry/ render/ core/ util/
+# PUBLIC include: src/ 提供 geometry/ render/ core/
 # NOTE: avm-worker's src/ mirrors these core/|geometry/|util/ paths (mutually
 # exclusive file sets by convention) — do not create same-name headers on
 # both sides.
@@ -50,6 +50,9 @@ target_link_libraries(avm_stitch PUBLIC
 # --whole-archive the X11 WSI static-registration object is not pulled in.
 target_osg_whole_archive(avm_stitch)
 
+# -- examples --
+add_subdirectory(examples)
+
 enable_testing()
 include(GoogleTest)
 
@@ -59,7 +62,7 @@ add_executable(test_bowl_model
     src/geometry/bowl_model.cpp
     src/geometry/blend_weights.cpp
 )
-target_include_directories(test_bowl_model PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(test_bowl_model PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(test_bowl_model PRIVATE
     GTest::gtest_main
     ${OpenCV_LIBS}
@@ -89,31 +92,21 @@ target_link_libraries(test_blend_weights PRIVATE
 )
 gtest_discover_tests(test_blend_weights)
 
-# -- test_view_config (header-only view_config.hpp)
-add_executable(test_view_config
-    tests/util/test_view_config.cpp
-)
-target_include_directories(test_view_config PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(test_view_config PRIVATE
-    GTest::gtest_main
-    ${OpenCV_LIBS}
-)
-gtest_discover_tests(test_view_config)
 
-# -- test_osg_scene (OSG scene graph construction; structural, no GL) --
-add_executable(test_osg_scene
-    tests/render/test_osg_scene.cpp
+# -- test_stitch_scene (OSG scene graph construction; structural, no GL) --
+add_executable(test_stitch_scene
+    tests/render/test_stitch_scene.cpp
     src/geometry/bowl_model.cpp
     src/geometry/blend_weights.cpp
-    src/render/osg_scene.cpp
+    src/render/stitch_scene.cpp
 )
-target_include_directories(test_osg_scene PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(test_osg_scene PRIVATE
+target_include_directories(test_stitch_scene PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(test_stitch_scene PRIVATE
     GTest::gtest_main
     ${OpenCV_LIBS}
     unofficial::osg::osg unofficial::osg::osgViewer unofficial::osg::osgDB unofficial::osg::osgUtil
 )
-gtest_discover_tests(test_osg_scene)
+gtest_discover_tests(test_stitch_scene)
 
 # -- test_stitch_engine (OSGViewRenderer + StitchEngine; GL-gated rendering) --
 add_executable(test_stitch_engine
@@ -121,11 +114,11 @@ add_executable(test_stitch_engine
     src/geometry/bowl_model.cpp
     src/geometry/blend_weights.cpp
     src/render/egl_headless_context.cpp
-    src/render/osg_scene.cpp
-    src/render/osg_view.cpp
+    src/render/stitch_scene.cpp
+    src/render/osg_view_renderer.cpp
     src/core/stitch_engine.cpp
 )
-target_include_directories(test_stitch_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(test_stitch_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(test_stitch_engine PRIVATE
     GTest::gtest_main
     ${OpenCV_LIBS}
@@ -135,12 +128,34 @@ target_link_libraries(test_stitch_engine PRIVATE
 target_osg_whole_archive(test_stitch_engine)
 gtest_discover_tests(test_stitch_engine)
 
+# -- test_osg_view_renderer (OSGViewRenderer; GL-gated rendering) --
+add_executable(test_osg_view_renderer
+    tests/render/test_osg_view_renderer.cpp
+    src/geometry/bowl_model.cpp
+    src/geometry/blend_weights.cpp
+    src/render/egl_headless_context.cpp
+    src/render/stitch_scene.cpp
+    src/render/osg_view_renderer.cpp
+)
+target_include_directories(test_osg_view_renderer PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+)
+target_link_libraries(test_osg_view_renderer PRIVATE
+    GTest::gtest_main
+    ${OpenCV_LIBS}
+    unofficial::osg::osg unofficial::osg::osgViewer unofficial::osg::osgDB unofficial::osg::osgUtil
+    OpenGL::EGL OpenGL::OpenGL
+)
+target_osg_whole_archive(test_osg_view_renderer)
+gtest_discover_tests(test_osg_view_renderer)
+
 # -- test_egl_headless_context (headless EGL surfaceless GL context) --
 add_executable(test_egl_headless_context
     tests/render/test_egl_headless_context.cpp
     src/render/egl_headless_context.cpp
 )
-target_include_directories(test_egl_headless_context PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(test_egl_headless_context PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(test_egl_headless_context PRIVATE
     GTest::gtest_main
     ${OpenCV_LIBS}
@@ -154,7 +169,7 @@ gtest_discover_tests(test_egl_headless_context)
 add_executable(test_stitch_engine_regression
     tests/core/test_stitch_engine_regression.cpp
 )
-target_include_directories(test_stitch_engine_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(test_stitch_engine_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(test_stitch_engine_regression PRIVATE
     GTest::gtest_main
     avm_stitch

@@ -1,7 +1,8 @@
 #pragma once
 
 // 3D world (VCS) -> fisheye pixel projection (header-only).
-// Delegates the pinhole + fisheye distortion to cv::fisheye::projectPoints
+// Hand-written equidistant fisheye model (θ = atan2(r_xy, z) ∈ [0, π])
+// replaces the previous cv::fisheye::projectPoints call.
 // (OpenCV convention: T_wc extrinsics, camera y-axis points down).
 
 #include <opencv2/calib3d.hpp>
@@ -34,38 +35,41 @@ inline cv::Vec3d TransformWorldToCamera(const cv::Vec3d& P_world,
 }
 
 /// Project a 3D world point (VCS) to fisheye pixel coordinates.
+/// Uses hand-written equidistant fisheye model (θ = atan2(r_xy, z) ∈ [0, π]),
+/// replacing the previous cv::fisheye::projectPoints call. Removes z≤0 early
+/// return — the model handles all z values, including z<0 (no mirror pixel).
 /// @param P_world  3D point in VCS (metres)
 /// @param intr     camera intrinsics (fx,fy,cx,cy,k1..k4)
 /// @param extr     camera extrinsics T_wc (camera->world)
-/// @param u, v     output fisheye pixel coordinates; (-1,-1) if behind camera
+/// @param u, v     output fisheye pixel coordinates
 inline void ProjectWorldToFishEye(const cv::Vec3d& P_world,
                                   const CameraIntrinsics& intr,
                                   const CameraExtrinsics& extr,
                                   double& u, double& v) {
     cv::Vec3d P_cam = TransformWorldToCamera(P_world, extr);
-    if (P_cam[2] <= kEps) {
-        u = -1.0;   // behind camera
-        v = -1.0;
+    const double x = P_cam[0], y = P_cam[1], z = P_cam[2];
+    const double r_xy = std::sqrt(x*x + y*y);
+
+    if (r_xy < kEps) {
+        u = intr.cx;
+        v = intr.cy;
         return;
     }
 
-    // world -> camera rvec/tvec (T_wc -> T_cw)
-    cv::Matx33d Rcw = extr.R.t();
-    cv::Vec3d tcw = -Rcw * extr.t;
-    cv::Mat rvec;
-    cv::Rodrigues(cv::Mat(Rcw), rvec);
-    cv::Mat tvec = (cv::Mat_<double>(3, 1) << tcw[0], tcw[1], tcw[2]);
-    cv::Mat K = (cv::Mat_<double>(3, 3) << intr.fx, 0, intr.cx,
-                 0, intr.fy, intr.cy, 0, 0, 1);
-    cv::Mat D = (cv::Mat_<double>(4, 1) << intr.k1, intr.k2, intr.k3, intr.k4);
-    std::vector<cv::Point3d> obj(1, cv::Point3d(P_world[0], P_world[1], P_world[2]));
-    std::vector<cv::Point2d> img;
-    cv::fisheye::projectPoints(obj, img, rvec, tvec, K, D);
-    u = img[0].x;
-    v = img[0].y;
+    double theta = std::atan2(r_xy, z);        // ∈ [0, π]
+    double theta2 = theta * theta;
+    double theta_d = theta * (1.0 + intr.k1 * theta2
+                                   + intr.k2 * theta2 * theta2
+                                   + intr.k3 * theta2 * theta2 * theta2
+                                   + intr.k4 * theta2 * theta2 * theta2 * theta2);
+    double factor = theta_d / r_xy;
+    u = intr.cx + intr.fx * factor * x;
+    v = intr.cy + intr.fy * factor * y;
 }
 
 /// Check if a world point is in front of the camera (Z_cam > 0).
+/// DEPRECATED: z>0 only semantic, DO NOT use for visibility gating.
+/// Circle check replaces FOV boundary.
 inline bool IsForwardFacing(const cv::Vec3d& P_world, const CameraExtrinsics& extr) {
     return TransformWorldToCamera(P_world, extr)[2] > 0.0;
 }
@@ -88,20 +92,26 @@ inline bool IsInsideFisheyeCircle(const CameraIntrinsics& intr,
     return r_px <= FisheyeCircleRadius(intr);
 }
 
-// Feather factor for pixels near the fisheye effective-circle edge: 1.0 well
-// inside, smoothly -> 0 as the projected pixel approaches the circle boundary.
-// Prevents linear texture filtering from mixing the black dead-zone into the
-// seam blend. feather_px is the fade width in pixels (<= 0 -> no fade).
+// Hard gate for pixels near the fisheye effective-circle edge: 1.0 well
+// inside, 0.0 within the feather band. Prevents the dark vignette at the
+// fisheye rim (measured luminance profile: r220=71, r230=19, r240=0.15)
+// from being sampled — the "feather" acts as a hard visibility gate, not a
+// soft fade (since the dark rim is pure black, linear interpolation cannot
+// salvage it). feather_px is the exclusion width in pixels (<= 0 -> no
+// exclusion). Default 40 px covers the full vignette ramp.
 inline double FisheyeEdgeFeather(const CameraIntrinsics& intr,
                                  double u_px, double v_px,
-                                 double feather_px = 16.0) {
+                                 double feather_px = 40.0) {
     if (feather_px <= 0.0) return 1.0;
     const double r_px = std::hypot(u_px - intr.cx, v_px - intr.cy);
     const double radius = FisheyeCircleRadius(intr);
     const double margin = radius - r_px;          // >0 guaranteed inside circle
+    // Hard gate: exclude everything within feather_px of the circle edge
+    // (was a linear fade before the 2026-09-11 fix — changed to a step
+    // because the D3 fallback normalizes weight and amplifies even a
+    // fractionally-safe sample to full weight, rendering the dark rim).
     if (margin >= feather_px) return 1.0;
-    if (margin <= 0.0) return 0.0;
-    return margin / feather_px;
+    return 0.0;
 }
 
 } // namespace avm_stitch

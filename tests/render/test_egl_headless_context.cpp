@@ -1,13 +1,8 @@
 // Tests for the headless EGL surfaceless GraphicsWindow (desktop GL 3.3
 // compatibility profile, no window, no X server). These tests MUST pass with
 // DISPLAY unset (`env -u DISPLAY ./build/test_egl_headless_context`): the EGL
-// surfaceless platform ignores DISPLAY entirely. GL-dependent tests are gated:
-// they skip unless AVM_STITCH_TEST_GL=1 or a working OpenGL context is
-// detected (same gating as tests/core/test_stitch_engine.cpp).
+// surfaceless platform ignores DISPLAY entirely.
 
-// GL_GLEXT_PROTOTYPES must be defined before <GL/gl.h> is first included:
-// the vcpkg osg GL2 build only defines it for GL3 builds, and the GLSL 330
-// compile test needs the glCreateShader/glCompileShader/... prototypes.
 #define GL_GLEXT_PROTOTYPES
 #include <GL/gl.h>
 
@@ -15,54 +10,17 @@
 
 #include "render/egl_headless_context.hpp"
 
+#include "test_support/gl_fixture.hpp"
+
 #include <osg/GraphicsContext>
 
-#include <cstdlib>
 #include <string>
 
 using namespace avm_stitch;
-
-// ---------------------------------------------------------------------------
-// GL fixture: skip the whole suite when no OpenGL context is available
-// (identical detection to tests/core/test_stitch_engine.cpp).
-// ---------------------------------------------------------------------------
-class EGLHeadlessContextTest : public ::testing::Test {
-protected:
-    void SetUp() override {
-        if (!IsGLContextAvailable()) {
-            GTEST_SKIP() << "OpenGL context not available (set AVM_STITCH_TEST_GL=1 to force)";
-        }
-    }
-
-    static bool IsGLContextAvailable() {
-        static const bool available = DetectGLContext();
-        return available;
-    }
-
-    static bool DetectGLContext() {
-        const char* env = std::getenv("AVM_STITCH_TEST_GL");
-        if (env) return std::atoi(env) == 1;
-        // Probe: a headless EGL surfaceless context (no X server, no DISPLAY)
-        // whose GL_VERSION must be queryable once current.
-        try {
-            auto gc = CreateEGLHeadlessContext(1, 1);
-            if (!gc->realizeImplementation()) return false;
-            bool ok = gc->valid() && gc->makeCurrentImplementation();
-            if (ok) {
-                const char* ver =
-                    reinterpret_cast<const char*>(glGetString(GL_VERSION));
-                ok = ver != nullptr;
-            }
-            gc->closeImplementation();
-            return ok;
-        } catch (...) {
-            return false;
-        }
-    }
-};
+using avm_stitch::test::OSGGLTest;
 
 // The context must realize and report valid without any window/display.
-TEST_F(EGLHeadlessContextTest, RealizesValidHeadless) {
+TEST_F(OSGGLTest, RealizesValidHeadless) {
     auto gc = CreateEGLHeadlessContext(16, 16);
     ASSERT_TRUE(gc.valid());
     EXPECT_TRUE(gc->realizeImplementation());
@@ -74,7 +32,7 @@ TEST_F(EGLHeadlessContextTest, RealizesValidHeadless) {
 
 // makeCurrent must succeed and expose a desktop-GL context (GL_VERSION
 // non-null and not an ES string).
-TEST_F(EGLHeadlessContextTest, MakeCurrentExposesDesktopGL) {
+TEST_F(OSGGLTest, MakeCurrentExposesDesktopGL) {
     auto gc = CreateEGLHeadlessContext(16, 16);
     ASSERT_TRUE(gc->realizeImplementation());
     EXPECT_TRUE(gc->makeCurrentImplementation());
@@ -94,7 +52,7 @@ TEST_F(EGLHeadlessContextTest, MakeCurrentExposesDesktopGL) {
 
 // A GLSL 330 core shader must compile on the context (proves it is a real
 // desktop GL 3.3+ context, not an ES-only context).
-TEST_F(EGLHeadlessContextTest, GLSL330Compiles) {
+TEST_F(OSGGLTest, GLSL330Compiles) {
     auto gc = CreateEGLHeadlessContext(16, 16);
     ASSERT_TRUE(gc->realizeImplementation());
     ASSERT_TRUE(gc->makeCurrentImplementation());
@@ -114,7 +72,7 @@ TEST_F(EGLHeadlessContextTest, GLSL330Compiles) {
 }
 
 // releaseContext then re-makeCurrent works (viewer frame() calls both).
-TEST_F(EGLHeadlessContextTest, ReleaseThenRemakeCurrent) {
+TEST_F(OSGGLTest, ReleaseThenRemakeCurrent) {
     auto gc = CreateEGLHeadlessContext(16, 16);
     ASSERT_TRUE(gc->realizeImplementation());
     EXPECT_TRUE(gc->makeCurrentImplementation());

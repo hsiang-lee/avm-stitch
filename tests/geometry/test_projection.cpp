@@ -26,7 +26,7 @@ cv::Matx33d MakeLookAtRotation(const cv::Vec3d& pos, const cv::Vec3d& target) {
     cv::Vec3d r = world_up.cross(f);
     if (cv::norm(r) < 1e-9) r = cv::Vec3d(1.0, 0.0, 0.0);
     r /= cv::norm(r);
-    cv::Vec3d u = -f.cross(r);
+    cv::Vec3d u = f.cross(r);
     return cv::Matx33d(r[0], u[0], f[0],
                        r[1], u[1], f[1],
                        r[2], u[2], f[2]);
@@ -86,6 +86,8 @@ TEST(ProjectionTest, MatchesOpenCV) {
     // Compare against cv::fisheye::projectPoints for a look-at camera with
     // distortion. NOTE: extr.R is T_wc (camera->world); cv::fisheye needs
     // world->camera, so pass R_cw = R_wc^T and t_cw = -R_cw * t_wc.
+    // Hand-written equidistant model must match cv::fisheye within 1e-6 px
+    // for all z>0 points (all points are forward-facing after transform).
     CameraIntrinsics intr{1920, 1536, 441.45, 441.45, 952.14, 758.27,
                           0.215, -0.05, 0.003, 0.0};
     cv::Vec3d pos(3.84, -0.016, 0.66);
@@ -107,20 +109,18 @@ TEST(ProjectionTest, MatchesOpenCV) {
         intr.fx, 0, intr.cx, 0, intr.fy, intr.cy, 0, 0, 1);
     cv::Mat D = (cv::Mat_<double>(4, 1) << intr.k1, intr.k2, intr.k3, intr.k4);
 
-    int forward_count = 0;
     for (const auto& P : points) {
         double u, v;
         ProjectWorldToFishEye(P, intr, extr, u, v);
-        if (u < 0.0 || v < 0.0) continue;   // behind camera -> no cv equivalent
-        ++forward_count;
 
         std::vector<cv::Point3d> obj_pts(1, cv::Point3d(P[0], P[1], P[2]));
         std::vector<cv::Point2d> img_pts;
         cv::fisheye::projectPoints(obj_pts, img_pts, rvec, tvec, K, D);
-        EXPECT_NEAR(img_pts[0].x, u, 0.01);
-        EXPECT_NEAR(img_pts[0].y, v, 0.01);
+        EXPECT_NEAR(img_pts[0].x, u, 1e-6);
+        EXPECT_NEAR(img_pts[0].y, v, 1e-6);
+        EXPECT_NEAR(img_pts[0].x, u, 1e-6);
+        EXPECT_NEAR(img_pts[0].y, v, 1e-6);
     }
-    EXPECT_GT(forward_count, 0);   // at least some points must be in front
 }
 
 TEST(ProjectionTest, PointAtCameraZ) {
@@ -143,6 +143,39 @@ TEST(ProjectionTest, LargeDistortionK1) {
     double theta = std::atan(0.5);
     double theta_d = theta * (1.0 + 1.0 * theta * theta);
     EXPECT_NEAR(320.0 + 300.0 * theta_d, u, 1e-6);
+    EXPECT_NEAR(240.0, v, 1e-6);
+}
+
+// ---------------------------------------------------------------------------
+// z<0 input tests (hand-written equidistant model handles all z)
+// ---------------------------------------------------------------------------
+
+TEST(ProjectionTest, PointBehindCamera_ReturnsValidUV) {
+    // z<0 inputs no longer return (-1,-1). With identity extrinsics:
+    //   P=(0,0,-1): r_xy=0 -> degenerate -> principal point.
+    //   P=(1,0,-1): theta=atan2(1,-1)=3pi/4 -> u > cx (correct half-plane).
+    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+    CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
+    double u, v;
+
+    // P=(0,0,-1): r_xy=0 -> degenerate -> principal point
+    ProjectWorldToFishEye(cv::Vec3d(0, 0, -1), intr, extr, u, v);
+    EXPECT_NEAR(320.0, u, 1e-6);
+    EXPECT_NEAR(240.0, v, 1e-6);
+
+    // P=(1,0,-1): theta=3pi/4, u > cx (correct half-plane, not mirror)
+    ProjectWorldToFishEye(cv::Vec3d(1, 0, -1), intr, extr, u, v);
+    EXPECT_GT(u, 320.0);
+    EXPECT_NEAR(240.0, v, 1e-6);
+}
+
+TEST(ProjectionTest, DegenerateBranch_OnAxis) {
+    // r_xy < eps -> u=cx, v=cy regardless of z
+    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+    CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
+    double u, v;
+    ProjectWorldToFishEye(cv::Vec3d(0, 0, 1), intr, extr, u, v);
+    EXPECT_NEAR(320.0, u, 1e-6);
     EXPECT_NEAR(240.0, v, 1e-6);
 }
 
@@ -208,24 +241,41 @@ TEST(ProjectionTest, IsInsideFisheyeCircle_OnBoundary) {
 }
 
 // ---------------------------------------------------------------------------
-// FisheyeEdgeFeather
+// FisheyeEdgeFeather — hard gate (was linear fade before 2026-09-11 fix).
+// Measured vignette profile: luminance r220=71, r230=19, r240=0.15.
+// feather_px=40 ensures points within 40px of the fisheye circle edge are
+// fully excluded (edge_factor=0), preventing the dark vignette from being
+// sampled. Points at margin >= 40 return edge_factor=1.0 (safe).
 // ---------------------------------------------------------------------------
 
 TEST(ProjectionTest, FisheyeEdgeFeather_InsideFull) {
     CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-    // r = 100 px from the principal point; radius 240 -> margin 140 >= 16.
+    // r = 100 px from the principal point; radius 240 -> margin 140 >= 40.
     EXPECT_NEAR(1.0, FisheyeEdgeFeather(intr, 320.0, 340.0), 1e-12);
 }
 
-TEST(ProjectionTest, FisheyeEdgeFeather_NearEdge) {
+TEST(ProjectionTest, FisheyeEdgeFeather_NearEdge_HardGate_Zero) {
     CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-    // r = 230 px, margin = 10 < 16 -> feather = 10 / 16 = 0.625.
-    EXPECT_NEAR(10.0 / 16.0, FisheyeEdgeFeather(intr, 320.0, 240.0 + 230.0), 1e-9);
+    // r = 230 px, margin = 10 < 40 -> hard gate returns 0.0.
+    // (was 10/16 = 0.625 before the hard-gate fix)
+    EXPECT_DOUBLE_EQ(0.0, FisheyeEdgeFeather(intr, 320.0, 240.0 + 230.0));
+}
+
+TEST(ProjectionTest, FisheyeEdgeFeather_Margin30_Zero) {
+    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+    // r = 210 px, margin = 30 < 40 -> hard gate: 0.0.
+    EXPECT_DOUBLE_EQ(0.0, FisheyeEdgeFeather(intr, 320.0, 240.0 + 210.0));
+}
+
+TEST(ProjectionTest, FisheyeEdgeFeather_Margin50_One) {
+    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+    // r = 190 px, margin = 50 >= 40 -> hard gate: 1.0.
+    EXPECT_DOUBLE_EQ(1.0, FisheyeEdgeFeather(intr, 320.0, 240.0 + 190.0));
 }
 
 TEST(ProjectionTest, FisheyeEdgeFeather_ZeroFeatherWidth) {
     CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-    // feather_px <= 0 disables the fade entirely.
+    // feather_px <= 0 disables the gate entirely (returns 1.0 for all).
     EXPECT_NEAR(1.0, FisheyeEdgeFeather(intr, 320.0, 240.0 + 230.0, 0.0), 1e-12);
     EXPECT_NEAR(1.0, FisheyeEdgeFeather(intr, 320.0 + 239.0, 240.0, -5.0), 1e-12);
 }

@@ -1,6 +1,7 @@
-#include "render/osg_scene.hpp"
+#include "render/stitch_scene.hpp"
 
 #include <osg/Geode>
+#include <osg/Geometry>
 #include <osg/Program>
 #include <osg/Shader>
 #include <osg/StateSet>
@@ -33,9 +34,7 @@ osg::ref_ptr<osg::Vec4Array> BuildPackedVec4(const BowlModel& bowl,
     return arr;
 }
 
-} // namespace
-
-osg::ref_ptr<osg::Geometry> BuildOSGGeometry(const BowlModel& bowl) {
+osg::ref_ptr<osg::Geometry> BuildBowlGeometry(const BowlModel& bowl) {
     auto geom = new osg::Geometry;
 
     // ---- vertex positions (location 0), VCS -> OpenGL: (x,y,z) -> (x,z,-y)
@@ -95,7 +94,7 @@ osg::ref_ptr<osg::Geometry> BuildOSGGeometry(const BowlModel& bowl) {
     return geom;
 }
 
-const char* GetVertexShaderSource() {
+const char* VertexShaderSource() {
     // N-camera mapping vertex shader (generalised mapping.vs).
     // NOTE: osg_ModelViewProjectionMatrix is not auto-updated by the vcpkg
     // osg GL2 build; OSGViewRenderer sets it per camera as a StateSet uniform.
@@ -136,7 +135,7 @@ void main()
 )";
 }
 
-const char* GetFragmentShaderSource() {
+const char* FragmentShaderSource() {
     // N-camera mapping fragment shader: unrolled 8-camera blend (mapping.fs).
     return R"(#version 330 core
 
@@ -196,7 +195,7 @@ void main()
 )";
 }
 
-osg::ref_ptr<osg::Texture2DArray> CreateCameraTextureArray(
+osg::ref_ptr<osg::Texture2DArray> CreateCameraTextures(
     int num_layers, int w, int h) {
     auto tex = new osg::Texture2DArray;
     tex->setTextureSize(w, h, num_layers);
@@ -214,9 +213,56 @@ osg::ref_ptr<osg::Texture2DArray> CreateCameraTextureArray(
     return tex;
 }
 
-void UploadCameraImages(osg::Texture2DArray* tex,
-                        const std::vector<cv::Mat>& images) {
-    if (!tex) return;
+} // namespace
+
+StitchScene::StitchScene(const BowlModel& bowl, int image_w, int image_h) {
+    root_ = new osg::Group;
+
+    const int num_cameras = bowl.baked_num_cameras();
+    auto geom = BuildBowlGeometry(bowl);
+
+    bowl_geode_ = new osg::Geode;
+    bowl_geode_->addDrawable(geom);
+
+    texture_ = CreateCameraTextures(num_cameras, image_w, image_h);
+
+    auto program = new osg::Program;
+    program->addShader(new osg::Shader(osg::Shader::VERTEX, VertexShaderSource()));
+    program->addShader(new osg::Shader(osg::Shader::FRAGMENT, FragmentShaderSource()));
+    // Explicit attribute binding (shader layout qualifiers already match).
+    program->addBindAttribLocation("uvCoord0", 2);
+    program->addBindAttribLocation("uvCoord1", 3);
+    program->addBindAttribLocation("uvCoord2", 4);
+    program->addBindAttribLocation("uvCoord3", 5);
+    program->addBindAttribLocation("weights0", 6);
+    program->addBindAttribLocation("weights1", 7);
+
+    auto state_set = bowl_geode_->getOrCreateStateSet();
+    state_set->setAttributeAndModes(program, osg::StateAttribute::ON);
+    // Fixed-function lighting would shade the baked bowl; the mapping shader
+    // outputs the blended texture colour directly.
+    state_set->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    state_set->addUniform(new osg::Uniform("uNumCameras", num_cameras));
+    state_set->addUniform(new osg::Uniform("uCameraTextures", 0));  // unit 0
+    state_set->setTextureAttributeAndModes(0, texture_, osg::StateAttribute::ON);
+
+    root_->addChild(bowl_geode_);
+}
+
+osg::ref_ptr<osg::Group> StitchScene::root() const {
+    return root_;
+}
+
+osg::ref_ptr<osg::Drawable> StitchScene::bowl_drawable() const {
+    return bowl_geode_->getNumDrawables() > 0 ? bowl_geode_->getDrawable(0)
+                                              : nullptr;
+}
+
+osg::ref_ptr<osg::StateSet> StitchScene::bowl_stateset() const {
+    return bowl_geode_->getStateSet();
+}
+
+void StitchScene::UploadCameraImages(const std::vector<cv::Mat>& images) {
     for (int i = 0; i < static_cast<int>(images.size()); ++i) {
         cv::Mat bgra;
         cv::cvtColor(images[i], bgra, cv::COLOR_BGR2BGRA);
@@ -229,45 +275,9 @@ void UploadCameraImages(osg::Texture2DArray* tex,
         // Match the texture's internal format so the subload path accepts it.
         img->setInternalTextureFormat(GL_RGBA8);
         std::memcpy(img->data(), bgra.data, bgra.total() * bgra.elemSize());
-        tex->setImage(i, img);
+        texture_->setImage(i, img);
     }
-    tex->dirtyTextureObject();
-}
-
-osg::ref_ptr<osg::Group> BuildOSGScene(
-    const BowlModel& bowl, int image_w, int image_h) {
-    auto root = new osg::Group;
-
-    const int num_cameras = bowl.baked_num_cameras();
-    auto geom = BuildOSGGeometry(bowl);
-
-    auto geode = new osg::Geode;
-    geode->addDrawable(geom);
-
-    auto texture = CreateCameraTextureArray(num_cameras, image_w, image_h);
-
-    auto program = new osg::Program;
-    program->addShader(new osg::Shader(osg::Shader::VERTEX, GetVertexShaderSource()));
-    program->addShader(new osg::Shader(osg::Shader::FRAGMENT, GetFragmentShaderSource()));
-    // Explicit attribute binding (shader layout qualifiers already match).
-    program->addBindAttribLocation("uvCoord0", 2);
-    program->addBindAttribLocation("uvCoord1", 3);
-    program->addBindAttribLocation("uvCoord2", 4);
-    program->addBindAttribLocation("uvCoord3", 5);
-    program->addBindAttribLocation("weights0", 6);
-    program->addBindAttribLocation("weights1", 7);
-
-    auto state_set = geode->getOrCreateStateSet();
-    state_set->setAttributeAndModes(program, osg::StateAttribute::ON);
-    // Fixed-function lighting would shade the baked bowl; the mapping shader
-    // outputs the blended texture colour directly.
-    state_set->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
-    state_set->addUniform(new osg::Uniform("uNumCameras", num_cameras));
-    state_set->addUniform(new osg::Uniform("uCameraTextures", 0));  // unit 0
-    state_set->setTextureAttributeAndModes(0, texture, osg::StateAttribute::ON);
-
-    root->addChild(geode);
-    return root;
+    texture_->dirtyTextureObject();
 }
 
 } // namespace avm_stitch
