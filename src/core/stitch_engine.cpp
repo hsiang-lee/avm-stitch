@@ -1,41 +1,16 @@
 #include "core/stitch_engine.hpp"
 
 #include "geometry/blend_weights.hpp"
-#include "render/osg_scene.hpp"
-#include "render/osg_view.hpp"
-#include "util/view_config.hpp"
-
-#include <osg/Geode>
-#include <osg/StateSet>
-#include <osg/Texture2DArray>
+#include "render/stitch_scene.hpp"
+#include "render/osg_view_renderer.hpp"
 
 #include <stdexcept>
 #include <string>
 
 namespace avm_stitch {
 
-namespace {
-
-// The camera texture array is created inside BuildOSGScene and bound in the
-// bowl geode's stateset; RenderFrame must upload into exactly that texture.
-osg::Texture2DArray* FindSceneTexture(osg::Group* root) {
-    if (!root) return nullptr;
-    for (unsigned int i = 0; i < root->getNumChildren(); ++i) {
-        if (auto* geode = dynamic_cast<osg::Geode*>(root->getChild(i))) {
-            if (auto* ss = geode->getStateSet()) {
-                return dynamic_cast<osg::Texture2DArray*>(
-                    ss->getTextureAttribute(0, osg::StateAttribute::TEXTURE));
-            }
-        }
-    }
-    return nullptr;
-}
-
-} // namespace
-
 struct StitchEngine::Impl {
-    osg::ref_ptr<osg::Group> root;
-    osg::ref_ptr<osg::Texture2DArray> texture_array;
+    std::unique_ptr<StitchScene> scene;
     std::unique_ptr<OSGViewRenderer> renderer;
     bool configured = false;
     int num_cameras = 0;
@@ -99,19 +74,20 @@ struct StitchEngine::Impl {
         ValidateConfigureArgs(intrinsics, extrinsics, bowl_params);
         const int N = static_cast<int>(intrinsics.size());
 
-        // Phase 1 pipeline: bowl model -> bake UV/weights -> OSG scene graph.
-        BowlModel model(bowl_params);
-        model.Bake(intrinsics, extrinsics);
+        // Phase 1 pipeline: bowl model + bake UV/weights -> OSG scene graph.
+        const BowlModel model(bowl_params, intrinsics, extrinsics);
 
         const int img_w = intrinsics[0].width;
         const int img_h = intrinsics[0].height;
-        root = BuildOSGScene(model, img_w, img_h);
-        // Upload into the texture that the scene's stateset actually binds.
-        texture_array = FindSceneTexture(root.get());
+        scene = std::make_unique<StitchScene>(model, img_w, img_h);
 
-        renderer = std::make_unique<OSGViewRenderer>();
-        // Viewer realized lazily; the EGL headless GL context is created eagerly in Initialize().
-        renderer->Initialize(root, DefaultViewPoses(), output_width, output_height);
+        // Viewer realized lazily; the EGL headless GL context is created eagerly
+        // in the OSGViewRenderer constructor.
+        renderer = std::make_unique<OSGViewRenderer>(*scene,
+                                                     DefaultViewPoses(bowl_params.car_center),
+                                                     output_width, output_height,
+                                                     RenderMode::Offscreen,
+                                                     bowl_params.car_center);
 
         num_cameras = N;
         configured = true;
@@ -128,7 +104,7 @@ struct StitchEngine::Impl {
                 " images, got " + std::to_string(images.size()));
         }
 
-        UploadCameraImages(texture_array.get(), images);
+        scene->UploadCameraImages(images);
         return renderer->RenderAllViews();
     }
 

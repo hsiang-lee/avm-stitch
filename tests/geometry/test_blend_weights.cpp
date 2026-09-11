@@ -14,19 +14,117 @@ using namespace avm_stitch;
 namespace {
 
 // N cameras at given azimuths (degrees) around the origin, radius 3m, height 1m.
-// Rotation is identity; blend weights only depend on camera position azimuth.
+// R_wc is constructed so the optical axis (camera Z in world) points in the
+// azimuth direction: forward = (cos(az), sin(az), 0).
+// Camera Y (down) = (0, 0, -1). Right = down × forward (right-hand rule).
 std::vector<CameraExtrinsics> MakeNCameras(
     const std::vector<double>& azimuths_deg) {
     std::vector<CameraExtrinsics> cams;
     for (double az : azimuths_deg) {
         double rad = az * M_PI / 180.0;
         cv::Vec3d pos(std::cos(rad) * 3.0, std::sin(rad) * 3.0, 1.0);
-        cams.push_back({cv::Matx33d::eye(), pos});
+        // Build R_wc: column 2 = forward (optical axis), column 1 = down, column 0 = right
+        cv::Vec3d forward(std::cos(rad), std::sin(rad), 0.0);
+        cv::Vec3d down(0.0, 0.0, -1.0);
+        cv::Vec3d right = down.cross(forward);
+        cv::Matx33d R(right[0], down[0], forward[0],
+                      right[1], down[1], forward[1],
+                      right[2], down[2], forward[2]);
+        cams.push_back({R, pos});
     }
     return cams;
 }
 
 } // namespace
+
+// ---------------------------------------------------------------------------
+// Optical-axis azimuth tests (Task 2: D2 sector model — AzimuthDeg uses
+// optical axis ground projection, not camera position azimuth)
+// ---------------------------------------------------------------------------
+
+TEST(BlendWeightsTest, OpticalAxisAzimuth_Front) {
+    // From examples/data/cameras.json front camera
+    // R column 2 (optical axis in world) = (0.9623, 0.0319, -0.2700)
+    // Ground projection: atan2(0.0319, 0.9623) ≈ 1.9° → ~2°
+    CameraExtrinsics cam;
+    cam.R = cv::Matx33d(0.021611199265347603, -0.27100261158445849, 0.96233598113170238,
+                        -0.99892382596379004, 0.033658009819147572, 0.031911256585685610,
+                        -0.041038347775912420, -0.96198998065957897, -0.26998357565304970);
+    cam.t = cv::Vec3d(4.1166681677199062, -0.053393489601802596, 0.68738271643240068);
+    auto boundaries = ComputeSectorBoundaries({cam});
+    ASSERT_EQ(1u, boundaries.size());
+    // Old formula (atan2(t[1], t[0])) gives ~359°, new should give ~2°
+    EXPECT_NEAR(2.0, boundaries[0], 1.0);
+}
+
+TEST(BlendWeightsTest, OpticalAxisAzimuth_Rear) {
+    // R column 2 = (-0.9610, 0.0021, -0.2766)
+    // Ground projection: atan2(0.0021, -0.9610) ≈ 180°
+    CameraExtrinsics cam;
+    cam.R = cv::Matx33d(-0.0017209126782142814, 0.27659367005804369, -0.96098542140002097,
+                        0.99990614312893356, 0.013537735644589266, 0.0021058600707276054,
+                        0.013592034158808939, -0.96089160231393378, -0.27659100710252038);
+    cam.t = cv::Vec3d(-1.0661498792051314, 0.027999355244672404, 1.0483336211871681);
+    auto boundaries = ComputeSectorBoundaries({cam});
+    ASSERT_EQ(1u, boundaries.size());
+    EXPECT_NEAR(180.0, boundaries[0], 1.0);
+}
+
+TEST(BlendWeightsTest, OpticalAxisAzimuth_Left) {
+    // R column 2 = (-0.0259, 0.9244, -0.3806)
+    // Ground projection: atan2(0.9244, -0.0259) ≈ 92°
+    CameraExtrinsics cam;
+    cam.R = cv::Matx33d(0.99951987693407285, -0.017004553886587667, -0.025900979919959218,
+                        0.017470826282207755, -0.38107046696496416, 0.92438091144079837,
+                        -0.025588783533277093, -0.92438960636423340, -0.38059042263707160);
+    cam.t = cv::Vec3d(2.4621261743376248, 1.0957842556321686, 1.2309507669565125);
+    auto boundaries = ComputeSectorBoundaries({cam});
+    ASSERT_EQ(1u, boundaries.size());
+    EXPECT_NEAR(92.0, boundaries[0], 1.0);
+}
+
+TEST(BlendWeightsTest, OpticalAxisAzimuth_Right) {
+    // R column 2 = (-0.0102, -0.9613, -0.2753)
+    // Ground projection: atan2(-0.9613, -0.0102) ≈ -90.6° → NormalizeAngleDeg → ~269°
+    CameraExtrinsics cam;
+    cam.R = cv::Matx33d(-0.99898909342767439, -0.043787710798984310, -0.010169935866938002,
+                        -0.0022889888374402548, 0.27548936002331326, -0.96130139552798322,
+                        0.044894896621500230, -0.96030633075958138, -0.27531109559989531);
+    cam.t = cv::Vec3d(2.4741283790509305, -0.94232713150490754, 1.1323086168468555);
+    auto boundaries = ComputeSectorBoundaries({cam});
+    ASSERT_EQ(1u, boundaries.size());
+    // NormalizeAngleDeg(-90.6°) = 269.4° → ~269°
+    EXPECT_NEAR(269.0, boundaries[0], 1.0);
+}
+
+// ---------------------------------------------------------------------------
+// Pole parameter tests (Task 3: ComputeBlendWeights pole argument)
+// ---------------------------------------------------------------------------
+
+TEST(BlendWeightsTest, DefaultPole_BehaviorUnchanged) {
+    // Verify that default pole=(0,0) produces same result as explicit (0,0).
+    // (Requires MakeNCameras with proper rotation — Task 4; at Task 3 level
+    // this test verifies the new overload compiles and self-consistency.)
+    auto cams = MakeNCameras({0, 180, 90, -90});
+    auto weights_default = ComputeBlendWeights(cv::Vec3d(5, 0, 0), cams);
+    auto weights_explicit = ComputeBlendWeights(cv::Vec3d(5, 0, 0), cams,
+                                                cv::Vec2d(0.0, 0.0));
+    ASSERT_EQ(weights_default.size(), weights_explicit.size());
+    for (size_t i = 0; i < weights_default.size(); ++i) {
+        EXPECT_NEAR(weights_default[i], weights_explicit[i], 1e-9);
+    }
+}
+
+TEST(BlendWeightsTest, NonDefaultPole_ShiftsOrigin) {
+    // P=(2,1,0), pole=(2,0) → relative azimuth = atan2(1, 0) = 90°
+    auto cams = MakeNCameras({0, 180, 90, -90});
+    auto weights = ComputeBlendWeights(cv::Vec3d(2, 1, 0), cams,
+                                       cv::Vec2d(2.0, 0.0));
+    ASSERT_EQ(4u, weights.size());
+    // At 90° azimuth, left camera (index 2) should dominate
+    EXPECT_GT(weights[2], 0.9);
+    EXPECT_LT(weights[0], 0.1);
+}
 
 // ---------------------------------------------------------------------------
 // N=4 standard layout: front(0), rear(180), left(90), right(-90)

@@ -10,3 +10,12 @@ vcpkg_installed/
 # CMake
 CMakeCache.txt
 CMakeFiles/
+
+# Workflow ledger artifact (per-batch executor communication, not source)
+REFACTOR_LEDGER.md
+
+# Local screenshots (visual verification, not source)
+截图*
+
+# CTest auto-submit artifacts
+Testing/

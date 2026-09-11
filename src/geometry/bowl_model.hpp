@@ -1,7 +1,9 @@
 #pragma once
 
 // Bowl model: car-parameterized bowl mesh generation + per-vertex bake
-// (UV / blend weights) — one geometry class owns both (pure math).
+// (UV / blend weights), fused into construction — one geometry class owns
+// both (pure math). Construction invariant: once built, baked data is
+// always available (no half-baked state).
 // Algorithm mirrors the reference `create_block_boat_model` (bowlModel.hpp):
 //   z = k_slop * rd^z_exp outside the rounded-rectangle flat region,
 //   finite-difference normals on the curved rim.
@@ -18,15 +20,23 @@
 
 namespace avm_stitch {
 
+/// Bowl mesh type: BlockBoat = square grid + circular clipping (avm_renderer default),
+/// BowlBoat = polar coordinates + car-base distance.
+enum class BowlType { BlockBoat, BowlBoat };
+
 struct BowlParams {
     double car_length = 5.6;
     double car_width = 2.2;
     double round_l = 2.0;
-    double step = 0.1;
+    double step = 0.2;
     double r_outter = 12.6;
     double k_slop = 0.09;
     double z_exp = 2.2;
     double max_z = 8.6;
+    BowlType type = BowlType::BlockBoat;   // default = square grid (matches avm_renderer)
+    cv::Vec2d car_center{0.0, 0.0};        // 新增: 车体中心在数据坐标系中的位置 (m)
+                                           // 默认 (0,0) = 底部中心系，向后兼容
+                                           // 后轴系: 调用方设 (axis_x/2, 0)
 
     static BowlParams Default() { return BowlParams{}; }
 };
@@ -45,17 +55,28 @@ struct BakedVertex {
 };
 
 // Bowl surface triangle mesh generated from car parameters, plus the
-// per-vertex baked UV + blend weights after Bake(). Immutable data holder:
-// read via the fine-grained index accessors and semantic queries (the
-// internal container layout is an implementation detail).
+// per-vertex baked UV + blend weights. Mesh generation + bake are fused
+// into construction (construction invariant: once built, baked data is
+// always available). Immutable data holder: read via the fine-grained
+// index accessors and semantic queries (the internal container layout is
+// an implementation detail).
 class BowlModel {
 public:
-    /// Generate the bowl model (VCS coordinates) from car parameters.
-    explicit BowlModel(const BowlParams& params);
+    /// Generate the bowl mesh and bake per-vertex UV + blend weights in one
+    /// step. Construction invariant: once built, baked data is always
+    /// available.
+    explicit BowlModel(const BowlParams& params,
+                       const std::vector<CameraIntrinsics>& intrinsics,
+                       const std::vector<CameraExtrinsics>& extrinsics);
 
-    /// Wrap pre-built vertex data (for tests / custom geometry): normals are
-    /// taken as-is, no grid/normal recomputation, no triangles.
-    BowlModel(std::vector<cv::Vec3d> vertices, std::vector<cv::Vec3d> normals);
+    /// Wrap pre-built vertex data and bake immediately (tests / custom
+    /// geometry): normals are taken as-is, no grid/normal recomputation,
+    /// no triangles.
+    /// @param car_center  sector pole passed to ComputeBlendWeights (default (0,0))
+    BowlModel(std::vector<cv::Vec3d> vertices, std::vector<cv::Vec3d> normals,
+              const std::vector<CameraIntrinsics>& intrinsics,
+              const std::vector<CameraExtrinsics>& extrinsics,
+              const cv::Vec2d& car_center = cv::Vec2d(0.0, 0.0));
 
     // --- fine-grained read access (index + count, no container exposure) ---
     /// Number of vertices (always == normal_count(), a construction invariant).
@@ -84,41 +105,44 @@ public:
     int rows() const { return rows_; }
     int cols() const { return cols_; }
 
-    // --- bake (per-vertex UV + blend weights) ---
-    /// Bake per-vertex UV coordinates and blend weights for N cameras
-    /// (1 <= N <= 8). Re-baking overwrites previous results. A camera slot
-    /// the vertex cannot see keeps zero weight.
-    /// @param intrinsics  camera intrinsics (size N)
-    /// @param extrinsics  camera extrinsics T_wc (size N, must match intrinsics)
-    void Bake(const std::vector<CameraIntrinsics>& intrinsics,
-              const std::vector<CameraExtrinsics>& extrinsics);
-
-    /// True if Bake() has been called on this model.
-    bool IsBaked() const { return baked_num_cameras_ > 0; }
-    /// Number of cameras from the last Bake() call.
-    /// Precondition: IsBaked().
+    // --- baked per-vertex UV + blend weights (construction invariant) ---
+    /// Number of cameras the model was baked for at construction.
     int baked_num_cameras() const {
         assert(baked_num_cameras_ > 0);
         return baked_num_cameras_;
     }
     /// Baked vertex i (one per bowl vertex).
-    /// Precondition: IsBaked() && 0 <= i < vertex_count().
+    /// Precondition: 0 <= i < vertex_count().
     const BakedVertex& baked_vertex(int i) const {
-        assert(IsBaked());
         assert(i >= 0 && i < static_cast<int>(baked_vertices_.size()));
         return baked_vertices_[static_cast<size_t>(i)];
     }
     /// True if any baked vertex has a nonzero weight (sum > 1e-9) in any
     /// camera slot — semantic query replacing external loops.
-    /// Precondition: IsBaked().
     bool HasVisibleVertices() const;
 
+    /// Compute rd (distance to rounded-rectangle flat region) for a point.
+    static double ComputeRd(double x, double y, const BowlParams& params);
+    /// Compute rd for BowlBoat: 9-region distance to car rectangle (S1-S9).
+    static double ComputeRdBowlBoat(double x, double y, const BowlParams& params);
+
 private:
+    // Square grid mesh (create_block_boat_model from avm_renderer).
+    void GenerateBlockBoatMesh(const BowlParams& params);
+    // Polar coordinate mesh (create_bowl_boat_model from avm_renderer).
+    void GenerateBowlBoatMesh(const BowlParams& params);
+
     // Finite-difference normals: flat (z ~ 0) -> (0,0,1); curved -> unit normal
     // derived from dz/dx, dz/dy estimated from retained grid neighbours.
     static void ComputeBowlNormals(BowlModel& mesh,
                                    const std::vector<int>& grid_to_index,
                                    const BowlParams& params, int rows, int cols);
+
+    // Per-vertex bake, called once at the end of each constructor.
+    // car_center is the sector pole passed to ComputeBlendWeights (default (0,0)).
+    void BakeVertices(const std::vector<CameraIntrinsics>& intrinsics,
+                      const std::vector<CameraExtrinsics>& extrinsics,
+                      const cv::Vec2d& car_center = cv::Vec2d(0.0, 0.0));
 
     std::vector<cv::Vec3d> vertices_;
     std::vector<cv::Vec3d> normals_;

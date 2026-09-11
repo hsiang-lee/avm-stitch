@@ -1,4 +1,4 @@
-// Tests for avm_stitch bowl model (BowlParams + BowlModel mesh + Bake).
+// Tests for avm_stitch bowl model (BowlParams + BowlModel mesh + bake).
 // Pure math, no GL / OSG dependency.
 
 #include <gtest/gtest.h>
@@ -6,11 +6,20 @@
 #include "geometry/bowl_model.hpp"
 #include "geometry/projection.hpp"
 
+#include "test_support/stitch_test_helpers.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <vector>
 
 using namespace avm_stitch;
+
+// Identical helper bodies (MakeSideCameras / MakeCoarseBowl) live in
+// test_support/stitch_test_helpers.hpp; MakeIntrinsics stays local because
+// this suite's historical value is the 1920x1536 distortion camera, not the
+// renderer suite's 640x480 one.
+using avm_stitch::test::MakeCoarseBowl;
+using avm_stitch::test::MakeSideCameras;
 
 namespace {
 
@@ -32,33 +41,25 @@ CameraIntrinsics MakeIntrinsics() {
     return {1920, 1536, 441.45, 441.45, 952.14, 758.27, 0, 0, 0, 0};
 }
 
-// N identity-rotation cameras at azimuths (deg), radius 3m, height 1m.
-// Looking along +Z (straight up): the bowl rim rising above z=1 is visible.
-std::vector<CameraExtrinsics> MakeSideCameras(
-    const std::vector<double>& azimuths_deg) {
-    std::vector<CameraExtrinsics> cams;
-    for (double az : azimuths_deg) {
-        double rad = az * M_PI / 180.0;
-        cv::Vec3d pos(std::cos(rad) * 3.0, std::sin(rad) * 3.0, 1.0);
-        cams.push_back({cv::Matx33d::eye(), pos});
-    }
-    return cams;
-}
-
 bool IsVertexVisibleToCamera(const cv::Vec3d& P, const CameraIntrinsics& intr,
                              const CameraExtrinsics& extr) {
+    // D3: visibility matches BakeVertices criteria — rect + circle check only.
+    // IsForwardFacing is NOT used (hand-written projection handles all z).
     double u_px, v_px;
     ProjectWorldToFishEye(P, intr, extr, u_px, v_px);
-    return IsForwardFacing(P, extr)
-           && u_px >= 0.0 && u_px < intr.width
-           && v_px >= 0.0 && v_px < intr.height;
+    return u_px >= 0.0 && u_px < intr.width
+           && v_px >= 0.0 && v_px < intr.height
+           && IsInsideFisheyeCircle(intr, u_px, v_px);
 }
 
-BowlModel MakeCoarseBowl(double r_outter) {
-    BowlParams bowl = BowlParams::Default();
-    bowl.step = 1.0;        // coarse grid for test speed
-    bowl.r_outter = r_outter;
-    return BowlModel(bowl);
+// 4 side cameras: the default camera set for mesh-construction tests (the
+// bake that runs at construction must not affect any mesh assertion).
+std::vector<CameraIntrinsics> DefaultIntrinsics() {
+    return std::vector<CameraIntrinsics>(4, MakeIntrinsics());
+}
+
+std::vector<CameraExtrinsics> DefaultBakeCameras() {
+    return MakeSideCameras({0, 180, 90, -90});
 }
 
 } // namespace
@@ -72,11 +73,161 @@ TEST(BowlParamsTest, Default_SetsCorrectDefaults) {
     EXPECT_DOUBLE_EQ(5.6, p.car_length);
     EXPECT_DOUBLE_EQ(2.2, p.car_width);
     EXPECT_DOUBLE_EQ(2.0, p.round_l);
-    EXPECT_DOUBLE_EQ(0.1, p.step);
+    EXPECT_DOUBLE_EQ(0.2, p.step);
     EXPECT_DOUBLE_EQ(12.6, p.r_outter);
     EXPECT_DOUBLE_EQ(0.09, p.k_slop);
     EXPECT_DOUBLE_EQ(2.2, p.z_exp);
     EXPECT_DOUBLE_EQ(8.6, p.max_z);
+    // D1: car_center default is (0,0) for backward compatibility
+    EXPECT_DOUBLE_EQ(0.0, p.car_center[0]);
+    EXPECT_DOUBLE_EQ(0.0, p.car_center[1]);
+}
+
+// D1: car_center=(0,0) produces same vertex_count as before
+TEST(BowlParamsTest, DefaultCarCenter_BackwardCompatVertexCount) {
+    BowlParams p;
+    auto model = BowlModel(p, DefaultIntrinsics(), DefaultBakeCameras());
+    int count_default = model.vertex_count();
+
+    // Explicit (0,0) should match default
+    p.car_center = cv::Vec2d(0.0, 0.0);
+    auto model2 = BowlModel(p, DefaultIntrinsics(), DefaultBakeCameras());
+    EXPECT_EQ(count_default, model2.vertex_count());
+}
+
+// D1: ComputeRd offset — with car_center shifted, flat region moves with it
+TEST(BowlParamsTest, ComputeRd_CarCenterShiftsFlatRegion) {
+    BowlParams params;
+    params.car_length = 2.0;     // car_l_half = 1.0
+    params.car_width = 1.0;      // car_w_half = 0.5
+    params.round_l = 0.5;
+    params.car_center = cv::Vec2d(2.0, 0.0);
+
+    // Point (3.0, 0.0): x - car_center[0] = 1.0 → |1.0| - (1.0 + 0.5) = -0.5 → dx=0.0
+    // → inside flat region → rd = 0.0
+    double rd = BowlModel::ComputeRd(3.0, 0.0, params);
+    EXPECT_DOUBLE_EQ(0.0, rd);
+
+    // Same point with default center (0,0): |3.0| - (1.0 + 0.5) = 1.5 → dx=1.5 → rd > 0
+    BowlParams default_params;
+    default_params.car_length = 2.0;
+    default_params.car_width = 1.0;
+    default_params.round_l = 0.5;
+    double rd_default = BowlModel::ComputeRd(3.0, 0.0, default_params);
+    EXPECT_GT(rd_default, 0.0);
+}
+
+// D1: Non-zero car_center shifts the flat region's centre
+TEST(BowlModelTest, CarCenter_FlatRegionCenteredAtCarCenter) {
+    BowlParams params;
+    params.car_length = 6.0;     // car_l_half = 3.0
+    params.car_width = 4.0;      // car_w_half = 2.0
+    params.round_l = 0.5;
+    params.step = 0.2;
+    params.car_center = cv::Vec2d(1.55, 0.0);
+
+    const BowlModel model(params, DefaultIntrinsics(), DefaultBakeCameras());
+
+    // Count vertices with x > car_center[0] vs x < car_center[0] inside the
+    // flat centre region (z == 0). They should be roughly symmetric.
+    int left_count = 0, right_count = 0;
+    for (int i = 0; i < model.vertex_count(); ++i) {
+        const cv::Vec3d& v = model.vertex(i);
+        if (v[2] > 1e-9) continue;  // skip non-flat
+        // Only count vertices within the flat rectangle bounds (relative to car_center)
+        double rel_x = v[0] - params.car_center[0];
+        double rel_y = v[1] - params.car_center[1];
+        if (std::abs(rel_x) < params.car_length / 2.0 + params.round_l - 0.1 &&
+            std::abs(rel_y) < params.car_width / 2.0 + params.round_l - 0.1) {
+            if (rel_x < -0.01) left_count++;
+            else if (rel_x > 0.01) right_count++;
+        }
+    }
+
+    // The flat region should be roughly symmetric around car_center
+    // (left and right counts within 20% of each other)
+    int total = left_count + right_count;
+    EXPECT_GT(total, 0) << "No flat-region vertices found straddling car_center";
+    EXPECT_NEAR(left_count, right_count, total * 0.20)
+        << "left=" << left_count << " right=" << right_count;
+}
+
+// D1: BlockBoat grid extent must be symmetric about car_center (not about origin).
+// With car_center=(1.45,0), the grid vertices must span [cx-r_outter, cx+r_outter]
+// so the front and back hemispheres have equal radius — currently the front
+// radius is truncated to 11.15 (12.6-1.45) while the back reaches 14.05.
+// Front-extent (φ≈0° relative to car_center, within step of x-axis) and
+// back-extent (φ≈180°) must have equal max distance from car_center.
+TEST(BowlModelTest, CarCenter_GridExtentSymmetricAboutCarCenter) {
+    BowlParams params;
+    params.car_center = cv::Vec2d(1.45, 0.0);
+    const BowlModel model(params, DefaultIntrinsics(), DefaultBakeCameras());
+    ASSERT_GT(model.vertex_count(), 0);
+
+    double min_x = std::numeric_limits<double>::max();
+    double max_x = -std::numeric_limits<double>::max();
+
+    for (int i = 0; i < model.vertex_count(); ++i) {
+        const cv::Vec3d& v = model.vertex(i);
+        min_x = std::min(min_x, v[0]);
+        max_x = std::max(max_x, v[0]);
+    }
+
+    const double cx = 1.45;
+    const double r_outter = 12.6;
+    const double step = 0.2;
+
+    // Front extent (positive x relative to car_center) must be r_outter.
+    // Currently: max_x - cx = 12.6 - 1.45 = 11.15 — off by 1.45 (car_center shift).
+    EXPECT_NEAR(r_outter, max_x - cx, step)
+        << "front extent (max_x - cx) should be r_outter, got " << (max_x - cx);
+    // Back extent (negative x relative to car_center) must also be r_outter.
+    // Currently: cx - min_x = 1.45 - (-12.6) = 14.05 — too large.
+    EXPECT_NEAR(r_outter, cx - min_x, step)
+        << "back extent (cx - min_x) should be r_outter, got " << (cx - min_x);
+
+    // Front/back symmetry: points near y≈car_center[1] along the x-axis:
+    // max distance from car_center in front (φ≈0°) ≈ back (φ≈180°) within 1 step.
+    // Use y within step of car_center[1] to isolate the fore-aft direction.
+    double max_front_axial = 0.0, max_back_axial = 0.0;
+    for (int i = 0; i < model.vertex_count(); ++i) {
+        const cv::Vec3d& v = model.vertex(i);
+        double rel_y = v[1] - params.car_center[1];
+        if (std::abs(rel_y) > step) continue;  // near x-axis only
+        double dx = v[0] - cx;
+        double dist = std::abs(dx);
+        if (dx > 0) {
+            max_front_axial = std::max(max_front_axial, dist);
+        } else if (dx < 0) {
+            max_back_axial = std::max(max_back_axial, dist);
+        }
+    }
+    EXPECT_GT(max_front_axial, 0.0) << "must have front-axial vertices";
+    EXPECT_GT(max_back_axial, 0.0) << "must have back-axial vertices";
+    // Currently: front ≈ 11.15, back ≈ 12.46 — asymmetric (difference ≈ 1.3)
+    EXPECT_NEAR(max_front_axial, max_back_axial, step)
+        << "front axial radius (" << max_front_axial
+        << ") should ≈ back axial radius (" << max_back_axial << ")";
+    // Both must be approximately r_outter
+    EXPECT_NEAR(r_outter, max_front_axial, step);
+    EXPECT_NEAR(r_outter, max_back_axial, step);
+}
+
+// D1: car_center=(0,0) must produce identical grid extent as before (regression guard).
+// This duplicates the assertions of VerticesInXyBounds but with the explicit
+// car_center=(0,0) case — the existing test already covers this with default params.
+TEST(BowlModelTest, CarCenter_DefaultUnchanged) {
+    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
+                          DefaultBakeCameras());
+    ASSERT_GT(model.vertex_count(), 0);
+    double r_outter = 12.6;
+    for (int i = 0; i < model.vertex_count(); ++i) {
+        const cv::Vec3d& v = model.vertex(i);
+        EXPECT_GE(v[0], -r_outter - 1e-9);
+        EXPECT_LE(v[0], r_outter + 1e-9);
+        EXPECT_GE(v[1], -r_outter - 1e-9);
+        EXPECT_LE(v[1], r_outter + 1e-9);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -84,22 +235,28 @@ TEST(BowlParamsTest, Default_SetsCorrectDefaults) {
 // ---------------------------------------------------------------------------
 
 TEST(BowlModelTest, ReturnsNonEmptyMesh) {
-    const BowlModel model(BowlParams::Default());
+    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
+                          DefaultBakeCameras());
     EXPECT_GT(model.vertex_count(), 0);
     EXPECT_GT(model.triangle_count(), 0);
     EXPECT_GT(model.rows(), 0);
     EXPECT_GT(model.cols(), 0);
+    // Construction invariant: one normal per vertex (kept from the removed
+    // counts-consistency case, its only incremental assertion).
+    EXPECT_EQ(model.vertex_count(), model.normal_count());
 }
 
 TEST(BowlModelTest, GridSizeMatchesParams) {
-    const BowlModel model(BowlParams::Default());
-    // r_outter=12.6, step=0.1 -> (12.6/0.1)*2 = 252 (rounded, not truncated)
-    EXPECT_EQ(252, model.rows());
-    EXPECT_EQ(252, model.cols());
+    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
+                         DefaultBakeCameras());
+    // BlockBoat (default): rows = cols = lround(r_outter/step)*2 = lround(12.6/0.2)*2 = 126
+    EXPECT_EQ(126, model.rows());
+    EXPECT_EQ(126, model.cols());
 }
 
 TEST(BowlModelTest, VerticesInXyBounds) {
-    const BowlModel model(BowlParams::Default());
+    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
+                         DefaultBakeCameras());
     ASSERT_GT(model.vertex_count(), 0);
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
@@ -111,7 +268,8 @@ TEST(BowlModelTest, VerticesInXyBounds) {
 }
 
 TEST(BowlModelTest, VerticesZInRange) {
-    const BowlModel model(BowlParams::Default());
+    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
+                         DefaultBakeCameras());
     ASSERT_GT(model.vertex_count(), 0);
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
@@ -127,7 +285,7 @@ TEST(BowlModelTest, FlatCenterRegion) {
     params.round_l = 0.5;
     double x_half = params.car_length / 2.0 + params.round_l; // 1.5
     double y_half = params.car_width / 2.0 + params.round_l;  // 1.0
-    const BowlModel model(params);
+    const BowlModel model(params, DefaultIntrinsics(), DefaultBakeCameras());
     bool found_flat = false;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
@@ -140,38 +298,34 @@ TEST(BowlModelTest, FlatCenterRegion) {
 }
 
 TEST(BowlModelTest, EdgesMonotonic) {
-    // Along a fixed row (fixed u/x), z must be a non-decreasing function of rd.
-    const BowlModel model(BowlParams::Default());
-    ASSERT_GT(model.rows(), 0);
-    const double x_half = 5.6 / 2.0 + 2.0;
-    const double y_half = 2.2 / 2.0 + 2.0;
-    const double r_outter = 12.6;
+    // BlockBoat (default): z increases monotonically with rd (distance to car
+    // rectangle). Group vertices by rd and verify z is non-decreasing.
+    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
+                         DefaultBakeCameras());
+    ASSERT_GT(model.vertex_count(), 0);
 
-    // Group vertices into rows (recover grid row i from world x), O(n).
-    std::vector<std::vector<std::pair<double, double>>> rows(model.rows() + 1);
-    for (int k = 0; k < model.vertex_count(); ++k) {
-        const cv::Vec3d& v = model.vertex(k);
-        double u = v[0] / r_outter;
-        int i = std::lround((u + 1.0) / 2.0 * model.rows());
-        double dx = std::max(0.0, std::abs(v[0]) - x_half);
-        double dy = std::max(0.0, std::abs(v[1]) - y_half);
-        double rd = std::sqrt(dx * dx + dy * dy);
-        if (i >= 0 && i <= model.rows()) rows[i].emplace_back(rd, v[2]);
+    // Collect (rd, z) pairs, then sort by rd and check z monotonicity.
+    std::vector<std::pair<double, double>> rd_z;
+    rd_z.reserve(model.vertex_count());
+    for (int i = 0; i < model.vertex_count(); ++i) {
+        const cv::Vec3d& v = model.vertex(i);
+        double rd = BowlModel::ComputeRd(v[0], v[1], BowlParams::Default());
+        rd_z.push_back({rd, v[2]});
     }
+    std::sort(rd_z.begin(), rd_z.end());
 
-    for (int i = 0; i <= model.rows(); ++i) {
-        auto& row = rows[i];
-        if (row.size() < 2) continue;
-        std::sort(row.begin(), row.end());
-        for (size_t k = 1; k < row.size(); ++k) {
-            EXPECT_GE(row[k].second, row[k - 1].second - 1e-9)
-                << "row " << i << ": z decreases when rd increases";
+    for (size_t i = 1; i < rd_z.size(); ++i) {
+        if (rd_z[i].first > rd_z[i-1].first + 1e-12) {
+            // Different rd bucket: z must be non-decreasing.
+            EXPECT_GE(rd_z[i].second, rd_z[i-1].second - 1e-9)
+                << "z not monotonic at rd " << rd_z[i].first;
         }
     }
 }
 
 TEST(BowlModelTest, NormalsAreUnitLength) {
-    const BowlModel model(BowlParams::Default());
+    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
+                         DefaultBakeCameras());
     ASSERT_EQ(model.vertex_count(), model.normal_count());
     for (int i = 0; i < model.normal_count(); ++i) {
         const cv::Vec3d& n = model.normal(i);
@@ -187,7 +341,7 @@ TEST(BowlModelTest, FlatCenterNormalsUpward) {
     params.round_l = 0.5;
     double x_half = 1.5;
     double y_half = 1.0;
-    const BowlModel model(params);
+    const BowlModel model(params, DefaultIntrinsics(), DefaultBakeCameras());
     bool found_flat = false;
     for (int k = 0; k < model.vertex_count(); ++k) {
         const cv::Vec3d& v = model.vertex(k);
@@ -203,7 +357,8 @@ TEST(BowlModelTest, FlatCenterNormalsUpward) {
 }
 
 TEST(BowlModelTest, TrianglesHaveValidIndices) {
-    const BowlModel model(BowlParams::Default());
+    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
+                         DefaultBakeCameras());
     ASSERT_GT(model.triangle_count(), 0);
     for (int t = 0; t < model.triangle_count(); ++t) {
         for (int idx : model.triangle(t)) {
@@ -218,12 +373,14 @@ TEST(BowlModelTest, DifferentCarSizeChangesFlatRegion) {
     truck_params.car_length = 18.0;
     truck_params.car_width = 2.5;
     truck_params.step = 0.5;   // coarse for speed
-    const BowlModel truck_model(truck_params);
+    const BowlModel truck_model(truck_params, DefaultIntrinsics(),
+                               DefaultBakeCameras());
     EXPECT_GT(truck_model.vertex_count(), 0);
 
     BowlParams default_params;
     default_params.step = 0.5; // coarse for speed
-    const BowlModel default_model(default_params);
+    const BowlModel default_model(default_params, DefaultIntrinsics(),
+                                 DefaultBakeCameras());
 
     size_t truck_flat = CountFlatVertices(truck_model, 18.0 / 2.0 + 2.0, 2.5 / 2.0 + 2.0);
     size_t default_flat = CountFlatVertices(default_model, 5.6 / 2.0 + 2.0, 2.2 / 2.0 + 2.0);
@@ -232,12 +389,12 @@ TEST(BowlModelTest, DifferentCarSizeChangesFlatRegion) {
 
 TEST(BowlModelTest, MinimalParams_OneCellMesh) {
     BowlParams params;
-    params.step = 12.6;    // step == r_outter -> 1 cell per axis
+    params.step = 12.6;    // step == r_outter -> rows = cols = lround(1)*2 = 2
     params.r_outter = 12.6;
-    const BowlModel model(params);
+    const BowlModel model(params, DefaultIntrinsics(), DefaultBakeCameras());
     EXPECT_EQ(2, model.rows());
     EXPECT_EQ(2, model.cols());
-    EXPECT_GT(model.vertex_count(), 0);   // center + edge points retained
+    EXPECT_GT(model.vertex_count(), 0);
     // must not crash; indices still valid
     for (int t = 0; t < model.triangle_count(); ++t) {
         for (int idx : model.triangle(t)) {
@@ -247,55 +404,17 @@ TEST(BowlModelTest, MinimalParams_OneCellMesh) {
 }
 
 // ---------------------------------------------------------------------------
-// Fine-grained index access: counts + per-element queries (no container
-// exposure). These tests define the new read API surface.
+// Fine-grained index access: per-element queries (no container exposure).
+// The former counts/vertex-bounds/unit-normal/triangle-index cases duplicated
+// ReturnsNonEmptyMesh + VerticesInXyBounds + VerticesZInRange /
+// NormalsAreUnitLength / TrianglesHaveValidIndices and were removed.
 // ---------------------------------------------------------------------------
-
-TEST(BowlModelTest, IndexAccess_CountsAreConsistent) {
-    const BowlModel model(BowlParams::Default());
-    EXPECT_GT(model.vertex_count(), 0);
-    EXPECT_GT(model.triangle_count(), 0);
-    // Construction invariant: one normal per vertex.
-    EXPECT_EQ(model.vertex_count(), model.normal_count());
-}
-
-TEST(BowlModelTest, IndexAccess_VertexInRange) {
-    const BowlModel model(BowlParams::Default());
-    // Every indexed vertex lies in the same XY/Z bounds as the model.
-    for (int i = 0; i < model.vertex_count(); ++i) {
-        const cv::Vec3d& v = model.vertex(i);
-        EXPECT_GE(v[0], -12.6 - 1e-9);
-        EXPECT_LE(v[0], 12.6 + 1e-9);
-        EXPECT_GE(v[1], -12.6 - 1e-9);
-        EXPECT_LE(v[1], 12.6 + 1e-9);
-        EXPECT_GE(v[2], 0.0);
-        EXPECT_LE(v[2], 8.6 + 1e-9);
-    }
-}
-
-TEST(BowlModelTest, IndexAccess_NormalIsUnit) {
-    const BowlModel model(BowlParams::Default());
-    for (int i = 0; i < model.normal_count(); ++i) {
-        const cv::Vec3d& n = model.normal(i);
-        double len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-        EXPECT_NEAR(1.0, len, 1e-6);
-    }
-}
-
-TEST(BowlModelTest, IndexAccess_TriangleIndicesValid) {
-    const BowlModel model(BowlParams::Default());
-    for (int t = 0; t < model.triangle_count(); ++t) {
-        const std::array<int, 3> tri = model.triangle(t);
-        for (int idx : tri) {
-            EXPECT_GE(idx, 0);
-            EXPECT_LT(idx, model.vertex_count());
-        }
-    }
-}
 
 TEST(BowlModelTest, IndexAccess_WrappingConstructorCounts) {
     // Wrap-constructor model: counts reflect the wrapped data, triangles empty.
-    BowlModel model({cv::Vec3d(0.0, 0.0, 10.0)}, {cv::Vec3d(0.0, 0.0, 1.0)});
+    BowlModel model({cv::Vec3d(0.0, 0.0, 10.0)}, {cv::Vec3d(0.0, 0.0, 1.0)},
+                    {MakeIntrinsics()},
+                    {CameraExtrinsics{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)}});
     EXPECT_EQ(1, model.vertex_count());
     EXPECT_EQ(1, model.normal_count());
     EXPECT_EQ(0, model.triangle_count());
@@ -305,17 +424,16 @@ TEST(BowlModelTest, IndexAccess_WrappingConstructorCounts) {
 
 // ---------------------------------------------------------------------------
 // Bake: per-vertex UV + blend weights (assertions kept verbatim from the
-// former bake test file; only the construction form changed: construct
-// BowlModel then call Bake()).
+// former bake test file; only the construction form changed: mesh + bake
+// fused into the BowlModel constructor).
 // ---------------------------------------------------------------------------
 
 TEST(BowlModelBakeTest, SingleCamera_UVMatchesProjection) {
     CameraIntrinsics intr = MakeIntrinsics();
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
-    auto model = MakeCoarseBowl(5.0);
+    auto model = MakeCoarseBowl(5.0, {intr}, {extr});
     ASSERT_GT(model.vertex_count(), 0);
 
-    model.Bake({intr}, {extr});
     // One baked vertex per bowl vertex (index range validated by the loop
     // below via the accessor's bound assert).
     ASSERT_EQ(1, model.baked_num_cameras());
@@ -336,18 +454,16 @@ TEST(BowlModelBakeTest, SingleCamera_UVMatchesProjection) {
 }
 
 TEST(BowlModelBakeTest, N4_NumCameras) {
-    auto model = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
-    model.Bake(intrs, extrs);
+    auto model = MakeCoarseBowl(12.6, intrs, extrs);
     EXPECT_EQ(4, model.baked_num_cameras());
 }
 
 TEST(BowlModelBakeTest, N4_WeightsSumToOne_WhenVisible) {
-    auto model = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
-    model.Bake(intrs, extrs);
+    auto model = MakeCoarseBowl(12.6, intrs, extrs);
 
     int visible_vertices = 0;
     for (int i = 0; i < model.vertex_count(); ++i) {
@@ -363,10 +479,9 @@ TEST(BowlModelBakeTest, N4_WeightsSumToOne_WhenVisible) {
 }
 
 TEST(BowlModelBakeTest, N4_UVInNormalizedRange) {
-    auto model = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
-    model.Bake(intrs, extrs);
+    auto model = MakeCoarseBowl(12.6, intrs, extrs);
 
     for (int i = 0; i < model.vertex_count(); ++i) {
         const BakedVertex& bv = model.baked_vertex(i);
@@ -380,19 +495,26 @@ TEST(BowlModelBakeTest, N4_UVInNormalizedRange) {
 }
 
 TEST(BowlModelBakeTest, N4_InvisibleCameraHasZeroWeight) {
-    auto model = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
-    model.Bake(intrs, extrs);
+    auto model = MakeCoarseBowl(12.6, intrs, extrs);
 
-    // Every vertex that a camera reports as behind it must carry weight 0.
-    // The flat centre (z=0) is below the z=1 camera ring: invisible to all.
+    // D3: Every vertex that a camera reports as invisible (by rect+circle
+    // criteria in the bake) must carry weight 0 for that camera. Cameras
+    // that ARE visible get non-zero weight from normal or D3 fallback
+    // normalization. Compute visibility inline matching BakeVertices exact
+    // logic to avoid any helper mismatch.
     bool found_invisible_pair = false;
     bool found_flat_vertex = false;
     for (int i = 0; i < model.vertex_count(); ++i) {
         if (model.vertex(i)[2] == 0.0) found_flat_vertex = true;
         for (int j = 0; j < 4; ++j) {
-            if (!IsVertexVisibleToCamera(model.vertex(i), intrs[j], extrs[j])) {
+            double u_px, v_px;
+            ProjectWorldToFishEye(model.vertex(i), intrs[j], extrs[j], u_px, v_px);
+            bool visible_in_bake = u_px >= 0.0 && u_px < intrs[j].width
+                                   && v_px >= 0.0 && v_px < intrs[j].height
+                                   && IsInsideFisheyeCircle(intrs[j], u_px, v_px);
+            if (!visible_in_bake) {
                 found_invisible_pair = true;
                 EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(i).weight[j]);
             }
@@ -403,10 +525,9 @@ TEST(BowlModelBakeTest, N4_InvisibleCameraHasZeroWeight) {
 }
 
 TEST(BowlModelBakeTest, N4_AllVerticesHaveAtLeastOneVisible) {
-    auto model = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
-    model.Bake(intrs, extrs);
+    auto model = MakeCoarseBowl(12.6, intrs, extrs);
 
     // The bowl rim rises above the camera ring -> at least some vertices get
     // blend weight; the flat centre is below it -> some stay invisible.
@@ -424,10 +545,9 @@ TEST(BowlModelBakeTest, N4_AllVerticesHaveAtLeastOneVisible) {
 }
 
 TEST(BowlModelBakeTest, N8_AllSlotsFilledCorrectly) {
-    auto model = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(8, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 45, 90, 135, 180, 225, 270, 315});
-    model.Bake(intrs, extrs);
+    auto model = MakeCoarseBowl(12.6, intrs, extrs);
     ASSERT_EQ(8, model.baked_num_cameras());
 
     bool slot7_used = false;
@@ -445,10 +565,9 @@ TEST(BowlModelBakeTest, N8_AllSlotsFilledCorrectly) {
 }
 
 TEST(BowlModelBakeTest, N6_UnusedSlotsZero) {
-    auto model = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(6, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 60, 120, 180, 240, 300});
-    model.Bake(intrs, extrs);
+    auto model = MakeCoarseBowl(12.6, intrs, extrs);
     ASSERT_EQ(6, model.baked_num_cameras());
 
     for (int i = 0; i < model.vertex_count(); ++i) {
@@ -495,9 +614,8 @@ TEST(BowlModelBakeTest, PointInRectButOutsideFisheyeCircle_Invisible) {
     ASSERT_GT(std::hypot(u_out - intr.cx, v_out - intr.cy), 240.0);
 
     BowlModel model({inside, outside},
-                  {cv::Vec3d(0.0, 0.0, 1.0), cv::Vec3d(0.0, 0.0, 1.0)});
-
-    model.Bake({intr}, {extr});
+                    {cv::Vec3d(0.0, 0.0, 1.0), cv::Vec3d(0.0, 0.0, 1.0)},
+                    {intr}, {extr});
 
     // In-circle point: visible with full weight and matching UV.
     EXPECT_NEAR(1.0, model.baked_vertex(0).weight[0], 1e-6);
@@ -512,21 +630,18 @@ TEST(BowlModelBakeTest, PointInRectButOutsideFisheyeCircle_Invisible) {
 }
 
 TEST(BowlModelBakeTest, NoCrashWithAllInvisible) {
-    // Camera above the bowl looking straight up: every bowl vertex (z < 5)
-    // is behind it -> nothing visible, weights stay all-zero, no crash.
-    auto model = MakeCoarseBowl(5.0);
-    CameraIntrinsics intr = MakeIntrinsics();
+    // D3: With IsForwardFacing removed, bowl-center vertices that project to
+    // the image centre (degenerate r_xy=0 branch) become visible. To test an
+    // all-invisible scenario, use a point whose projection falls outside the
+    // image rectangle: P=(10,0,0.2) with identity cam at (0,0,5) gives
+    // u≈1095 > 640 (for the 640x480 intrinsics).
+    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
-    model.Bake({intr}, {extr});
-    // One baked vertex per bowl vertex (index range validated by the loop
-    // below via the accessor's bound assert).
-
-    for (int i = 0; i < model.vertex_count(); ++i) {
-        const BakedVertex& bv = model.baked_vertex(i);
-        EXPECT_FLOAT_EQ(0.0f, bv.weight[0]);
-        EXPECT_FLOAT_EQ(0.0f, bv.uv[0][0]);
-        EXPECT_FLOAT_EQ(0.0f, bv.uv[0][1]);
-    }
+    cv::Vec3d invisible(10.0, 0.0, 0.2);
+    BowlModel model({invisible}, {cv::Vec3d(0,0,1)}, {intr}, {extr});
+    EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(0).weight[0]);
+    EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(0).uv[0][0]);
+    EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(0).uv[0][1]);
 }
 
 // ---------------------------------------------------------------------------
@@ -540,8 +655,8 @@ TEST(BowlModelBakeTest, SingleCamera_NormalPointWeightOne) {
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
 
     // World point that projects to the image centre (r_px = 0, feather = 1.0).
-    BowlModel model({cv::Vec3d(0.0, 0.0, 10.0)}, {cv::Vec3d(0.0, 0.0, 1.0)});
-    model.Bake({intr}, {extr});
+    BowlModel model({cv::Vec3d(0.0, 0.0, 10.0)}, {cv::Vec3d(0.0, 0.0, 1.0)},
+                    {intr}, {extr});
 
     ASSERT_GT(model.vertex_count(), 0);
     EXPECT_NEAR(1.0, model.baked_vertex(0).weight[0], 1e-6);
@@ -568,8 +683,7 @@ TEST(BowlModelBakeTest, FeatherAttenuatesNearEdgeCameraInOverlap) {
     ASSERT_NEAR(230.0, std::hypot(u0 - intr.cx, v0 - intr.cy), 1e-6);
     ASSERT_NEAR(0.0, std::hypot(u1 - intr.cx, v1 - intr.cy), 1e-6);
 
-    BowlModel model({P}, {cv::Vec3d(0.0, 0.0, 1.0)});
-    model.Bake({intr, intr}, {cam0, cam1});
+    BowlModel model({P}, {cv::Vec3d(0.0, 0.0, 1.0)}, {intr, intr}, {cam0, cam1});
 
     // Raw blend weights are symmetric (0.5 / 0.5); only the feather breaks the
     // tie: cam0's edge sample (feather ~0.625) must lose to cam1's centre one.
@@ -580,85 +694,204 @@ TEST(BowlModelBakeTest, FeatherAttenuatesNearEdgeCameraInOverlap) {
     EXPECT_NEAR(1.0, model.baked_vertex(0).weight[0] + model.baked_vertex(0).weight[1], 1e-6);
 }
 
-// ---------------------------------------------------------------------------
-// Fine-grained index access + semantic queries (no container exposure).
-// ---------------------------------------------------------------------------
-
-TEST(BowlModelBakeTest, IndexAccess_CountsMatchBowl) {
-    auto model = MakeCoarseBowl(12.6);
+// D1 + D2: car_center propagates through BakeVertices → ComputeBlendWeights pole.
+// A non-zero car_center shifts the sector centre, changing weight distribution
+// for the same world point. Only tests with visible points (P[x|y] > 3 for
+// MakeSideCameras with radius=3m looking horizontally).
+TEST(BowlModelBakeTest, CarCenter_ShiftsBlendWeightDistribution) {
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
-    auto extrs = MakeSideCameras({0, 180, 90, -90});
-    EXPECT_FALSE(model.IsBaked());
-    model.Bake(intrs, extrs);
-    EXPECT_TRUE(model.IsBaked());
-    // One baked vertex per bowl vertex: the full index range must be valid
-    // (an out-of-bounds index trips baked_vertex()'s bound assert).
-    for (int i = 0; i < model.vertex_count(); ++i) {
-        (void)model.baked_vertex(i);
-    }
-}
+    auto extrs = MakeSideCameras({0, 90, 180, -90});
 
-TEST(BowlModelBakeTest, IndexAccess_BakedVertexWeightSemantics) {
-    auto model = MakeCoarseBowl(12.6);
-    auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
-    auto extrs = MakeSideCameras({0, 180, 90, -90});
-    model.Bake(intrs, extrs);
+    // Point (5, 5, 1.1): visible to front (cam 0, az=0°) and left (cam 1, az=90°)
+    // because P[0]=5 > camera_x=3 and P[1]=5 > camera_y=3.
+    cv::Vec3d P(5.0, 5.0, 1.1);
 
-    // Same weight-sum-to-one expectation as the loop form, via index access.
-    int visible_vertices = 0;
-    for (int i = 0; i < model.vertex_count(); ++i) {
-        const BakedVertex& bv = model.baked_vertex(i);
-        double sum = 0.0;
-        for (int j = 0; j < 4; ++j) sum += bv.weight[j];
-        if (sum > 1e-9) {
-            ++visible_vertices;
-            EXPECT_NEAR(1.0, sum, 1e-6);
-        }
+    // Default car_center=(0,0): theta = atan2(5, 5) = 45° → on boundary → front+left ~0.5/0.5
+    BowlModel model_default({P}, {cv::Vec3d(0,0,1)}, intrs, extrs);
+    const auto& bv_default = model_default.baked_vertex(0);
+
+    // With car_center=(3,0): same P → rel=(2,5) → theta = atan2(5, 2) ≈ 68.2°
+    // Closer to left(90°) → left weight > front weight
+    BowlModel model_shifted({P}, {cv::Vec3d(0,0,1)}, intrs, extrs,
+                            cv::Vec2d(3.0, 0.0));
+    const auto& bv_shifted = model_shifted.baked_vertex(0);
+
+    // Both visible — weight sums to 1.0
+    double sum_default = 0.0, sum_shifted = 0.0;
+    for (int j = 0; j < 4; ++j) {
+        sum_default += bv_default.weight[j];
+        sum_shifted += bv_shifted.weight[j];
     }
-    EXPECT_GT(visible_vertices, 0);
+    EXPECT_NEAR(1.0, sum_default, 1e-6);
+    EXPECT_NEAR(1.0, sum_shifted, 1e-6);
+
+    // Default: at boundary (45°) → front/left near equal
+    EXPECT_GT(bv_default.weight[0], 0.4);
+    EXPECT_GT(bv_default.weight[1], 0.4);
+
+    // Shifted: pole moved to (3,0) → azimuth toward left(90°) → left weight dominates
+    EXPECT_GT(bv_shifted.weight[1], bv_shifted.weight[0]);
 }
 
 TEST(BowlModelBakeTest, HasVisibleVertices_TrueWhenRimVisible) {
     // Bowl rim (z > 1) rises above the z=1 camera ring -> visible.
-    auto model = MakeCoarseBowl(12.6);
     auto intrs = std::vector<CameraIntrinsics>(4, MakeIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
-    model.Bake(intrs, extrs);
+    auto model = MakeCoarseBowl(12.6, intrs, extrs);
     EXPECT_TRUE(model.HasVisibleVertices());
 }
 
 TEST(BowlModelBakeTest, HasVisibleVertices_FalseWhenAllInvisible) {
-    // Camera above the bowl looking straight up: every bowl vertex (z < 5)
-    // is behind it -> no visible vertex anywhere.
-    auto model = MakeCoarseBowl(5.0);
-    CameraIntrinsics intr = MakeIntrinsics();
+    // D3: With IsForwardFacing removed, bowl-centre vertices that project
+    // to the image centre become visible. Use a truly invisible point:
+    // P=(10,0,0.2), identity cam at (0,0,5), u≈1095 > 640.
+    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
-    model.Bake({intr}, {extr});
+    cv::Vec3d invisible(10.0, 0.0, 0.2);
+    BowlModel model({invisible}, {cv::Vec3d(0,0,1)}, {intr}, {extr});
     EXPECT_FALSE(model.HasVisibleVertices());
 }
 
-// Re-baking with fewer cameras must clear the stale higher slots: slots 4-7
-// from an 8-camera bake keep zero weight/uv after a 4-camera re-bake
-// (docs promise "Re-baking overwrites previous results").
-TEST(BowlModelBakeTest, RebakeClearsStaleSlots) {
-    auto model = MakeCoarseBowl(12.6);
-    auto intrs = std::vector<CameraIntrinsics>(8, MakeIntrinsics());
-    auto extrs8 = MakeSideCameras({0, 180, 90, -90, 45, 135, 225, 315});
-    model.Bake(intrs, extrs8);
-    ASSERT_EQ(8, model.baked_num_cameras());
+// ---------------------------------------------------------------------------
+// D3: Fallback normalization — owner invisible but visible cameras exist
+// ---------------------------------------------------------------------------
 
-    // Re-bake with the first 4 cameras only.
-    auto extrs4 = MakeSideCameras({0, 180, 90, -90});
-    model.Bake(std::vector<CameraIntrinsics>(intrs.begin(), intrs.begin() + 4),
-               extrs4);
-    ASSERT_EQ(4, model.baked_num_cameras());
+// D3: Owner invisible but neighbor visible → non-zero weights on visible set.
+// Camera 0: identity rotation at (0,0,5) looking up. Point (-3,0,0.2):
+// P_cam=(-3,0,-4.8) → θ≈2.58, u≈1095 > 640 → outside rect → invisible.
+// Camera 1: lookAt at (6,0,2) toward origin. Point (-3,0,0.2) is in cam1's
+// azimuth sector (180°) → raw_weight[1]=1.0, projects inside circle → visible.
+TEST(BowlModelBakeTest, D3_FallbackNormalization_OwnerInvisibleNeighborVisible) {
+    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+    CameraExtrinsics cam0{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
+    auto cam1 = avm_stitch::test::MakeLookAtCamera(0.0, 6.0, 2.0, 0.0);
+    cv::Vec3d P(-3.0, 0.0, 0.2);
 
-    for (int i = 0; i < model.vertex_count(); ++i) {
-        const BakedVertex& bv = model.baked_vertex(i);
-        for (int j = 4; j < 8; ++j) {
-            EXPECT_FLOAT_EQ(0.0f, bv.weight[j]);
-            EXPECT_FLOAT_EQ(0.0f, bv.uv[j][0]);
-            EXPECT_FLOAT_EQ(0.0f, bv.uv[j][1]);
-        }
-    }
+    BowlModel model({P}, {cv::Vec3d(0,0,1)}, {intr, intr}, {cam0, cam1});
+
+    // Camera 0: owner, invisible (outside rect) → weight[0] stays 0
+    // Camera 1: neighbor, visible → weight[1] > 0, sum == 1
+    double sum = model.baked_vertex(0).weight[0] + model.baked_vertex(0).weight[1];
+    EXPECT_NEAR(1.0, sum, 1e-6);
+    EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(0).weight[0]);
+    EXPECT_GT(model.baked_vertex(0).weight[1], 0.0f);
 }
+
+// D3: No visible cameras at all → weights stay zero (physical blind zone).
+TEST(BowlModelBakeTest, D3_FallbackNormalization_AllInvisible_WeightsStayZero) {
+    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+    // Single camera above looking up: any point below is radiometrically
+    // invisible (projects outside rect or circle).
+    CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
+    cv::Vec3d P(10.0, 0.0, 0.2);  // u=920 > 640, outside rect
+    BowlModel model({P}, {cv::Vec3d(0,0,1)}, {intr}, {extr});
+    EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(0).weight[0]);
+}
+
+// D3: IsForwardFacing no longer gates visibility — a z<0 point that projects
+// inside the rect+circle is now visible (old IsForwardFacing would reject it).
+// Identity camera at (0,0,5), point P=(0,0,3): P_cam=(0,0,-2), r_xy=0 →
+// degenerate branch → u=cx=320, v=cy=240 → inside rect AND inside circle.
+TEST(BowlModelBakeTest, D3_IsForwardFacingNoLongerGates) {
+    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+    CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
+    cv::Vec3d P(0.0, 0.0, 3.0);  // 2m below camera, z<0 in camera space
+
+    BowlModel model({P}, {cv::Vec3d(0,0,1)}, {intr}, {extr});
+
+    // Old code: IsForwardFacing rejects → weight = 0
+    // New code: projection center (cx,cy) inside rect+circle → weight > 0
+    EXPECT_GT(model.baked_vertex(0).weight[0], 0.0f);
+}
+
+// ---------------------------------------------------------------------------
+// BowlBoat (polar) mesh tests
+// ---------------------------------------------------------------------------
+
+TEST(BowlModelTest, BowlBoatMesh_RoundShape) {
+    BowlParams p;
+    p.type = BowlType::BowlBoat;
+    p.step = 0.2;
+    BowlModel model(p, DefaultIntrinsics(), DefaultBakeCameras());
+    EXPECT_GT(model.vertex_count(), 0);
+    EXPECT_GT(model.triangle_count(), 0);
+    EXPECT_TRUE(model.HasVisibleVertices());
+}
+
+TEST(BowlModelTest, BowlBoatMesh_DifferentFromBlockBoat) {
+    BowlParams block_p;
+    block_p.type = BowlType::BlockBoat;
+    block_p.step = 0.2;
+    BowlModel block(block_p, DefaultIntrinsics(), DefaultBakeCameras());
+
+    BowlParams boat_p;
+    boat_p.type = BowlType::BowlBoat;
+    boat_p.step = 0.2;
+    BowlModel boat(boat_p, DefaultIntrinsics(), DefaultBakeCameras());
+
+    // Different topology -> different vertex/triangle counts
+    EXPECT_NE(block.vertex_count(), boat.vertex_count());
+}
+
+// ---------------------------------------------------------------------------
+// Black-seam regression tests: feather hard-gate + edge-factor visibility.
+// ---------------------------------------------------------------------------
+
+// Test A (core regression): A vertex seen by camera X at unsafe margin (< 40px,
+// edge_factor=0), and by camera Y at image center (edge_factor=1.0). The vertex
+// lies in both cameras' sector (both have identity rotation, same azimuth → raw
+// weights 0.5/0.5). With the hard gate, camera X is invisible, so the full
+// weight must go to camera Y.
+TEST(BowlModelBakeTest, EdgeGate_UnsafeCameraInvisible_SafeCameraGetsFullWeight) {
+    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+
+    // Build a point that camera 0 sees at r=230 (margin=10 < 40 → edge_factor=0)
+    // and camera 1 sees at its image centre (margin=240 → edge_factor=1).
+    // Both cameras are identity (look up) at different horizontal positions.
+    const double r_u = std::tan(230.0 / 300.0);
+    cv::Vec3d P(r_u * 5.0, 0.0, 10.0);
+
+    // Camera 0: at (0,0,5), identity rotation → P projects at r=230, margin=10
+    CameraExtrinsics cam0{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
+    // Camera 1: shifted to align P with its optical axis → P projects at centre
+    CameraExtrinsics cam1{cv::Matx33d::eye(), cv::Vec3d(r_u * 5.0, 0.0, 5.0)};
+
+    // Sanity: verify projections
+    double u0, v0, u1, v1;
+    ProjectWorldToFishEye(P, intr, cam0, u0, v0);
+    ProjectWorldToFishEye(P, intr, cam1, u1, v1);
+    ASSERT_NEAR(230.0, std::hypot(u0 - intr.cx, v0 - intr.cy), 1e-6);
+    ASSERT_NEAR(0.0, std::hypot(u1 - intr.cx, v1 - intr.cy), 1e-6);
+
+    BowlModel model({P}, {cv::Vec3d(0.0, 0.0, 1.0)}, {intr, intr}, {cam0, cam1});
+
+    // Camera 0 is at margin=10 < 40 → edge_factor=0 → invisible → weight stays 0
+    EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(0).weight[0]);
+    // Camera 1 is at centre → edge_factor=1 → visible → gets all weight
+    EXPECT_NEAR(1.0f, model.baked_vertex(0).weight[1], 1e-6f);
+    // Sum remains 1.0
+    EXPECT_NEAR(1.0f, model.baked_vertex(0).weight[0] + model.baked_vertex(0).weight[1], 1e-6f);
+}
+
+// Test C: No safe camera — all cameras have margin < 40 → all edge_factor=0 →
+// all invisible → weight_sum stays 0 (semantically honest zero-weight hole).
+TEST(BowlModelBakeTest, EdgeGate_AllCamerasUnsafe_ZeroWeight) {
+    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+
+    // Point projects to r=239 (margin=1 < 40) with a single identity camera
+    // at (0,0,5).
+    const double r_u = std::tan(239.0 / 300.0);
+    cv::Vec3d P(r_u * 5.0, 0.0, 10.0);
+
+    CameraExtrinsics cam{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
+
+    double u, v;
+    ProjectWorldToFishEye(P, intr, cam, u, v);
+    ASSERT_NEAR(239.0, std::hypot(u - intr.cx, v - intr.cy), 1e-6);
+
+    BowlModel model({P}, {cv::Vec3d(0.0, 0.0, 1.0)}, {intr}, {cam});
+
+    // Only camera is at margin=1 < 40 → edge_factor=0 → invisible → weight=0
+    EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(0).weight[0]);
+}
+

@@ -19,8 +19,11 @@ double NormalizeAngleDeg(double deg) {
 }
 
 double AzimuthDeg(const CameraExtrinsics& e) {
-    // Normalize to [0, 360) so sector boundaries are canonically anchored at 0.
-    return NormalizeAngleDeg(std::atan2(e.t[1], e.t[0]) * kRadToDeg);
+    // Optical-axis ground projection azimuth: camera Z-axis (column 2 of R_wc)
+    // projected onto the XY plane. Replaces old atan2(t[1], t[0]) which used
+    // camera position azimuth (wrong for non-centric camera layouts).
+    // R(0,2)=axis.x, R(1,2)=axis.y. atan2(0,0) returns 0.0 (optical axis up).
+    return NormalizeAngleDeg(std::atan2(e.R(1,2), e.R(0,2)) * kRadToDeg);
 }
 
 // Shortest angular distance on the circle between two angles (degrees).
@@ -72,13 +75,14 @@ double ComputeBlendHalfAngle(int num_cameras) {
 
 std::vector<double> ComputeBlendWeights(
     const cv::Vec3d& P_world,
-    const std::vector<CameraExtrinsics>& extrinsics) {
+    const std::vector<CameraExtrinsics>& extrinsics,
+    const cv::Vec2d& pole) {
     const int N = static_cast<int>(extrinsics.size());
     std::vector<double> weights(N, 0.0);
     if (N == 0) return weights;
 
     const double theta = NormalizeAngleDeg(
-        std::atan2(P_world[1], P_world[0]) * kRadToDeg);
+        std::atan2(P_world[1] - pole[1], P_world[0] - pole[0]) * kRadToDeg);
     auto sorted = SortCamerasByAzimuth(extrinsics);
     if (N == 1) {
         weights[sorted[0].second] = 1.0;
