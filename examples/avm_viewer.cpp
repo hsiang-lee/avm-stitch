@@ -1,6 +1,7 @@
 // avm_viewer — Textured bowl-model viewer.
-// Loads real fish-eye camera data from cameras.json and renders a textured bowl.
-// Usage: ./avm_viewer [data_dir]
+// Loads real fish-eye camera data from calibration.json and renders a textured bowl.
+// Defaults to ../../examples/data_8 (8 cameras); pass another data dir to override,
+// e.g. ./avm_viewer ../../examples/data_4 (4 cameras).
 
 #include "geometry/bowl_model.hpp"
 #include "render/osg_view_renderer.hpp"
@@ -95,10 +96,10 @@ std::vector<CameraData> LoadCameraConfig(const std::string& json_path) {
 } // namespace
 
 int main(int argc, char** argv) {
-    std::string data_dir = "../../examples/data";
+    std::string data_dir = "../../examples/data_8";
     if (argc > 1) data_dir = argv[1];
 
-    std::string json_path = data_dir + "/cameras.json";
+    std::string json_path = data_dir + "/calibration.json";
     auto cameras = LoadCameraConfig(json_path);
     if (cameras.empty()) {
         std::cerr << "No cameras loaded from " << json_path << "\n";
@@ -126,7 +127,7 @@ int main(int argc, char** argv) {
         intr.k4 = cam.k4;
         intrs.push_back(intr);
 
-        // cameras.json already stores T_wc (camera→world) — same format as
+        // calibration.json already stores T_wc (camera→world) — same format as
         // avm-worker's OSG backend. Pass directly.
         extrs.push_back({cam.R, cam.t});
 
@@ -141,12 +142,14 @@ int main(int argc, char** argv) {
         images.push_back(img);
     }
 
-    // Read optional "car" block from cameras.json and apply to BowlParams.
-    // Fields: length (m), width (m), axis_x (m, rear-axle distance from origin),
-    // origin_convention (descriptive string).
+    // Read the mandatory "car" block from calibration.json. Fields: length (m),
+    // width (m), axis_x (m, rear-axle distance from origin), origin_convention
+    // (descriptive string). Bowl parameters are derived from these — there is
+    // no default vehicle, so a missing car block is a hard error.
     cv::Vec2d car_center(0.0, 0.0);
-    double car_length = 5.6;
-    double car_width = 2.2;
+    double car_length = 0.0;
+    double car_width = 0.0;
+    bool car_ok = false;
     // Re-parse the JSON content to read the "car" block (FileStorage is
     // single-pass; we need a second parse from the original content).
     std::ifstream ifs2(json_path);
@@ -170,16 +173,21 @@ int main(int argc, char** argv) {
                 std::cout << "Car origin: " << convention << " (axis_x=" << axis_x
                           << " → car_center=(" << car_center[0] << ", "
                           << car_center[1] << "))\n";
-            } else {
-                std::cout << "No 'car' field in cameras.json, using BowlParams defaults\n";
+                car_ok = car_length > 0.0 && car_width > 0.0;
             }
         }
     }
+    if (!car_ok) {
+        std::cerr << "calibration.json must contain a 'car' block with positive "
+                  << "length/width — required to derive bowl params\n";
+        return 1;
+    }
 
-    BowlParams bp = BowlParams::Default();
-    bp.car_length = car_length;
-    bp.car_width = car_width;
-    bp.car_center = car_center;
+    BowlParams bp = DeriveBowlParams(car_length, car_width, car_center[0] * 2.0);
+    std::cout << "Derived bowl params: r_outter=" << bp.r_outter
+              << " round_l=" << bp.round_l << " step=" << bp.step
+              << " k_slop=" << bp.k_slop << " z_exp=" << bp.z_exp
+              << " max_z=" << bp.max_z << "\n";
     BowlModel bowl(bp, intrs, extrs);
     std::cout << "Bowl model: " << bowl.vertex_count() << " vertices, "
               << bowl.triangle_count() << " triangles\n";
@@ -187,8 +195,8 @@ int main(int argc, char** argv) {
     StitchScene scene(bowl, intrs[0].width, intrs[0].height);
     scene.UploadCameraImages(images);
 
-    OSGViewRenderer renderer(scene, DefaultViewPoses(bp.car_center), 960, 640,
-                             RenderMode::Windowed, bp.car_center);
+    OSGViewRenderer renderer(scene, DefaultViewPoses(bp.car_center, bp.r_outter / kCalibratedAnchorRoutter),
+                             960, 640, RenderMode::Windowed, bp.car_center);
 
     std::cout << "Controls:  LMB=rotate  RMB=zoom  MMB=pan\n";
     renderer.WaitForWindowClose();
