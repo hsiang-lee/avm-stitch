@@ -114,6 +114,58 @@ TEST(ViewPoseTest, DefaultViewPoses_DefaultArgUnchanged) {
 }
 
 // ---------------------------------------------------------------------------
+// DefaultViewPoses with a scale factor (scales the frame with the vehicle).
+// ---------------------------------------------------------------------------
+
+TEST(ViewPoseTest, DefaultViewPoses_ScaleOneMatchesHistoricalConstants) {
+    // scale=1.0 is the anchor: it must reproduce the exact hardcoded default
+    // pose set (topdown + 4 side views at the calibrated 5.8/6.0/2.0/1.82/0.2
+    // offsets) — regression pin so the car keeps its historical camera frame.
+    auto poses = DefaultViewPoses(cv::Vec2d(0.0, 0.0), 1.0);
+    ASSERT_EQ(5u, poses.size());
+    EXPECT_NEAR(-1.82, poses[0].position[0], 1e-12);
+    EXPECT_NEAR(0.0, poses[0].position[1], 1e-12);
+    EXPECT_NEAR(6.0, poses[0].position[2], 1e-12);
+    EXPECT_NEAR(0.0, poses[0].target[0], 1e-12);
+    EXPECT_NEAR(0.0, poses[0].target[1], 1e-12);
+    EXPECT_NEAR(0.2, poses[0].target[2], 1e-12);
+    for (size_t i = 1; i < poses.size(); ++i) {
+        SCOPED_TRACE(poses[i].name);
+        const double offset = (i == 3 || i == 4) ? poses[i].position[1]
+                                                 : poses[i].position[0];
+        EXPECT_NEAR(5.8, std::abs(offset), 1e-12);
+        EXPECT_NEAR(2.0, poses[i].position[2], 1e-12);
+        EXPECT_NEAR(0.0, poses[i].target[0], 1e-12);
+        EXPECT_NEAR(0.0, poses[i].target[1], 1e-12);
+        EXPECT_NEAR(0.2, poses[i].target[2], 1e-12);
+    }
+}
+
+TEST(ViewPoseTest, DefaultViewPoses_ScaleMultipliesOffsetsAndHeights) {
+    // scale multiplies every car-relative offset AND the absolute camera /
+    // target height — the viewing frame expands with the vehicle (the old
+    // hardcoded car-sized frame could not frame a 38x longer ship).
+    const double s = 2.5;
+    auto ref = DefaultViewPoses(cv::Vec2d(0.0, 0.0), 1.0);
+    auto scaled = DefaultViewPoses(cv::Vec2d(0.0, 0.0), s);
+    ASSERT_EQ(ref.size(), scaled.size());
+    for (size_t i = 0; i < ref.size(); ++i) {
+        SCOPED_TRACE(ref[i].name);
+        EXPECT_NEAR(ref[i].position[0] * s, scaled[i].position[0], 1e-9);
+        EXPECT_NEAR(ref[i].position[1] * s, scaled[i].position[1], 1e-9);
+        EXPECT_NEAR(ref[i].position[2] * s, scaled[i].position[2], 1e-9);
+        EXPECT_NEAR(ref[i].target[0] * s, scaled[i].target[0], 1e-9);
+        EXPECT_NEAR(ref[i].target[1] * s, scaled[i].target[1], 1e-9);
+        EXPECT_NEAR(ref[i].target[2] * s, scaled[i].target[2], 1e-9);
+        EXPECT_DOUBLE_EQ(ref[i].fovy_deg, scaled[i].fovy_deg);
+        EXPECT_EQ(ref[i].name, scaled[i].name);
+        for (int k = 0; k < 3; ++k) {
+            EXPECT_DOUBLE_EQ(ref[i].up[k], scaled[i].up[k]);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // OSGViewRenderer (offscreen 5-view rendering, GL-gated).
 // ---------------------------------------------------------------------------
 

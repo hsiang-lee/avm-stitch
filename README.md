@@ -72,18 +72,19 @@ hpp/cpp 拆分,纯数学,无 GL 依赖。`BowlModel model(params, intrinsics, ex
       车宽/2+round_l)
 ```
 
-`BowlParams` 8 个参数(默认值来自 `BowlParams::Default()`):
+`BowlParams` 8 个参数——没有硬编码默认值,统一由 `DeriveBowlParams(car_length, car_width, axis_x)` 从载具实际尺寸派生(车和船同一套公式):
 
-| 参数 | 默认值 | 含义 |
+| 参数 | 汽车 L=5.6 派生值 | 派生规则 |
 |------|--------|------|
-| `car_length` / `car_width` | 5.6 / 2.2 | 车长/车宽(m),决定平坦区大小 |
-| `round_l` | 2.0 | 圆角外扩量:平坦区是以车为基准的圆角矩形 |
-| `step` | 0.1 | 网格步长(m),网格数 = `r_outter/step × 2` |
-| `r_outter` | 12.6 | 碗外半径(m),即拼接可见范围 |
-| `k_slop` / `z_exp` | 0.09 / 2.2 | 坡度系数与幂次,控制碗沿抬升快慢 |
-| `max_z` | 8.6 | 碗沿最大高度,超出部分的顶点被裁剪 |
+| `car_length` / `car_width` | 传入值 | 载具长/宽(m),决定平坦区大小 |
+| `round_l` | 2.0 | `0.16 × r_outter`:圆角外扩量,平坦区是以车为基准的圆角矩形 |
+| `step` | 0.2 | `r_outter / 63`:网格步长(m),网格数恒为 `126×126` |
+| `r_outter` | 12.6 | `12.6 × (L/5.6)^0.72`:碗外半径(m),幂律缩放,船(L=211.6)→≈172.2 |
+| `z_exp` | 2.2 | 固定形状常数(原标定碗形,陡壁 + 开口轮廓) |
+| `max_z` | 8.6 | `8.6 × (L/5.6)^0.55`:碗沿最大高度,超出部分的顶点被裁剪 |
+| `k_slop` | 0.09 | `0.09 × (L/5.6)^-1.25`:`p+q=(1-0.72)×2.2` 使裁剪半径 `rd* = (max_z/k_slop)^(1/2.2) = 7.95 × (L/5.6)^0.098` 随尺度连续增长(车开口比 63% → 船 90%),所有尺度下碗沿先到 max_z 再裁剪 |
 
-`rd` 是顶点到圆角矩形(平坦区)边缘的最近距离:平坦区内 `rd=0, z=0`;平坦区外按幂函数抬升。法线用有限差分估计(`ComputeBowlNormals`)。`BowlParams` 以纯结构体进出(默认值来自 `BowlParams::Default()`);从任务 JSON 解析碗参数的集成层逻辑已迁至 avm-worker。
+`car_center` 也一并派生:`(axis_x/2, 0)`(后轴系)。`BowlParams` 字段默认初始化为 0(0 = 未派生);必须经 `DeriveBowlParams` 构造或全字段显式赋值。从任务 JSON 解析碗参数的集成层逻辑已迁至 avm-worker(其 `ParseBowlParams` 以 calibration.car 尺寸派生 + bowl 块逐字段覆盖)。
 
 ### 3.2 鱼眼投影(`src/geometry/projection.hpp`)
 
@@ -241,12 +242,13 @@ ctest --test-dir build                # 10 个目标
 using namespace avm_stitch;
 
 StitchEngine engine;
-engine.Configure(intrinsics, extrinsics, BowlParams::Default());  // 一次性
+engine.Configure(intrinsics, extrinsics,
+                 DeriveBowlParams(5.6, 2.2, 2.9));   // 一次性,从载具尺寸派生碗参数
 auto views = engine.RenderFrame(bgr_images);   // 每帧: map<视图名, cv::Mat>
 ```
 
 - `intrinsics` / `extrinsics`:`std::vector<CameraIntrinsics>` / `std::vector<CameraExtrinsics>`(`src/geometry/projection.hpp`,T_wc 约定)
-- `BowlParams`:碗形参数结构体(`src/geometry/bowl_model.hpp`,默认值 `BowlParams::Default()`)
+- `BowlParams`:碗形参数结构体(`src/geometry/bowl_model.hpp`);无硬编码默认值,必须经 `DeriveBowlParams(car_length, car_width, axis_x)` 派生或全字段显式赋值
 - `RenderFrame` 输入 N 路 BGR `cv::Mat`,输出 5 个视图(`topdown` / `3d_front` / `3d_rear` / `3d_left` / `3d_right`)
 - 错误以异常表达(如 `Configure` 对 N∈[1,8] 之外的输入抛 `std::invalid_argument`)
 

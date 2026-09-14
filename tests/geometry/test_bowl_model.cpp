@@ -62,25 +62,232 @@ std::vector<CameraExtrinsics> DefaultBakeCameras() {
     return MakeSideCameras({0, 180, 90, -90});
 }
 
+// The derived reference-car bowl (historically healthy car anchor). Most
+// mesh-construction tests below used the old hardcoded defaults, which
+// DeriveBowlParams(5.6, 2.2, 2.9) reproduces within ±20%; tests asserting
+// exact historical numbers (12.6 grid extent etc.) re-pin the exact fields.
+BowlParams CarBowl() {
+    return DeriveBowlParams(5.6, 2.2, 2.9);
+}
+
+// Car anchor with car_center pinned to (0,0): the pre-D1 baseline layout.
+BowlParams CarBowlCentered() {
+    BowlParams p = CarBowl();
+    p.car_center = cv::Vec2d(0.0, 0.0);
+    return p;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
 // BowlParams
 // ---------------------------------------------------------------------------
 
-TEST(BowlParamsTest, Default_SetsCorrectDefaults) {
-    auto p = BowlParams::Default();
+// ---------------------------------------------------------------------------
+// DeriveBowlParams — all bowl parameters derive from the vehicle's real
+// dimensions (length/width/axis_x). One formula for cars and ships alike;
+// there are no hardcoded per-vehicle presets (BowlParams::Default is gone).
+// Invariants below pin the NEW equal-scaling family: s = L/5.6 is the SINGLE
+// scale factor, every length ∝ s and k_slop ∝ s^-1.2 → the surface shape is
+// exactly self-similar (isotropic rim heights, constant 63% opening, constant
+// 126x126 grid at any vehicle size).
+// ---------------------------------------------------------------------------
+
+// Car-scale regression: L=5.6/W=2.2 must reproduce the historically healthy
+// car bowl (r_outter=12.6, round_l=2.0, step=0.2, k_slop=0.09, max_z=8.6,
+// z_exp=2.2) — otherwise 4-camera stitching degrades. z_exp is a fixed shape
+// constant: the original steep-wall bowl silhouette.
+TEST(DeriveBowlParamsTest, CarScale_MatchesCalibratedValues) {
+    const BowlParams p = DeriveBowlParams(5.6, 2.2, 2.9);
     EXPECT_DOUBLE_EQ(5.6, p.car_length);
     EXPECT_DOUBLE_EQ(2.2, p.car_width);
+    EXPECT_NEAR(12.6, p.r_outter, 12.6 * 0.20);
+    EXPECT_NEAR(2.0, p.round_l, 2.0 * 0.20);
+    EXPECT_NEAR(0.2, p.step, 0.2 * 0.20);
+    EXPECT_NEAR(0.09, p.k_slop, 0.09 * 0.20);
+    EXPECT_DOUBLE_EQ(2.2, p.z_exp);
+    EXPECT_NEAR(8.6, p.max_z, 8.6 * 0.20);
+    // car_center = (axis_x/2, 0) — rear-axle origin convention.
+    EXPECT_DOUBLE_EQ(1.45, p.car_center[0]);
+    EXPECT_DOUBLE_EQ(0.0, p.car_center[1]);
+    EXPECT_EQ(BowlType::BlockBoat, p.type);
+}
+
+// Anchor EXACT regression: at s=1 (L=5.6) the six shape fields must be
+// bit-exact equal to the old calibrated Default. The steep-wall silhouette is
+// pinned too: rd* = (max_z/k_slop)^(1/2.2) ≈ 7.95 = 0.63*r_outter — the wall
+// climbs to max_z BEFORE the grid edge and clips ("steep wall + opening",
+// never a shallow full-diameter plate).
+TEST(DeriveBowlParamsTest, CarAnchor_ExactRegressionToOldDefault) {
+    const BowlParams p = DeriveBowlParams(5.6, 2.2, 2.9);
+    EXPECT_DOUBLE_EQ(12.6, p.r_outter);
     EXPECT_DOUBLE_EQ(2.0, p.round_l);
     EXPECT_DOUBLE_EQ(0.2, p.step);
-    EXPECT_DOUBLE_EQ(12.6, p.r_outter);
+    EXPECT_DOUBLE_EQ(8.6, p.max_z);
     EXPECT_DOUBLE_EQ(0.09, p.k_slop);
     EXPECT_DOUBLE_EQ(2.2, p.z_exp);
-    EXPECT_DOUBLE_EQ(8.6, p.max_z);
-    // D1: car_center default is (0,0) for backward compatibility
-    EXPECT_DOUBLE_EQ(0.0, p.car_center[0]);
+    // Derived quantities: same surface equation as the mesh generator; pow()
+    // introduces ~1e-5 ulp error, so assert with a tight absolute band.
+    const double rd_star = std::pow(p.max_z / p.k_slop, 1.0 / p.z_exp);
+    EXPECT_NEAR(7.9454, rd_star, 1e-4);
+    EXPECT_NEAR(0.6306, rd_star / p.r_outter, 1e-4);
+    EXPECT_LT(rd_star, p.r_outter);   // clipped steep wall
+    // car_center = (axis_x/2, 0) — rear-axle origin convention.
+    EXPECT_DOUBLE_EQ(1.45, p.car_center[0]);
     EXPECT_DOUBLE_EQ(0.0, p.car_center[1]);
+    EXPECT_EQ(BowlType::BlockBoat, p.type);
+}
+
+// Linear similarity: the shape must be scale-free, so doubling the vehicle
+// length EXACTLY doubles every length field, leaves z_exp untouched, and
+// keeps the power-law curvature coefficients in lockstep (k_slop × 2^-1.2).
+// This is the core assertion behind "等比例缩放" — the old sub-linear
+// s^0.72/s^0.55 family fails it (r_outter grew 13.7x for a 37.8x ship).
+TEST(DeriveBowlParamsTest, LinearSimilarity_DoublingLengthDoublesAllLengths) {
+    const BowlParams p1 = DeriveBowlParams(5.6, 2.2, 2.9);    // s = 1
+    const BowlParams p2 = DeriveBowlParams(11.2, 2.2, 2.9);   // s = 2
+    ASSERT_GT(p1.k_slop, 0.0);
+    ASSERT_GT(p1.max_z, 0.0);
+    ASSERT_GT(p1.step, 0.0);
+    ASSERT_GT(p1.round_l, 0.0);
+    ASSERT_GT(p1.r_outter, 0.0);
+    EXPECT_NEAR(2.0, p2.r_outter / p1.r_outter, 1e-9);
+    EXPECT_NEAR(2.0, p2.round_l / p1.round_l, 1e-9);
+    EXPECT_NEAR(2.0, p2.step / p1.step, 1e-9);
+    EXPECT_NEAR(2.0, p2.max_z / p1.max_z, 1e-9);
+    EXPECT_DOUBLE_EQ(p1.z_exp, p2.z_exp);            // shape exponent unchanged
+    EXPECT_DOUBLE_EQ(2.2, p1.z_exp);
+    EXPECT_NEAR(std::pow(2.0, -1.2), p2.k_slop / p1.k_slop, 1e-9);
+}
+
+// Self-similarity: the opening ratio rd*/r_outter must be the SAME constant
+// (~0.63, the calibrated car anchor) at every scale — the wall always clips
+// at 63% of the grid radius, so the "steep wall + opening" silhouette is
+// preserved and never degenerates into a shallow plate at large scale.
+// (Old family grew the opening to ~90% at the ship: each scale was clipped
+// differently — the misleading comment this round corrects.)
+TEST(DeriveBowlParamsTest, SelfSimilarity_OpeningRatioConstantAcrossScales) {
+    const std::vector<double> scales = {5.6, 11.2, 44.8, 211.583};
+    double ref_ratio = 0.0;
+    for (double L : scales) {
+        const BowlParams p = DeriveBowlParams(L, 2.2, L / 2.0);
+        const double rd_star = std::pow(p.max_z / p.k_slop, 1.0 / p.z_exp);
+        const double opening = rd_star / p.r_outter;
+        if (ref_ratio == 0.0) {
+            ref_ratio = opening;
+            EXPECT_NEAR(0.63, ref_ratio, 0.63 * 0.01) << "anchor opening";
+        } else {
+            EXPECT_NEAR(ref_ratio, opening, ref_ratio * 1e-9) << "L=" << L;
+        }
+        EXPECT_LT(rd_star, p.r_outter) << "L=" << L;   // clipped steep wall
+    }
+}
+
+// Isotropic rim heights (NEW — guards against the ship degenerating back
+// into a trough): at the grid edge, the wall height in the longitudinal
+// (bow/stern) direction and in the lateral (side) direction must agree
+// within 15% using the SAME surface the mesh generator bakes
+// (z = k_slop*rd^z_exp, clipped at max_z exactly like the vertex drop).
+// The old sub-linear ship bowl had longitudinal rim ~3 m vs lateral ~35 m
+// (11.5:1), i.e. "两侧起墙、船头尾全平".
+TEST(DeriveBowlParamsTest, IsotropicRimHeight_LongitudinalVsLateral) {
+    struct Car { double length, width, axis_x; };
+    const Car kCars[] = {
+        {5.6, 2.2, 2.9},        // car anchor
+        {5.27, 2.17, 2.9},      // data_4
+        {211.583, 53.453, 116.371},   // data_8 ship
+    };
+    for (const auto& c : kCars) {
+        const BowlParams p = DeriveBowlParams(c.length, c.width, c.axis_x);
+        auto rim_z = [&p](double rd) {
+            const double z = p.k_slop * std::pow(rd, p.z_exp);
+            return std::min(z, p.max_z);   // mesh clip: z > max_z dropped
+        };
+        const double rd_long = p.r_outter - (p.car_length / 2.0 + p.round_l);
+        const double rd_lat = p.r_outter - (p.car_width / 2.0 + p.round_l);
+        ASSERT_GT(rd_long, 0.0) << "L=" << c.length;
+        ASSERT_GT(rd_lat, 0.0) << "L=" << c.length;
+        const double z_long = rim_z(rd_long);
+        const double z_lat = rim_z(rd_lat);
+        const double ratio = std::max(z_long, z_lat) / std::min(z_long, z_lat);
+        EXPECT_GE(ratio, 1.0) << "L=" << c.length;
+        EXPECT_LE(ratio, 1.15) << "L=" << c.length
+            << " z_long=" << z_long << " z_lat=" << z_lat;
+    }
+}
+
+// Ship scale (L=211.6): the bowl must reach the farthest camera — cam_7 sits
+// 149.8 m from car_center — so r_outter >= 150 is a hard requirement, and the
+// opening radius rd* must clear the same camera with margin (steep-wall clip
+// cannot shrink below the mesh reach, or the rim flattens before the grid
+// edge).
+TEST(DeriveBowlParamsTest, ShipScale_CoversCameras) {
+    const BowlParams p = DeriveBowlParams(211.583, 53.453, 116.371);
+    EXPECT_GE(p.r_outter, 150.0);
+    const double rd_star = std::pow(p.max_z / p.k_slop, 1.0 / p.z_exp);
+    EXPECT_GE(rd_star, 155.0);
+    EXPECT_LE(rd_star, p.r_outter);
+    EXPECT_DOUBLE_EQ(211.583, p.car_length);
+    EXPECT_DOUBLE_EQ(53.453, p.car_width);
+    EXPECT_DOUBLE_EQ(58.1855, p.car_center[0]);   // axis_x/2
+    EXPECT_DOUBLE_EQ(0.0, p.car_center[1]);
+    EXPECT_GT(p.step, 0.0);
+    EXPECT_GT(p.k_slop, 0.0);
+    EXPECT_GT(p.max_z, 0.0);
+    EXPECT_DOUBLE_EQ(2.2, p.z_exp);
+}
+
+// Ship 8/8 camera coverage (mesh bake, retained from the previous round):
+// with the real data_8 ship layout every one of the 8 cameras must have
+// baked vertices with weight — the derived bowl grid must reach all cameras
+// and no camera may be pushed behind the mesh reach by the new formula.
+TEST(DeriveBowlParamsTest, ShipScale_All8CamerasSeeBowlWithWeight) {
+    const BowlParams p = DeriveBowlParams(211.583, 53.453, 116.371);
+    ASSERT_GE(p.r_outter, 150.0);
+    // Real data_8 camera positions (t from examples/data_8/calibration.json),
+    // each aimed at the ground at the data origin via the shared look-at
+    // helper (synthetic stand-in for the real extrinsics).
+    const double kCamXY[8][2] = {
+        {96.71248, 0.0},        {75.55415, 25.65737},
+        {17.36875, 25.65737},   {-40.81666, 25.65737},
+        {75.55415, -25.65737},  {17.36875, -25.65737},
+        {-40.81666, -25.65737}, {-91.59664, 0.0},
+    };
+    const double kCamZ[8] = {19.00911, 30.88980, 30.88980, 30.88980,
+                             30.88980, 30.88980, 30.88980, 28.51366};
+    std::vector<CameraIntrinsics> intrs(8, MakeIntrinsics());
+    std::vector<CameraExtrinsics> extrs;
+    for (int j = 0; j < 8; ++j) {
+        const double r = std::hypot(kCamXY[j][0], kCamXY[j][1]);
+        const double az = std::atan2(kCamXY[j][1], kCamXY[j][0]) * 180.0 / M_PI;
+        extrs.push_back(test::MakeLookAtCamera(az, r, kCamZ[j], 0.0));
+    }
+    const BowlModel model(p, intrs, extrs);
+    ASSERT_GT(model.vertex_count(), 0);
+    for (int j = 0; j < 8; ++j) {
+        int weighted = 0;
+        for (int i = 0; i < model.vertex_count(); ++i) {
+            if (model.baked_vertex(i).weight[j] > 1e-9) ++weighted;
+        }
+        EXPECT_GT(weighted, 0) << "camera " << j << " has no weighted vertices";
+    }
+}
+
+// Grid topology must be CONSTANT across scales: r_outter/step == 63 (within
+// ±1), so the square grid stays 126x126 (~16k vertices) for any vehicle —
+// the previous unbounded-growth family (vertex counts growing with scale)
+// is eliminated. Vertex budget re-pinned as well.
+TEST(DeriveBowlParamsTest, GridTopology_Constant126x126AcrossScales) {
+    for (double L : {5.6, 18.0, 211.583, 423.166}) {
+        const BowlParams p = DeriveBowlParams(L, 2.2, L / 2.0);
+        const double ratio = p.r_outter / p.step;
+        EXPECT_NEAR(63.0, ratio, 1.0) << "L=" << L;
+        const long rows = static_cast<long>(std::lround(ratio)) * 2;
+        EXPECT_EQ(126, rows) << "L=" << L;
+        const long max_vertices = (rows + 1) * (rows + 1);
+        EXPECT_LE(max_vertices, 150000) << "L=" << L;
+        EXPECT_GT(max_vertices, 0) << "L=" << L;
+    }
 }
 
 // D1: car_center=(0,0) produces same vertex_count as before
@@ -119,7 +326,7 @@ TEST(BowlParamsTest, ComputeRd_CarCenterShiftsFlatRegion) {
 
 // D1: Non-zero car_center shifts the flat region's centre
 TEST(BowlModelTest, CarCenter_FlatRegionCenteredAtCarCenter) {
-    BowlParams params;
+    BowlParams params = CarBowlCentered();
     params.car_length = 6.0;     // car_l_half = 3.0
     params.car_width = 4.0;      // car_w_half = 2.0
     params.round_l = 0.5;
@@ -159,7 +366,7 @@ TEST(BowlModelTest, CarCenter_FlatRegionCenteredAtCarCenter) {
 // Front-extent (φ≈0° relative to car_center, within step of x-axis) and
 // back-extent (φ≈180°) must have equal max distance from car_center.
 TEST(BowlModelTest, CarCenter_GridExtentSymmetricAboutCarCenter) {
-    BowlParams params;
+    BowlParams params = CarBowlCentered();
     params.car_center = cv::Vec2d(1.45, 0.0);
     const BowlModel model(params, DefaultIntrinsics(), DefaultBakeCameras());
     ASSERT_GT(model.vertex_count(), 0);
@@ -217,10 +424,10 @@ TEST(BowlModelTest, CarCenter_GridExtentSymmetricAboutCarCenter) {
 // This duplicates the assertions of VerticesInXyBounds but with the explicit
 // car_center=(0,0) case — the existing test already covers this with default params.
 TEST(BowlModelTest, CarCenter_DefaultUnchanged) {
-    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
-                          DefaultBakeCameras());
+    const BowlParams p = CarBowlCentered();
+    const BowlModel model(p, DefaultIntrinsics(), DefaultBakeCameras());
     ASSERT_GT(model.vertex_count(), 0);
-    double r_outter = 12.6;
+    const double r_outter = p.r_outter;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
         EXPECT_GE(v[0], -r_outter - 1e-9);
@@ -235,7 +442,7 @@ TEST(BowlModelTest, CarCenter_DefaultUnchanged) {
 // ---------------------------------------------------------------------------
 
 TEST(BowlModelTest, ReturnsNonEmptyMesh) {
-    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
+    const BowlModel model(CarBowlCentered(), DefaultIntrinsics(),
                           DefaultBakeCameras());
     EXPECT_GT(model.vertex_count(), 0);
     EXPECT_GT(model.triangle_count(), 0);
@@ -247,15 +454,15 @@ TEST(BowlModelTest, ReturnsNonEmptyMesh) {
 }
 
 TEST(BowlModelTest, GridSizeMatchesParams) {
-    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
+    const BowlModel model(CarBowlCentered(), DefaultIntrinsics(),
                          DefaultBakeCameras());
-    // BlockBoat (default): rows = cols = lround(r_outter/step)*2 = lround(12.6/0.2)*2 = 126
+    // BlockBoat: rows = cols = lround(r_outter/step)*2 = lround(12.6/0.2)*2 = 126
     EXPECT_EQ(126, model.rows());
     EXPECT_EQ(126, model.cols());
 }
 
 TEST(BowlModelTest, VerticesInXyBounds) {
-    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
+    const BowlModel model(CarBowlCentered(), DefaultIntrinsics(),
                          DefaultBakeCameras());
     ASSERT_GT(model.vertex_count(), 0);
     for (int i = 0; i < model.vertex_count(); ++i) {
@@ -268,21 +475,23 @@ TEST(BowlModelTest, VerticesInXyBounds) {
 }
 
 TEST(BowlModelTest, VerticesZInRange) {
-    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
-                         DefaultBakeCameras());
+    const BowlParams p = CarBowlCentered();
+    const BowlModel model(p, DefaultIntrinsics(), DefaultBakeCameras());
     ASSERT_GT(model.vertex_count(), 0);
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
         EXPECT_GE(v[2], 0.0);
-        EXPECT_LE(v[2], 8.6 + 1e-9);
+        EXPECT_LE(v[2], p.max_z + 1e-9);
     }
 }
 
 TEST(BowlModelTest, FlatCenterRegion) {
-    BowlParams params;
+    BowlParams params = CarBowlCentered();
     params.car_length = 2.0;
     params.car_width = 1.0;
     params.round_l = 0.5;
+    params.step = 0.2;
+    params.r_outter = 12.6;
     double x_half = params.car_length / 2.0 + params.round_l; // 1.5
     double y_half = params.car_width / 2.0 + params.round_l;  // 1.0
     const BowlModel model(params, DefaultIntrinsics(), DefaultBakeCameras());
@@ -298,9 +507,10 @@ TEST(BowlModelTest, FlatCenterRegion) {
 }
 
 TEST(BowlModelTest, EdgesMonotonic) {
-    // BlockBoat (default): z increases monotonically with rd (distance to car
+    // BlockBoat: z increases monotonically with rd (distance to car
     // rectangle). Group vertices by rd and verify z is non-decreasing.
-    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
+    const BowlParams params = CarBowlCentered();
+    const BowlModel model(params, DefaultIntrinsics(),
                          DefaultBakeCameras());
     ASSERT_GT(model.vertex_count(), 0);
 
@@ -309,7 +519,7 @@ TEST(BowlModelTest, EdgesMonotonic) {
     rd_z.reserve(model.vertex_count());
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
-        double rd = BowlModel::ComputeRd(v[0], v[1], BowlParams::Default());
+        double rd = BowlModel::ComputeRd(v[0], v[1], params);
         rd_z.push_back({rd, v[2]});
     }
     std::sort(rd_z.begin(), rd_z.end());
@@ -324,7 +534,7 @@ TEST(BowlModelTest, EdgesMonotonic) {
 }
 
 TEST(BowlModelTest, NormalsAreUnitLength) {
-    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
+    const BowlModel model(CarBowlCentered(), DefaultIntrinsics(),
                          DefaultBakeCameras());
     ASSERT_EQ(model.vertex_count(), model.normal_count());
     for (int i = 0; i < model.normal_count(); ++i) {
@@ -335,10 +545,12 @@ TEST(BowlModelTest, NormalsAreUnitLength) {
 }
 
 TEST(BowlModelTest, FlatCenterNormalsUpward) {
-    BowlParams params;
+    BowlParams params = CarBowlCentered();
     params.car_length = 2.0;
     params.car_width = 1.0;
     params.round_l = 0.5;
+    params.step = 0.2;
+    params.r_outter = 12.6;
     double x_half = 1.5;
     double y_half = 1.0;
     const BowlModel model(params, DefaultIntrinsics(), DefaultBakeCameras());
@@ -357,7 +569,7 @@ TEST(BowlModelTest, FlatCenterNormalsUpward) {
 }
 
 TEST(BowlModelTest, TrianglesHaveValidIndices) {
-    const BowlModel model(BowlParams::Default(), DefaultIntrinsics(),
+    const BowlModel model(CarBowlCentered(), DefaultIntrinsics(),
                          DefaultBakeCameras());
     ASSERT_GT(model.triangle_count(), 0);
     for (int t = 0; t < model.triangle_count(); ++t) {
@@ -369,7 +581,7 @@ TEST(BowlModelTest, TrianglesHaveValidIndices) {
 }
 
 TEST(BowlModelTest, DifferentCarSizeChangesFlatRegion) {
-    BowlParams truck_params;
+    BowlParams truck_params = CarBowlCentered();
     truck_params.car_length = 18.0;
     truck_params.car_width = 2.5;
     truck_params.step = 0.5;   // coarse for speed
@@ -377,10 +589,10 @@ TEST(BowlModelTest, DifferentCarSizeChangesFlatRegion) {
                                DefaultBakeCameras());
     EXPECT_GT(truck_model.vertex_count(), 0);
 
-    BowlParams default_params;
-    default_params.step = 0.5; // coarse for speed
+    BowlParams default_params = CarBowlCentered();
+    default_params.step = 0.5; // coarse for speed (same grid density as truck)
     const BowlModel default_model(default_params, DefaultIntrinsics(),
-                                 DefaultBakeCameras());
+                                  DefaultBakeCameras());
 
     size_t truck_flat = CountFlatVertices(truck_model, 18.0 / 2.0 + 2.0, 2.5 / 2.0 + 2.0);
     size_t default_flat = CountFlatVertices(default_model, 5.6 / 2.0 + 2.0, 2.2 / 2.0 + 2.0);
@@ -809,7 +1021,7 @@ TEST(BowlModelBakeTest, D3_IsForwardFacingNoLongerGates) {
 // ---------------------------------------------------------------------------
 
 TEST(BowlModelTest, BowlBoatMesh_RoundShape) {
-    BowlParams p;
+    BowlParams p = CarBowlCentered();
     p.type = BowlType::BowlBoat;
     p.step = 0.2;
     BowlModel model(p, DefaultIntrinsics(), DefaultBakeCameras());
@@ -819,12 +1031,12 @@ TEST(BowlModelTest, BowlBoatMesh_RoundShape) {
 }
 
 TEST(BowlModelTest, BowlBoatMesh_DifferentFromBlockBoat) {
-    BowlParams block_p;
+    BowlParams block_p = CarBowlCentered();
     block_p.type = BowlType::BlockBoat;
     block_p.step = 0.2;
     BowlModel block(block_p, DefaultIntrinsics(), DefaultBakeCameras());
 
-    BowlParams boat_p;
+    BowlParams boat_p = CarBowlCentered();
     boat_p.type = BowlType::BowlBoat;
     boat_p.step = 0.2;
     BowlModel boat(boat_p, DefaultIntrinsics(), DefaultBakeCameras());

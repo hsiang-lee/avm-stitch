@@ -38,15 +38,23 @@ struct ViewPose {
     double fovy_deg = 60.0;
 };
 
-inline std::vector<ViewPose> DefaultViewPoses(const cv::Vec2d& car_center = cv::Vec2d(0.0, 0.0)) {
+// Default AVM view poses (pure math, header-only): the 5-view frame
+// (topdown + 4 side views). Dimensions are the historically calibrated
+// car-scale values; the scale factor multiplies every car-relative offset
+// AND the absolute camera/target height so the frame covers vehicles of
+// any size (callers pass r_outter/12.6 == the DeriveBowlParams scale s).
+// scale=1.0 reproduces the exact hardcoded car frame.
+inline std::vector<ViewPose> DefaultViewPoses(const cv::Vec2d& car_center = cv::Vec2d(0.0, 0.0),
+                                              double scale = 1.0) {
     const double cx = car_center[0];
     const double cy = car_center[1];
+    const double z_ground = 0.2 * scale;   // look-at target height over the flat bowl centre
     return {
-        {"topdown",  {-1.82 + cx, 0.0 + cy, 6.0}, {0 + cx, 0 + cy, 0.2}, {0, 0, 1}, 60.0},
-        {"3d_front", {5.8 + cx, 0.0 + cy, 2.0},   {0 + cx, 0 + cy, 0.2}, {0, 0, 1}, 60.0},
-        {"3d_rear",  {-5.8 + cx, 0.0 + cy, 2.0},  {0 + cx, 0 + cy, 0.2}, {0, 0, 1}, 60.0},
-        {"3d_left",  {0 + cx, 5.8 + cy, 2.0},     {0 + cx, 0 + cy, 0.2}, {0, 0, 1}, 60.0},
-        {"3d_right", {0 + cx, -5.8 + cy, 2.0},    {0 + cx, 0 + cy, 0.2}, {0, 0, 1}, 60.0},
+        {"topdown",  {cx - 1.82 * scale, cy, 6.0 * scale}, {cx, cy, z_ground}, {0, 0, 1}, 60.0},
+        {"3d_front", {cx + 5.8 * scale, cy, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
+        {"3d_rear",  {cx - 5.8 * scale, cy, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
+        {"3d_left",  {cx, cy + 5.8 * scale, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
+        {"3d_right", {cx, cy - 5.8 * scale, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
     };
 }
 
