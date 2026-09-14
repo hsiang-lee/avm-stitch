@@ -19,6 +19,7 @@
 
 #include <opencv2/core.hpp>
 
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
@@ -58,6 +59,34 @@ inline std::vector<ViewPose> DefaultViewPoses(const cv::Vec2d& car_center = cv::
     };
 }
 
+struct ClipPlanes {
+    double near;
+    double far;
+};
+
+/// Derive depth clip planes from scene extent so the bowl is never clipped
+/// at any vehicle scale. scene_radius = bowl r_outter (metres);
+/// max_eye_to_target = the farthest view-pose camera-to-target distance.
+/// Constants are GLOBAL and scale-free (not per-vehicle presets):
+///   - kFarMargin: far = kFarMargin·(eye→target + r_outter). Calibrated so
+///     the car anchor (r_outter=12.6, max eye→target≈6.079) reproduces the
+///     historical far=100 exactly; at ship scale (r_outter≈476,
+///     max eye≈229.6) far≈3778 — ≈6× the farthest bowl vertex from any eye,
+///     so the bowl is never clipped at any vehicle scale.
+///   - kNearRel: near floor = scene_radius·1% (car ≈0.13 m, ship ≈4.8 m) so
+///     the near wall of the bowl is never clipped from any view pose, yet
+///     far/1000 caps it to the historical 1:1000 depth-resolution ratio
+///     (the old hardcoded pair 0.1/100 is exactly 1:1000).
+/// Invariants: near < far; near ≥ far/1000 (depth resolution never worse
+/// than the car's historical ratio).
+inline ClipPlanes ComputeClipPlanes(double scene_radius, double max_eye_to_target) {
+    constexpr double kFarMargin = 5.35365;
+    constexpr double kNearRel = 0.01;
+    const double far = kFarMargin * (max_eye_to_target + scene_radius);
+    const double near = std::clamp(scene_radius * kNearRel, 1.0e-3, far / 1000.0);
+    return {near, far};
+}
+
 class OSGViewRenderer {
 public:
     /// Build the renderer: creates an osgViewer::Viewer with either a headless
@@ -65,11 +94,16 @@ public:
     /// camera per view pose (children of the scene root). Construction performs
     /// no GL rendering — viewer realize() stays lazy until first render.
     /// @param scene         scene graph owner (root + bowl drawable/stateset)
+    /// @param scene_radius  bowl r_outter (metres) — depth clip planes are
+    ///                      derived from this so the bowl is never clipped at
+    ///                      any vehicle scale (car 12.6, ship ~476).
     /// @param view_poses    view poses to render (one FBO camera each)
     /// @param output_width  output image width
     /// @param output_height output image height
     /// @param mode          Offscreen (default) or Windowed
+    /// @param car_center    VCS offset of the bowl centre (0 = data origin)
     OSGViewRenderer(const StitchScene& scene,
+                    double scene_radius,
                     const std::vector<ViewPose>& view_poses,
                     int output_width, int output_height,
                     RenderMode mode = RenderMode::Offscreen,
@@ -100,6 +134,7 @@ private:
     int output_height_ = 640;
     bool realized_ = false;
     RenderMode mode_ = RenderMode::Offscreen;
+    double scene_radius_ = 0.0;
     cv::Vec2d car_center_{0.0, 0.0};
 };
 

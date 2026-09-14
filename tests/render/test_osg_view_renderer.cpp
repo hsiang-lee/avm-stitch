@@ -166,6 +166,76 @@ TEST(ViewPoseTest, DefaultViewPoses_ScaleMultipliesOffsetsAndHeights) {
 }
 
 // ---------------------------------------------------------------------------
+// ComputeClipPlanes (pure math — scale-derived near/far, no GL required).
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// |eye − target| of the FARTHEST DefaultViewPoses camera at the given scale.
+double MaxEyeToTarget(double scale) {
+    double max_eye = 0.0;
+    for (const auto& p : DefaultViewPoses(cv::Vec2d(0.0, 0.0), scale)) {
+        max_eye = std::max(max_eye, cv::norm(p.position - p.target));
+    }
+    return max_eye;
+}
+
+} // namespace
+
+TEST(ClipPlanesTest, ComputeClipPlanes_CarScale_CoversBowl) {
+    // Car anchor (scale=1, r_outter=12.6): near/far must reproduce the
+    // historical hardcoded 0.1/100.0 — the scale=1 regression pin (4-camera
+    // car behaviour must not change).
+    const double scene_radius = kCalibratedAnchorRoutter;
+    const double max_eye = MaxEyeToTarget(1.0);
+    ClipPlanes cp = ComputeClipPlanes(scene_radius, max_eye);
+
+    EXPECT_NEAR(0.1, cp.near, 1e-3);
+    EXPECT_NEAR(100.0, cp.far, 1e-2);
+
+    // Bowl fully inside [near, far]: farthest vertex ≤ |eye→target| + 2·r_outter
+    EXPECT_GT(cp.far, max_eye + 2.0 * scene_radius);
+    // near stays well short of the nearest bowl surface (~5.8 m below topdown).
+    EXPECT_LT(cp.near, 1.0);
+    EXPECT_LT(cp.near, cp.far);
+    // depth-resolution ratio stays at the historical order (1:1000).
+    EXPECT_GE(cp.near / cp.far, 5.0e-4);
+    EXPECT_LE(cp.near / cp.far, 1.0e-2);
+}
+
+TEST(ClipPlanesTest, ComputeClipPlanes_ShipScale_CoversBowl) {
+    // Ship (r_outter=476, scale≈37.8): view poses sit 219-277 m from the
+    // centre; far≫600 must cover pose+bowl, near must not balloon to a depth
+    // that clips the near bowl wall.
+    const double scene_radius = 476.0;
+    const double max_eye = MaxEyeToTarget(scene_radius / kCalibratedAnchorRoutter);
+    ClipPlanes cp = ComputeClipPlanes(scene_radius, max_eye);
+
+    EXPECT_GT(max_eye, 200.0);   // sanity: ship poses really are ~229 m away
+    EXPECT_GT(cp.far, 1000.0);   // ≫ 219 m pose + 476 m bowl
+    EXPECT_GT(cp.far, max_eye + scene_radius);
+    EXPECT_LT(cp.near, 10.0);    // near must not balloon
+    EXPECT_GT(cp.near, 0.1);     // ... nor fall back to car-scale depth values
+    EXPECT_LT(cp.near, cp.far);
+    // same depth-resolution order as the car (1:1000).
+    EXPECT_GE(cp.near / cp.far, 5.0e-4);
+    EXPECT_LE(cp.near / cp.far, 1.0e-2);
+}
+
+TEST(ClipPlanesTest, ComputeClipPlanes_ScaleInvariant) {
+    // Inputs scaled by K → near/far scale by the same K (self-similar bowl:
+    // a 38x longer ship must land on a 38x far/near, exactly like the bowl).
+    const double K = 476.0 / kCalibratedAnchorRoutter;
+    const ClipPlanes car  = ComputeClipPlanes(kCalibratedAnchorRoutter,
+                                              MaxEyeToTarget(1.0));
+    const ClipPlanes ship = ComputeClipPlanes(kCalibratedAnchorRoutter * K,
+                                              MaxEyeToTarget(K));
+
+    EXPECT_NEAR(car.near * K, ship.near, std::abs(car.near * K) * 1e-6);
+    EXPECT_NEAR(car.far * K, ship.far, std::abs(car.far * K) * 1e-6);
+}
+
+// ---------------------------------------------------------------------------
 // OSGViewRenderer (offscreen 5-view rendering, GL-gated).
 // ---------------------------------------------------------------------------
 
@@ -175,7 +245,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_ConstructionDoesNotCrash) {
     ASSERT_TRUE(ts.has_visible_vertices);   // otherwise the test proves nothing
 
     EXPECT_NO_THROW(
-        OSGViewRenderer renderer(*ts.scene, DefaultViewPoses(), 960, 640));
+        OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640));
 }
 
 TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_Returns5Mats) {
@@ -184,7 +254,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_Returns5Mats) {
     ASSERT_TRUE(test::SceneTexture(*ts.scene).valid());
     ASSERT_TRUE(ts.has_visible_vertices);
 
-    OSGViewRenderer renderer(*ts.scene, DefaultViewPoses(), 960, 640);
+    OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640);
     auto views = renderer.RenderAllViews();
 
     ASSERT_EQ(5u, views.size());
@@ -200,7 +270,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_CorrectSize) {
     ASSERT_TRUE(ts.scene->root().valid());
     ASSERT_TRUE(ts.has_visible_vertices);
 
-    OSGViewRenderer renderer(*ts.scene, DefaultViewPoses(), 960, 640);
+    OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640);
     auto views = renderer.RenderAllViews();
     ASSERT_EQ(5u, views.size());
 
@@ -224,7 +294,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_DrawsSceneNotJustBackground) {
     // Upload distinct colours so the bowl rim renders vivid pixels.
     ts.scene->UploadCameraImages(test::MakeColourFrames(4));
 
-    OSGViewRenderer renderer(*ts.scene, DefaultViewPoses(), 960, 640);
+    OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640);
     auto views = renderer.RenderAllViews();
     ASSERT_EQ(5u, views.size());
 
@@ -236,6 +306,39 @@ TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_DrawsSceneNotJustBackground) {
     // other four views blank.
     for (const auto& kv : views) {
         EXPECT_GT(test::CountVividPixels(kv.second), 0) << kv.first;
+    }
+}
+
+TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_ShipScale_NotAllBackground) {
+    // 8-camera ship (L=211.6 → r_outter≈476): the offscreen view cameras sit
+    // ~229 m from the bowl centre. With the old hardcoded far plane (100 m)
+    // the ENTIRE bowl fell beyond the far plane → every view was pure
+    // background RGB(30,36,50) → the 8-camera worker black-image bug.
+    // Regression: ship-scale views must draw vivid textured bowl pixels.
+    const BowlParams bp = DeriveBowlParams(211.6, 50.0, 50.0);
+    ASSERT_GT(bp.r_outter, 450.0);   // sanity: ~476 m ship bowl
+
+    std::vector<CameraIntrinsics> intrs(8, test::MakeIntrinsics());
+    std::vector<CameraExtrinsics> extrs;
+    for (int i = 0; i < 8; ++i) {
+        extrs.push_back(test::MakeLookAtCamera(i * 45.0, 220.0, 80.0, 0.0));
+    }
+    BowlModel bowl(bp, intrs, extrs);
+    ASSERT_TRUE(bowl.HasVisibleVertices());   // otherwise the test proves nothing
+
+    StitchScene scene(bowl, intrs[0].width, intrs[0].height);
+    ASSERT_TRUE(scene.root().valid());
+    scene.UploadCameraImages(test::MakeColourFrames(8));
+
+    const double scale = bp.r_outter / kCalibratedAnchorRoutter;
+    OSGViewRenderer renderer(scene, bp.r_outter,
+                             DefaultViewPoses(bp.car_center, scale),
+                             960, 640, RenderMode::Offscreen, bp.car_center);
+    auto views = renderer.RenderAllViews();
+    ASSERT_EQ(5u, views.size());
+
+    for (const auto& kv : views) {
+        EXPECT_GT(test::CountVividPixels(kv.second), 1000) << kv.first;
     }
 }
 
@@ -261,7 +364,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_OffscreenMode_Works) {
     ASSERT_TRUE(ts.has_visible_vertices);
 
     // Explicit Offscreen — same as the default.
-    OSGViewRenderer renderer(*ts.scene, DefaultViewPoses(), 960, 640,
+    OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640,
                              RenderMode::Offscreen);
     auto views = renderer.RenderAllViews();
     ASSERT_EQ(5u, views.size());
@@ -278,7 +381,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_WindowedMode_Constructs) {
     }
 
     EXPECT_NO_THROW(
-        OSGViewRenderer renderer(*ts.scene, DefaultViewPoses(), 960, 640,
+        OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640,
                                  RenderMode::Windowed));
 }
 
@@ -295,7 +398,8 @@ TEST_F(OSGGLTest, OSGViewRenderer_WindowedMode_Constructs_WithCarCenter) {
     // Home camera math is untestable without X11; this verifies the
     // constructor path at least accepts the parameter.
     EXPECT_NO_THROW(
-        OSGViewRenderer renderer(*ts.scene, DefaultViewPoses(cv::Vec2d(2.0, 1.0)),
+        OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter,
+                                 DefaultViewPoses(cv::Vec2d(2.0, 1.0)),
                                  960, 640, RenderMode::Windowed,
                                  cv::Vec2d(2.0, 1.0)));
 }

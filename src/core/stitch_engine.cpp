@@ -83,13 +83,12 @@ struct StitchEngine::Impl {
 
         // Viewer realized lazily; the EGL headless GL context is created eagerly
         // in the OSGViewRenderer constructor.
-        renderer = std::make_unique<OSGViewRenderer>(*scene,
-                                                     DefaultViewPoses(bowl_params.car_center,
-                                                                      bowl_params.r_outter /
-                                                                          kCalibratedAnchorRoutter),
-                                                     output_width, output_height,
-                                                     RenderMode::Offscreen,
-                                                     bowl_params.car_center);
+        renderer = std::make_unique<OSGViewRenderer>(
+            *scene, bowl_params.r_outter,
+            DefaultViewPoses(bowl_params.car_center,
+                             bowl_params.r_outter / kCalibratedAnchorRoutter),
+            output_width, output_height, RenderMode::Offscreen,
+            bowl_params.car_center);
 
         num_cameras = N;
         configured = true;

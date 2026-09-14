@@ -195,7 +195,8 @@ int main(int argc, char** argv) {
     StitchScene scene(bowl, intrs[0].width, intrs[0].height);
     scene.UploadCameraImages(images);
 
-    OSGViewRenderer renderer(scene, DefaultViewPoses(bp.car_center, bp.r_outter / kCalibratedAnchorRoutter),
+    OSGViewRenderer renderer(scene, bp.r_outter,
+                             DefaultViewPoses(bp.car_center, bp.r_outter / kCalibratedAnchorRoutter),
                              960, 640, RenderMode::Windowed, bp.car_center);
 
     std::cout << "Controls:  LMB=rotate  RMB=zoom  MMB=pan\n";

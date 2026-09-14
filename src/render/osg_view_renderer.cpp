@@ -14,14 +14,13 @@
 
 #include <opencv2/imgproc.hpp>
 
+#include <algorithm>
 #include <cstdlib>
 
 namespace avm_stitch {
 
 namespace {
 
-constexpr double kNear = 0.1;
-constexpr double kFar = 100.0;
 constexpr int kWindowSize = 16;   // tiny pbuffer that owns the GL context
 
 // Background clear colour RGB(30,36,50) — matches the stitcher default.
@@ -43,7 +42,8 @@ osg::Vec3 VcsToOgl(const cv::Vec3d& v) {
 osg::ref_ptr<osg::Camera> CreateViewCamera(const ViewPose& pose,
                                            const osg::ref_ptr<osg::Drawable>& bowl_drawable,
                                            const osg::ref_ptr<osg::StateSet>& bowl_stateset,
-                                           int width, int height) {
+                                           int width, int height,
+                                           const ClipPlanes& clip) {
     auto cam = new osg::Camera;
 
     cam->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
@@ -59,7 +59,7 @@ osg::ref_ptr<osg::Camera> CreateViewCamera(const ViewPose& pose,
     cam->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     double aspect = static_cast<double>(width) / static_cast<double>(height);
-    cam->setProjectionMatrixAsPerspective(pose.fovy_deg, aspect, kNear, kFar);
+    cam->setProjectionMatrixAsPerspective(pose.fovy_deg, aspect, clip.near, clip.far);
     cam->setViewMatrixAsLookAt(VcsToOgl(pose.position), VcsToOgl(pose.target),
                                VcsToOgl(pose.up));
 
@@ -101,6 +101,7 @@ struct MVPUpdateCallback : public osg::Camera::DrawCallback {
 } // namespace
 
 OSGViewRenderer::OSGViewRenderer(const StitchScene& scene,
+                                 double scene_radius,
                                  const std::vector<ViewPose>& view_poses,
                                  int output_width, int output_height,
                                  RenderMode mode,
@@ -108,6 +109,7 @@ OSGViewRenderer::OSGViewRenderer(const StitchScene& scene,
     output_width_ = output_width;
     output_height_ = output_height;
     mode_ = mode;
+    scene_radius_ = scene_radius;
     car_center_ = car_center;
     view_cameras_.clear();
     view_images_.clear();
@@ -159,17 +161,26 @@ void OSGViewRenderer::SetupWindowed(osg::ref_ptr<osg::Group> root) {
 
     double aspect =
         static_cast<double>(traits->width) / traits->height;
-    main_cam->setProjectionMatrixAsPerspective(60.0, aspect, kNear, kFar);
 
     // Offset home camera eye/target by car_center so the view
     // centres on the bowl geometry rather than the data origin.
     // VCS(x,y,z) → OGL(x,z,-y), so OGL offset = (cx, 0, -cy).
+    // The whole home rig scales with the bowl (scale=1 reproduces the exact
+    // historical car rig: eye (10,-6,6), target (0,0,0.5), trackball 12 m) so
+    // the example viewer frames ships as well as cars.
     const double cx = car_center_[0];
     const double cy = car_center_[1];
-    const osg::Vec3d home_eye(10.0 + cx, -6.0, 6.0 - cy);
-    const osg::Vec3d home_target(cx, 0.0, 0.5 - cy);
+    const double scale = scene_radius_ / kCalibratedAnchorRoutter;
+    const osg::Vec3d home_eye(10.0 * scale + cx, -6.0 * scale, 6.0 * scale - cy);
+    const osg::Vec3d home_target(cx, 0.0, 0.5 * scale - cy);
     const osg::Vec3d home_up(0.0, 0.0, 1.0);
 
+    // Depth clip planes derived from the windowed home camera's own
+    // eye→target distance + the bowl radius (scale-derived, never fixed
+    // car-scale constants).
+    const double max_eye = (home_eye - home_target).length();
+    const ClipPlanes clip = ComputeClipPlanes(scene_radius_, max_eye);
+    main_cam->setProjectionMatrixAsPerspective(60.0, aspect, clip.near, clip.far);
     main_cam->setViewMatrixAsLookAt(home_eye, home_target, home_up);
 
     // vcpkg OSG GL2 build does not auto-update osg_ModelViewProjectionMatrix;
@@ -182,9 +193,10 @@ void OSGViewRenderer::SetupWindowed(osg::ref_ptr<osg::Group> root) {
 
     // scene.root() already contains bowl_geode_ — do not add it again.
 
-    // Set TrackballManipulator for mouse interaction
+    // Set TrackballManipulator for mouse interaction. The interaction
+    // distance scales with the bowl (scale=1 → the historical 12.0 m).
     auto manip = new osgGA::TrackballManipulator;
-    manip->setDistance(12.0);
+    manip->setDistance(12.0 * scale);
     manip->setTransformation(home_eye, home_target, home_up);
     viewer_->setCameraManipulator(manip);
 
@@ -201,9 +213,19 @@ void OSGViewRenderer::SetupOffscreenCameras(const StitchScene& scene,
     osg::ref_ptr<osg::Drawable> bowl_drawable = scene.bowl_drawable();
     osg::ref_ptr<osg::StateSet> bowl_stateset = scene.bowl_stateset();
 
+    // One shared near/far pair for all views: depth clip planes derived from
+    // the scene scale and the FARTHEST view-pose eye→target distance — the
+    // built-in fixed near/far (0.1/100) clipped the whole bowl for 219-277 m
+    // ship view poses (black worker output). scale=1 reproduces 0.1/100.
+    double max_eye = 0.0;
+    for (const auto& pose : view_poses) {
+        max_eye = std::max(max_eye, cv::norm(pose.position - pose.target));
+    }
+    const ClipPlanes clip = ComputeClipPlanes(scene_radius_, max_eye);
+
     for (const auto& pose : view_poses) {
         auto cam = CreateViewCamera(pose, bowl_drawable, bowl_stateset,
-                                    output_width_, output_height_);
+                                    output_width_, output_height_, clip);
         view_cameras_.push_back(cam);
         view_images_.push_back(
             cam->getBufferAttachmentMap()[osg::Camera::COLOR_BUFFER]._image);
