@@ -9,6 +9,63 @@
 
 namespace avm_stitch {
 
+// ---------------------------------------------------------------------------
+// DeriveBowlParams: all bowl parameters from the vehicle's real dimensions.
+// One formula for cars and ships alike: pure power laws in the SINGLE scale
+// factor s = L/5.6. Every length ∝ s and the curvature coefficient
+// k_slop ∝ s^-1.2, so the surface shape is EXACTLY self-similar — a 38x
+// longer ship is a 38x larger copy of the calibrated car bowl (grid size,
+// opening ratio, wall slope and longitudinal/lateral rim-height isotropy are
+// all scale invariant). No per-vehicle presets, no if-branches.
+//   r_outter = 12.6 s     round_l = 2.0 s     step = 0.2 s
+//   max_z    = 8.6 s      z_exp   = 2.2       k_slop = 0.09 s^-1.2
+// Anchor (s = 1): exactly the old calibrated Default — the historically
+// healthy car bowl (r_outter=12.6, round_l=2.0, step=0.2, max_z=8.6,
+// k_slop=0.09, z_exp=2.2).
+// Self-similar structure at every scale (NOT "clipped harder as it grows"):
+//   - grid = 2*lround(63) = 126x126 always (r_outter/step == 63);
+//   - opening ratio rd*/r_outter = ((max_z/k_slop)^(1/2.2))/r_outter =
+//     (95.6)^(1/2.2)/12.6 ≈ 0.63 — the wall climbs to max_z at the same
+//     relative radius and clips, keeping the "steep wall + opening"
+//     silhouette (it never degenerates into a shallow plate);
+//   - longitudinal vs lateral rim heights stay isotropic (~1.04:1) instead
+//     of forming a "两侧起墙、船头尾全平" trough (the old sub-linear
+//     family: 3 m bow/stern vs 35 m sides at the ship — 11.5:1).
+// ---------------------------------------------------------------------------
+BowlParams DeriveBowlParams(double car_length, double car_width, double axis_x) {
+    BowlParams p;
+    p.car_length = car_length;
+    p.car_width = car_width;
+
+    // Reference vehicle: the calibrated car anchor (L0=5.6). Every length is
+    // a linear multiple of s = L/L0 — equal scaling, so the surface shape is
+    // independent of scale.
+    constexpr double kRefLength = 5.6;
+    const double scale = car_length / kRefLength;
+
+    // r_outter = 12.6 * s: linear growth — a 38x longer ship gets a 38x
+    // wider bowl (476 m), keeping the farthest camera (149.8 m) well inside.
+    p.r_outter = kCalibratedAnchorRoutter * scale;
+
+    // Flat-region margin and grid resolution scale linearly with the bowl:
+    // round_l = 2.0*s (= 0.1587*r_outter) and step = 0.2*s keep
+    // r_outter/step = 63 exactly -> the grid stays 126x126 at every scale.
+    p.round_l = 2.0 * scale;      // car: 2.0 (old Default, exact)
+    p.step = 0.2 * scale;         // car: 0.2
+
+    // Steep-wall constants from the old calibrated Default, self-similar:
+    // z_exp fixed 2.2; max_z grows linearly while k_slop shrinks as s^-1.2,
+    // so the opening ratio (max_z/k_slop)^(1/2.2)/r_outter stays at the
+    // constant 0.63 and the shape is identical at every scale.
+    p.z_exp = 2.2;
+    p.max_z = 8.6 * scale;                    // car: 8.6, ship: ~325
+    p.k_slop = 0.09 * std::pow(scale, -1.2);  // car: 0.09, ship: ~1.15e-3
+
+    p.type = BowlType::BlockBoat;
+    p.car_center = cv::Vec2d(axis_x / 2.0, 0.0);
+    return p;
+}
+
 // Main constructor: mesh generation (BlockBoat or BowlBoat) followed by bake.
 BowlModel::BowlModel(const BowlParams& params,
                      const std::vector<CameraIntrinsics>& intrinsics,

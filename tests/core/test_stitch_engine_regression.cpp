@@ -16,7 +16,7 @@ using namespace avm_stitch;
 TEST(RegressionTest, PublicApiHeadersAreSelfContained) {
     // Compiling this translation unit already proves the avm_stitch public
     // header tree is self-contained and the exported API links correctly.
-    auto bowl = BowlParams::Default();
+    const BowlParams bowl = DeriveBowlParams(5.6, 2.2, 2.9);
     EXPECT_EQ(5.6, bowl.car_length);
 
     auto poses = DefaultViewPoses();

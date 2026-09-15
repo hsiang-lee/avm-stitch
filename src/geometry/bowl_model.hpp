@@ -25,21 +25,43 @@ namespace avm_stitch {
 enum class BowlType { BlockBoat, BowlBoat };
 
 struct BowlParams {
-    double car_length = 5.6;
-    double car_width = 2.2;
-    double round_l = 2.0;
-    double step = 0.2;
-    double r_outter = 12.6;
-    double k_slop = 0.09;
-    double z_exp = 2.2;
-    double max_z = 8.6;
-    BowlType type = BowlType::BlockBoat;   // default = square grid (matches avm_renderer)
-    cv::Vec2d car_center{0.0, 0.0};        // 新增: 车体中心在数据坐标系中的位置 (m)
-                                           // 默认 (0,0) = 底部中心系，向后兼容
-                                           // 后轴系: 调用方设 (axis_x/2, 0)
-
-    static BowlParams Default() { return BowlParams{}; }
+    // 0.0 = "not derived yet" (sentinel). Construct via DeriveBowlParams or
+    // assign every field explicitly — there are no hardcoded presets.
+    double car_length = 0.0;
+    double car_width = 0.0;
+    double round_l = 0.0;
+    double step = 0.0;
+    double r_outter = 0.0;
+    double k_slop = 0.0;
+    double z_exp = 0.0;
+    double max_z = 0.0;
+    BowlType type = BowlType::BlockBoat;   // square grid (matches avm_renderer)
+    cv::Vec2d car_center{0.0, 0.0};        // 车体中心在数据坐标系中的位置 (m)
+                                           // (0,0) = 底部中心系;
+                                           // 后轴系: (axis_x/2, 0)
 };
+
+/// Bowl radius at the reference vehicle (car anchor, s = 1): r_outter =
+/// 12.6·s. Callers that need the DeriveBowlParams scale factor back from a
+/// derived bowl (e.g. DefaultViewPoses) compute r_outter / this constant.
+inline constexpr double kCalibratedAnchorRoutter = 12.6;
+
+/// Derive all bowl parameters from the vehicle's real dimensions.
+/// One formula for cars and ships alike — no hardcoded per-vehicle presets.
+/// car_center is set to (axis_x/2, 0); type to BlockBoat.
+/// EQUAL SCALING: s = car_length/5.6 is the single scale factor; every
+/// length ∝ s (r_outter=12.6s, round_l=2.0s, step=0.2s, max_z=8.6s) and the
+/// curvature coefficient k_slop = 0.09*s^-1.2 with fixed z_exp=2.2 → the
+/// surface shape is exactly self-similar, independent of vehicle size:
+/// grid 2*lround(63) = 126x126, opening ratio rd*/r_outter ≈ 0.63 and
+/// longitudinal/lateral rim-height isotropy ≈ 1.04:1 at ANY scale.
+/// Anchor (s=1, calibrated — sacred): r_outter=12.6, round_l=2.0, step=0.2,
+///   max_z=8.6, k_slop=0.09, z_exp=2.2 — the historically healthy car bowl
+///   (steep-wall + opening: rd* = (max_z/k_slop)^(1/2.2) = 7.95 = 0.63*12.6).
+/// Ship example (L=211.6): r_outter=476 m covers the 149.8 m farthest
+///   camera with ~3.2x margin, rim heights ~312 m longitudinal vs 325 m
+///   lateral (clipped at max_z) — isotropic, NOT the old 3 m / 35 m trough.
+BowlParams DeriveBowlParams(double car_length, double car_width, double axis_x);
 
 // Fixed 8 camera slots (N <= 8). Unused slots stay zero.
 struct BakedVertex {

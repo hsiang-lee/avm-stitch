@@ -60,13 +60,20 @@ inline std::vector<CameraExtrinsics> MakeSideCameras(
 }
 
 // Construct a coarse bowl and bake it for the given cameras in one step.
+// r_outter is the only knob; the rest comes from the derived reference-car
+// bowl (DeriveBowlParams at the car anchor), with a coarse grid for speed.
+inline BowlParams MakeCoarseBowlParams(double r_outter) {
+    BowlParams bowl = DeriveBowlParams(5.6, 2.2, 2.9);
+    bowl.car_center = cv::Vec2d(0.0, 0.0);
+    bowl.step = 1.0;        // coarse grid for test speed
+    bowl.r_outter = r_outter;
+    return bowl;
+}
+
 inline BowlModel MakeCoarseBowl(double r_outter,
                                 const std::vector<CameraIntrinsics>& intrs,
                                 const std::vector<CameraExtrinsics>& extrs) {
-    BowlParams bowl = BowlParams::Default();
-    bowl.step = 1.0;        // coarse grid for test speed
-    bowl.r_outter = r_outter;
-    return BowlModel(bowl, intrs, extrs);
+    return BowlModel(MakeCoarseBowlParams(r_outter), intrs, extrs);
 }
 
 // Cameras mounted on a ring that LOOK AT the ground around the car (realistic
