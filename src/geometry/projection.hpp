@@ -5,7 +5,6 @@
 // replaces the previous cv::fisheye::projectPoints call.
 // (OpenCV convention: T_wc extrinsics, camera y-axis points down).
 
-#include <opencv2/calib3d.hpp>
 #include <opencv2/core.hpp>
 
 #include <algorithm>

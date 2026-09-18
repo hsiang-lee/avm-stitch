@@ -15,7 +15,6 @@
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
-#include <cstdlib>
 
 namespace avm_stitch {
 

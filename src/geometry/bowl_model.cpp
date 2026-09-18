@@ -3,7 +3,6 @@
 #include "geometry/blend_weights.hpp"
 
 #include <algorithm>
-#include <cassert>
 #include <cmath>
 #include <vector>
 

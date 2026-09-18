@@ -10,8 +10,6 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 
-#include <cmath>
-#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <sstream>

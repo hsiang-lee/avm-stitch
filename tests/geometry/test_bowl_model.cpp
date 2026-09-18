@@ -1010,7 +1010,7 @@ TEST(BowlModelBakeTest, D3_FallbackNormalization_AllInvisible_WeightsStayZero) {
 // inside the rect+circle is now visible (old IsForwardFacing would reject it).
 // Identity camera at (0,0,5), point P=(0,0,3): P_cam=(0,0,-2), r_xy=0 →
 // degenerate branch → u=cx=320, v=cy=240 → inside rect AND inside circle.
-TEST(BowlModelBakeTest, D3_IsForwardFacingNoLongerGates) {
+TEST(BowlModelBakeTest, BelowCameraVertexStillGetsWeight) {
     CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
     cv::Vec3d P(0.0, 0.0, 3.0);  // 2m below camera, z<0 in camera space

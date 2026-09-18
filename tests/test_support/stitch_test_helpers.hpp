@@ -6,9 +6,8 @@
 // instead of keeping per-file private copies.
 //
 // NOTE: the band-frame flip-regression helpers (kBandColours / MakeBandFrame /
-// MatchBand / DominantBand) and the view-dump helpers (MakeSkyGroundFrames /
-// DumpViews / PrintColourRegionStats / PrintSkyGroundStats) are used only by
-// test_stitch_engine.cpp and stay local to that file.
+// MatchBand / DominantBand) are used only by test_stitch_engine.cpp and stay
+// local to that file.
 
 #include "geometry/bowl_model.hpp"
 #include "geometry_test_helpers.hpp"  // MakeSideCameras
