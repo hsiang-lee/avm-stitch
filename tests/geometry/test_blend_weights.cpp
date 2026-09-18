@@ -6,36 +6,13 @@
 #include "geometry/blend_weights.hpp"
 #include "geometry/projection.hpp"
 
+#include "test_support/geometry_test_helpers.hpp"
+
 #include <cmath>
 #include <vector>
 
 using namespace avm_stitch;
-
-namespace {
-
-// N cameras at given azimuths (degrees) around the origin, radius 3m, height 1m.
-// R_wc is constructed so the optical axis (camera Z in world) points in the
-// azimuth direction: forward = (cos(az), sin(az), 0).
-// Camera Y (down) = (0, 0, -1). Right = down × forward (right-hand rule).
-std::vector<CameraExtrinsics> MakeNCameras(
-    const std::vector<double>& azimuths_deg) {
-    std::vector<CameraExtrinsics> cams;
-    for (double az : azimuths_deg) {
-        double rad = az * M_PI / 180.0;
-        cv::Vec3d pos(std::cos(rad) * 3.0, std::sin(rad) * 3.0, 1.0);
-        // Build R_wc: column 2 = forward (optical axis), column 1 = down, column 0 = right
-        cv::Vec3d forward(std::cos(rad), std::sin(rad), 0.0);
-        cv::Vec3d down(0.0, 0.0, -1.0);
-        cv::Vec3d right = down.cross(forward);
-        cv::Matx33d R(right[0], down[0], forward[0],
-                      right[1], down[1], forward[1],
-                      right[2], down[2], forward[2]);
-        cams.push_back({R, pos});
-    }
-    return cams;
-}
-
-} // namespace
+using avm_stitch::test::MakeSideCameras;
 
 // ---------------------------------------------------------------------------
 // Pole parameter tests (Task 3: ComputeBlendWeights pole argument)
@@ -43,9 +20,9 @@ std::vector<CameraExtrinsics> MakeNCameras(
 
 TEST(BlendWeightsTest, DefaultPole_BehaviorUnchanged) {
     // Verify that default pole=(0,0) produces same result as explicit (0,0).
-    // (Requires MakeNCameras with proper rotation — Task 4; at Task 3 level
+    // (Requires MakeSideCameras with proper rotation — Task 4; at Task 3 level
     // this test verifies the new overload compiles and self-consistency.)
-    auto cams = MakeNCameras({0, 180, 90, -90});
+    auto cams = MakeSideCameras({0, 180, 90, -90});
     auto weights_default = ComputeBlendWeights(cv::Vec3d(5, 0, 0), cams);
     auto weights_explicit = ComputeBlendWeights(cv::Vec3d(5, 0, 0), cams,
                                                 cv::Vec2d(0.0, 0.0));
@@ -57,7 +34,7 @@ TEST(BlendWeightsTest, DefaultPole_BehaviorUnchanged) {
 
 TEST(BlendWeightsTest, NonDefaultPole_ShiftsOrigin) {
     // P=(2,1,0), pole=(2,0) → relative azimuth = atan2(1, 0) = 90°
-    auto cams = MakeNCameras({0, 180, 90, -90});
+    auto cams = MakeSideCameras({0, 180, 90, -90});
     auto weights = ComputeBlendWeights(cv::Vec3d(2, 1, 0), cams,
                                        cv::Vec2d(2.0, 0.0));
     ASSERT_EQ(4u, weights.size());
@@ -71,7 +48,7 @@ TEST(BlendWeightsTest, NonDefaultPole_ShiftsOrigin) {
 // ---------------------------------------------------------------------------
 
 TEST(BlendWeightsTest, N4Standard_Front) {
-    auto cams = MakeNCameras({0, 180, 90, -90});
+    auto cams = MakeSideCameras({0, 180, 90, -90});
     auto weights = ComputeBlendWeights(cv::Vec3d(5, 0, 0), cams);
     ASSERT_EQ(4u, weights.size());
     EXPECT_GT(weights[0], 0.9);   // front dominant
@@ -79,7 +56,7 @@ TEST(BlendWeightsTest, N4Standard_Front) {
 }
 
 TEST(BlendWeightsTest, N4Standard_Rear) {
-    auto cams = MakeNCameras({0, 180, 90, -90});
+    auto cams = MakeSideCameras({0, 180, 90, -90});
     auto weights = ComputeBlendWeights(cv::Vec3d(-5, 0, 0), cams);
     EXPECT_GT(weights[1], 0.9);   // rear dominant
     EXPECT_LT(weights[0], 0.1);
@@ -92,7 +69,7 @@ TEST(BlendWeightsTest, N4Standard_BlendBandWidth) {
 
 TEST(BlendWeightsTest, N4_BlendZone) {
     // P at 45 deg azimuth -> exactly on the front/left sector boundary.
-    auto cams = MakeNCameras({0, 180, 90, -90});
+    auto cams = MakeSideCameras({0, 180, 90, -90});
     auto weights = ComputeBlendWeights(cv::Vec3d(5, 5, 0), cams);
     int positive = 0;
     double sum = 0.0;
@@ -106,7 +83,7 @@ TEST(BlendWeightsTest, N4_BlendZone) {
 
 TEST(BlendWeightsTest, N4_CosSmoothAtBoundary) {
     // Exactly on the boundary -> the two adjacent cameras split 50/50.
-    auto cams = MakeNCameras({0, 180, 90, -90});
+    auto cams = MakeSideCameras({0, 180, 90, -90});
     auto weights = ComputeBlendWeights(cv::Vec3d(5, 5, 0), cams);
     EXPECT_NEAR(0.5, weights[0], 1e-6);   // front
     EXPECT_NEAR(0.5, weights[2], 1e-6);   // left
@@ -116,7 +93,7 @@ TEST(BlendWeightsTest, N4_CosSmoothAtBoundary) {
 
 TEST(BlendWeightsTest, N4_OutsideBlendBand) {
     // 65 deg azimuth: 20 deg past the 45 deg boundary (blend_half = 13 deg).
-    auto cams = MakeNCameras({0, 180, 90, -90});
+    auto cams = MakeSideCameras({0, 180, 90, -90});
     auto weights = ComputeBlendWeights(cv::Vec3d(std::cos(65.0 * M_PI / 180.0),
                                                  std::sin(65.0 * M_PI / 180.0),
                                                  0),
@@ -138,7 +115,7 @@ TEST(BlendWeightsTest, N8_BlendHalfAngle) {
 }
 
 TEST(BlendWeightsTest, N8_WeightsSumToOne) {
-    auto cams = MakeNCameras({0, 45, 90, 135, 180, 225, 270, 315});
+    auto cams = MakeSideCameras({0, 45, 90, 135, 180, 225, 270, 315});
     std::vector<cv::Vec3d> points = {
         {5, 0, 0}, {0, 5, 0}, {-5, 0, 0}, {0, -5, 0},
         {5, 5, 0}, {-5, 5, 0}, {-5, -5, 0}, {5, -5, 0},
@@ -157,7 +134,7 @@ TEST(BlendWeightsTest, N8_WeightsSumToOne) {
 // ---------------------------------------------------------------------------
 
 TEST(BlendWeightsTest, N3_ArbitrarySpacing) {
-    auto cams = MakeNCameras({0, 120, 240});
+    auto cams = MakeSideCameras({0, 120, 240});
 
     std::vector<cv::Vec3d> points = {
         {5, 0, 0}, {0, 5, 0}, {-5, 0, 0}, {0, -5, 0}, {5, 5, 0}
@@ -171,7 +148,7 @@ TEST(BlendWeightsTest, N3_ArbitrarySpacing) {
 }
 
 TEST(BlendWeightsTest, AllWeightsNonNegative) {
-    auto cams = MakeNCameras({0, 180, 90, -90});
+    auto cams = MakeSideCameras({0, 180, 90, -90});
     std::vector<cv::Vec3d> points = {
         {5, 0, 0}, {0, 5, 0}, {-5, 0, 0}, {0, -5, 0},
         {5, 5, 0}, {-5, 5, 0}, {-5, -5, 0}, {5, -5, 0}
@@ -183,7 +160,7 @@ TEST(BlendWeightsTest, AllWeightsNonNegative) {
 }
 
 TEST(BlendWeightsTest, N1_SingleCamera) {
-    auto cams = MakeNCameras({0});
+    auto cams = MakeSideCameras({0});
     auto weights = ComputeBlendWeights(cv::Vec3d(5, 0, 0), cams);
     ASSERT_EQ(1u, weights.size());
     EXPECT_NEAR(1.0, weights[0], 1e-9);

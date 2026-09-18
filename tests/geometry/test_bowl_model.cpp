@@ -18,6 +18,7 @@ using namespace avm_stitch;
 // test_support/stitch_test_helpers.hpp; MakeIntrinsics stays local because
 // this suite's historical value is the 1920x1536 distortion camera, not the
 // renderer suite's 640x480 one.
+using avm_stitch::test::MakeCarBowl;
 using avm_stitch::test::MakeCoarseBowl;
 using avm_stitch::test::MakeSideCameras;
 
@@ -62,17 +63,12 @@ std::vector<CameraExtrinsics> DefaultBakeCameras() {
     return MakeSideCameras({0, 180, 90, -90});
 }
 
-// The derived reference-car bowl (historically healthy car anchor). Most
-// mesh-construction tests below used the old hardcoded defaults, which
-// DeriveBowlParams(5.6, 2.2, 2.9) reproduces within ±20%; tests asserting
-// exact historical numbers (12.6 grid extent etc.) re-pin the exact fields.
-BowlParams CarBowl() {
-    return DeriveBowlParams(5.6, 2.2, 2.9);
-}
-
 // Car anchor with car_center pinned to (0,0): the pre-D1 baseline layout.
+// MakeCarBowl() (shared, stitch_test_helpers.hpp) is the derived
+// reference-car bowl; tests asserting exact historical numbers (12.6 grid
+// extent etc.) re-pin the exact fields.
 BowlParams CarBowlCentered() {
-    BowlParams p = CarBowl();
+    BowlParams p = MakeCarBowl();
     p.car_center = cv::Vec2d(0.0, 0.0);
     return p;
 }
