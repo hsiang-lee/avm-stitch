@@ -446,19 +446,31 @@ TEST(BowlModelTest, ReturnsNonEmptyMesh) {
                           DefaultBakeCameras());
     EXPECT_GT(model.vertex_count(), 0);
     EXPECT_GT(model.triangle_count(), 0);
-    EXPECT_GT(model.rows(), 0);
-    EXPECT_GT(model.cols(), 0);
     // Construction invariant: one normal per vertex (kept from the removed
     // counts-consistency case, its only incremental assertion).
     EXPECT_EQ(model.vertex_count(), model.normal_count());
 }
 
 TEST(BowlModelTest, GridSizeMatchesParams) {
-    const BowlModel model(CarBowlCentered(), DefaultIntrinsics(),
-                         DefaultBakeCameras());
-    // BlockBoat: rows = cols = lround(r_outter/step)*2 = lround(12.6/0.2)*2 = 126
-    EXPECT_EQ(126, model.rows());
-    EXPECT_EQ(126, model.cols());
+    const BowlParams p = CarBowlCentered();
+    const BowlModel model(p, DefaultIntrinsics(), DefaultBakeCameras());
+    // BlockBoat: rows = cols = lround(r_outter/step)*2 = lround(12.6/0.2)*2 = 126.
+    // With no public rows()/cols() accessor, verify the same invariant through
+    // the public geometry: the grid's distinct x columns span [-r_outter,
+    // r_outter] and are spaced exactly `step` (127 columns = rows_ + 1).
+    std::vector<double> xs;
+    xs.reserve(model.vertex_count());
+    for (int i = 0; i < model.vertex_count(); ++i) {
+        xs.push_back(model.vertex(i)[0]);
+    }
+    std::sort(xs.begin(), xs.end());
+    xs.erase(std::unique(xs.begin(), xs.end(),
+                         [](double a, double b) { return std::abs(a - b) < 1e-9; }),
+             xs.end());
+    ASSERT_GE(xs.size(), 2u);
+    EXPECT_EQ(127, static_cast<int>(xs.size()));   // rows_ + 1
+    EXPECT_NEAR(p.step, xs[1] - xs[0], 1e-9);
+    EXPECT_NEAR(2.0 * p.r_outter, xs.back() - xs.front(), 1e-9);
 }
 
 TEST(BowlModelTest, VerticesInXyBounds) {
@@ -604,8 +616,6 @@ TEST(BowlModelTest, MinimalParams_OneCellMesh) {
     params.step = 12.6;    // step == r_outter -> rows = cols = lround(1)*2 = 2
     params.r_outter = 12.6;
     const BowlModel model(params, DefaultIntrinsics(), DefaultBakeCameras());
-    EXPECT_EQ(2, model.rows());
-    EXPECT_EQ(2, model.cols());
     EXPECT_GT(model.vertex_count(), 0);
     // must not crash; indices still valid
     for (int t = 0; t < model.triangle_count(); ++t) {
@@ -1014,35 +1024,6 @@ TEST(BowlModelBakeTest, D3_IsForwardFacingNoLongerGates) {
     // Old code: IsForwardFacing rejects → weight = 0
     // New code: projection center (cx,cy) inside rect+circle → weight > 0
     EXPECT_GT(model.baked_vertex(0).weight[0], 0.0f);
-}
-
-// ---------------------------------------------------------------------------
-// BowlBoat (polar) mesh tests
-// ---------------------------------------------------------------------------
-
-TEST(BowlModelTest, BowlBoatMesh_RoundShape) {
-    BowlParams p = CarBowlCentered();
-    p.type = BowlType::BowlBoat;
-    p.step = 0.2;
-    BowlModel model(p, DefaultIntrinsics(), DefaultBakeCameras());
-    EXPECT_GT(model.vertex_count(), 0);
-    EXPECT_GT(model.triangle_count(), 0);
-    EXPECT_TRUE(model.HasVisibleVertices());
-}
-
-TEST(BowlModelTest, BowlBoatMesh_DifferentFromBlockBoat) {
-    BowlParams block_p = CarBowlCentered();
-    block_p.type = BowlType::BlockBoat;
-    block_p.step = 0.2;
-    BowlModel block(block_p, DefaultIntrinsics(), DefaultBakeCameras());
-
-    BowlParams boat_p = CarBowlCentered();
-    boat_p.type = BowlType::BowlBoat;
-    boat_p.step = 0.2;
-    BowlModel boat(boat_p, DefaultIntrinsics(), DefaultBakeCameras());
-
-    // Different topology -> different vertex/triangle counts
-    EXPECT_NE(block.vertex_count(), boat.vertex_count());
 }
 
 // ---------------------------------------------------------------------------

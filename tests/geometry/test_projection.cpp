@@ -180,25 +180,6 @@ TEST(ProjectionTest, DegenerateBranch_OnAxis) {
 }
 
 // ---------------------------------------------------------------------------
-// IsForwardFacing
-// ---------------------------------------------------------------------------
-
-TEST(ProjectionTest, IsForwardFacing_TrueForPointInFront) {
-    CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
-    EXPECT_TRUE(IsForwardFacing(cv::Vec3d(0, 0, 1), extr));
-}
-
-TEST(ProjectionTest, IsForwardFacing_FalseForPointBehind) {
-    CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
-    EXPECT_FALSE(IsForwardFacing(cv::Vec3d(0, 0, -1), extr));
-}
-
-TEST(ProjectionTest, IsForwardFacing_FalseForPointAtZEqualZero) {
-    CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
-    EXPECT_FALSE(IsForwardFacing(cv::Vec3d(0, 0, 0), extr));
-}
-
-// ---------------------------------------------------------------------------
 // FisheyeCircleRadius / IsInsideFisheyeCircle
 // ---------------------------------------------------------------------------
 

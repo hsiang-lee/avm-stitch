@@ -67,13 +67,6 @@ inline void ProjectWorldToFishEye(const cv::Vec3d& P_world,
     v = intr.cy + intr.fy * factor * y;
 }
 
-/// Check if a world point is in front of the camera (Z_cam > 0).
-/// DEPRECATED: z>0 only semantic, DO NOT use for visibility gating.
-/// Circle check replaces FOV boundary.
-inline bool IsForwardFacing(const cv::Vec3d& P_world, const CameraExtrinsics& extr) {
-    return TransformWorldToCamera(P_world, extr)[2] > 0.0;
-}
-
 // Fisheye effective-circle radius. 0 in intrinsics -> auto: the inscribed
 // circle centred at (cx,cy) (distance to the nearest image edge).
 inline double FisheyeCircleRadius(const CameraIntrinsics& intr) {

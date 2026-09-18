@@ -55,19 +55,6 @@ std::vector<std::pair<double, int>> SortCamerasByAzimuth(
 
 } // namespace
 
-std::vector<double> ComputeSectorBoundaries(
-    const std::vector<CameraExtrinsics>& extrinsics) {
-    const int N = static_cast<int>(extrinsics.size());
-    if (N == 0) return {};
-    auto sorted = SortCamerasByAzimuth(extrinsics);
-    std::vector<double> boundaries(N);
-    for (int j = 0; j < N; ++j) {
-        boundaries[j] = SectorBoundaryDeg(sorted[j].first,
-                                          sorted[(j + 1) % N].first);
-    }
-    return boundaries;
-}
-
 double ComputeBlendHalfAngle(int num_cameras) {
     if (num_cameras <= 0) return 0.0;
     return 52.0 / num_cameras;   // 13 deg * (360/N) / 90

@@ -20,9 +20,8 @@
 
 namespace avm_stitch {
 
-/// Bowl mesh type: BlockBoat = square grid + circular clipping (avm_renderer default),
-/// BowlBoat = polar coordinates + car-base distance.
-enum class BowlType { BlockBoat, BowlBoat };
+/// Bowl mesh type: BlockBoat = square grid + circular clipping (avm_renderer default).
+enum class BowlType { BlockBoat };
 
 struct BowlParams {
     // 0.0 = "not derived yet" (sentinel). Construct via DeriveBowlParams or
@@ -124,9 +123,6 @@ public:
         return triangles_[static_cast<size_t>(i)];
     }
 
-    int rows() const { return rows_; }
-    int cols() const { return cols_; }
-
     // --- baked per-vertex UV + blend weights (construction invariant) ---
     /// Number of cameras the model was baked for at construction.
     int baked_num_cameras() const {
@@ -145,14 +141,10 @@ public:
 
     /// Compute rd (distance to rounded-rectangle flat region) for a point.
     static double ComputeRd(double x, double y, const BowlParams& params);
-    /// Compute rd for BowlBoat: 9-region distance to car rectangle (S1-S9).
-    static double ComputeRdBowlBoat(double x, double y, const BowlParams& params);
 
 private:
     // Square grid mesh (create_block_boat_model from avm_renderer).
     void GenerateBlockBoatMesh(const BowlParams& params);
-    // Polar coordinate mesh (create_bowl_boat_model from avm_renderer).
-    void GenerateBowlBoatMesh(const BowlParams& params);
 
     // Finite-difference normals: flat (z ~ 0) -> (0,0,1); curved -> unit normal
     // derived from dz/dx, dz/dy estimated from retained grid neighbours.

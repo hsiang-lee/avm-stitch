@@ -10,11 +10,6 @@
 
 namespace avm_stitch {
 
-/// Compute sector boundary angles (degrees) for N cameras sorted by azimuth.
-/// @return N boundaries in [0, 360), midpoints between adjacent sorted cameras.
-std::vector<double> ComputeSectorBoundaries(
-    const std::vector<CameraExtrinsics>& extrinsics);
-
 /// Compute blend half-angle (degrees) for N cameras.
 /// Formula: 13 deg * (360/N) / 90 = 52/N degrees.
 double ComputeBlendHalfAngle(int num_cameras);
