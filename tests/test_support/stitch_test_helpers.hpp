@@ -6,11 +6,11 @@
 // instead of keeping per-file private copies.
 //
 // NOTE: the band-frame flip-regression helpers (kBandColours / MakeBandFrame /
-// MatchBand / DominantBand) and the view-dump helpers (MakeSkyGroundFrames /
-// DumpViews / PrintColourRegionStats / PrintSkyGroundStats) are used only by
-// test_stitch_engine.cpp and stay local to that file.
+// MatchBand / DominantBand) are used only by test_stitch_engine.cpp and stay
+// local to that file.
 
 #include "geometry/bowl_model.hpp"
+#include "geometry_test_helpers.hpp"  // MakeSideCameras
 #include "render/stitch_scene.hpp"
 
 #include <osg/Texture2DArray>
@@ -31,39 +31,16 @@ inline CameraIntrinsics MakeIntrinsics() {
     return {640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
 }
 
-// N cameras at azimuths (deg), radius 3m, height 1m.
-// Each camera's optical axis (forward) points in the azimuth direction
-// (horizontal, NOT identity rotation): the bowl rim and flat centre
-// become visible to the side cameras.
-// Rotation construction matches MakeNCameras in test_blend_weights.cpp:
-//   forward = (cos(az), sin(az), 0)       // column 2, horizontal
-//   down    = (0, 0, -1)                   // column 1, camera Y axis
-//   right   = down × forward               // column 0
-// This replaces the old identity rotation (optical axis up, +Z) so that
-// the bowl bake reflects a realistic AVM layout where each side camera
-// looks sideways at the car, not straight up.
-inline std::vector<CameraExtrinsics> MakeSideCameras(
-    const std::vector<double>& azimuths_deg) {
-    std::vector<CameraExtrinsics> cams;
-    for (double az : azimuths_deg) {
-        double rad = az * M_PI / 180.0;
-        cv::Vec3d pos(std::cos(rad) * 3.0, std::sin(rad) * 3.0, 1.0);
-        cv::Vec3d forward(std::cos(rad), std::sin(rad), 0.0);
-        cv::Vec3d down(0.0, 0.0, -1.0);
-        cv::Vec3d right = down.cross(forward);
-        cv::Matx33d R(right[0], down[0], forward[0],
-                      right[1], down[1], forward[1],
-                      right[2], down[2], forward[2]);
-        cams.push_back({R, pos});
-    }
-    return cams;
+// The derived reference-car bowl (historically healthy car anchor).
+inline BowlParams MakeCarBowl() {
+    return DeriveBowlParams(5.6, 2.2, 2.9);
 }
 
 // Construct a coarse bowl and bake it for the given cameras in one step.
 // r_outter is the only knob; the rest comes from the derived reference-car
 // bowl (DeriveBowlParams at the car anchor), with a coarse grid for speed.
 inline BowlParams MakeCoarseBowlParams(double r_outter) {
-    BowlParams bowl = DeriveBowlParams(5.6, 2.2, 2.9);
+    BowlParams bowl = MakeCarBowl();
     bowl.car_center = cv::Vec2d(0.0, 0.0);
     bowl.step = 1.0;        // coarse grid for test speed
     bowl.r_outter = r_outter;

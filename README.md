@@ -56,7 +56,7 @@ AVM(环视,亦称 Bird's Eye View / 360 全景)系统在车辆前后左右安装
 
 ### 3.1 碗形模型(`src/geometry/bowl_model.hpp` / `.cpp`)
 
-hpp/cpp 拆分,纯数学,无 GL 依赖。`BowlModel model(params, intrinsics, extrinsics)`(构造函数,取代最初的工厂函数)一步生成碗面三角网格并烘焙,数据经细粒度索引访问读取(`vertex_count()` / `vertex(i)` / `normal_count()` / `normal(i)` / `triangle_count()` / `triangle(i)`,另有网格规格查询 `rows()` / `cols()`)——不暴露内部容器,内部布局(将来可换 SoA 等)是纯实现细节:
+hpp/cpp 拆分,纯数学,无 GL 依赖。`BowlModel model(params, intrinsics, extrinsics)`(构造函数,取代最初的工厂函数)一步生成碗面三角网格并烘焙,数据经细粒度索引访问读取(`vertex_count()` / `vertex(i)` / `normal_count()` / `normal(i)` / `triangle_count()` / `triangle(i)`)——不暴露内部容器,内部布局(将来可换 SoA 等)是纯实现细节:
 
 ```
  z ^      rim:  z = k_slop * rd^z_exp   (max_z 封顶)
@@ -88,14 +88,13 @@ hpp/cpp 拆分,纯数学,无 GL 依赖。`BowlModel model(params, intrinsics, ex
 
 ### 3.2 鱼眼投影(`src/geometry/projection.hpp`)
 
-header-only,把 3D 世界点投影到鱼眼像素。核心委托 `cv::fisheye::projectPoints`(OpenCV 等距/Kannala-Brandt 模型):
+header-only,把 3D 世界点投影到鱼眼像素。采用**手写等距鱼眼模型**(θ = atan2(r_xy, z) ∈ [0, π]),取代原先对 `cv::fisheye::projectPoints` 的委托:
 
 - **`CameraIntrinsics`**:`{width, height, fx, fy, cx, cy, k1..k4, fisheye_radius}`,其中 `fisheye_radius=0` 表示自动取图像内切圆半径(`FisheyeCircleRadius`)
 - **`CameraExtrinsics`**:T_wc 约定(camera → world),`R` 为 3×3 行主序,`t` 为平移(m);OpenCV 惯例相机 y 轴朝下
-- **`ProjectWorldToFishEye(P_world, intr, extr, u, v)`**:世界点 → 像素;点在相机背后时返回 `(-1,-1)`
-- **`IsForwardFacing`**:世界点是否在该相机前方(Z_cam > 0)
+- **`ProjectWorldToFishEye(P_world, intr, extr, u, v)`**:世界点 → 像素;手写模型处理所有 z(含 z<0),不再有 `(-1,-1)` 提前返回
 - **`IsInsideFisheyeCircle`**:投影像素是否落在鱼眼有效圆内——像素可能在图像**矩形**内、却在镜头圆盘**外**(四角是黑区),采样黑区会把接缝染黑
-- **`FisheyeEdgeFeather`**(默认羽化 16px):靠近有效圆边缘的像素权重线性衰减到 0,防止线性纹理过滤把黑区混进接缝
+- **`FisheyeEdgeFeather`**(默认羽化 40px):靠近有效圆边缘的像素为**硬门限**——圆内且距边 ≥ `feather_px` 返回 1.0,否则 0.0(纯黑边缘无法靠线性插值挽回,故不是软衰减),把鱼眼边缘黑晕排除在采样外
 
 ### 3.3 BowlModel 烘焙(构造函数,`src/geometry/bowl_model.cpp`)
 
@@ -108,14 +107,14 @@ header-only,把 3D 世界点投影到鱼眼像素。核心委托 `cv::fisheye::p
 
 `BakedVertex`(`src/geometry/bowl_model.hpp`)的 8 槽是为 8 路架构上限预留的:配置 N < 8 路时,空槽的 UV 和权重全为 0,着色器按 `uNumCameras` 只激活前 N 路。
 
-顶点级处理流程:对每路相机计算方位角融合原始权重(`ComputeBlendWeights`)→ 判定可见性(前向 + 图像矩形内 + 鱼眼有效圆内)→ 可见者乘上边缘羽化系数 → 在"可见且有权重"的相机集合内归一化。注意 v 坐标**不需要翻转**——T_wc/OpenCV 惯例下 `projectPoints` 输出的 v 已经朝图像下方增长(见 `BowlModel` 构造函数内烘焙逻辑的注释)。
+顶点级处理流程:对每路相机计算方位角融合原始权重(`ComputeBlendWeights`)→ 判定可见性(图像矩形内 + 鱼眼有效圆内;**不再使用 `IsForwardFacing`**,手写投影自然拒绝有效 FOV 外的点)→ 可见者乘上边缘羽化系数 → 在"可见且有权重"的相机集合内归一化。注意 v 坐标**不需要翻转**——T_wc/OpenCV 惯例下投影输出的 v 已经朝图像下方增长(见 `BowlModel` 构造函数内烘焙逻辑的注释)。
 
 ### 3.4 融合权重(`src/geometry/blend_weights.cpp`)
 
 **方位角扇区算法,与相机数量 N 无关**——4 路和 8 路用同一套代码:
 
 1. 每台相机按安装位置的方位角 `atan2(t_y, t_x)` 排序(`SortCamerasByAzimuth`)
-2. `ComputeSectorBoundaries`:相邻相机方位角的中点即扇区边界,共 N 条
+2. 相邻相机方位角的中点即扇区边界(边界计算为 `ComputeBlendWeights` 内部逻辑,无独立公开 API)
 3. `ComputeBlendHalfAngle(N)` = `52.0 / N` 度(公式 `13° × (360/N) / 90`),即过渡带半角——N 越大相机越密,过渡带越窄
 4. `ComputeBlendWeights(P_world, extrinsics)`:
    - 地面点的方位角落在某边界 ±52°/N 的过渡带内 → 该边界两侧的两台相机按**余弦 smoothstep** 混合,边界处各 0.5,离开边界向近侧相机单调升至 1.0
@@ -197,10 +196,10 @@ src/
 └── core/
     └── stitch_engine.hpp / .cpp   两阶段引擎: Configure + RenderFrame (PIMPL)
 
-tests/                             9 个 gtest 目标
-├── test_support/  stitch_test_helpers.hpp / gl_fixture.hpp (共享测试基建, header-only)
+tests/                             8 个 gtest 目标
+├── test_support/  stitch_test_helpers.hpp / geometry_test_helpers.hpp / gl_fixture.hpp (共享测试基建, header-only)
 ├── geometry/   test_projection / test_bowl_model (含烘焙) / test_blend_weights
-├── render/     test_stitch_scene / test_osg_view_renderer / test_egl_headless_context / test_view_poses
+├── render/     test_stitch_scene / test_osg_view_renderer / test_egl_headless_context
 └── core/       test_stitch_engine / test_stitch_engine_regression
 ```
 
@@ -214,7 +213,7 @@ JSON 集成层(`stitch_backend` / `osg_backend` / `stitch_result` / `camera_name
 |---|--------|-----------|---------------------|
 | 1 | `src/geometry/projection.hpp` | 鱼眼投影基础:内参 k1-k4、T_wc 约定、有效圆与羽化。全部 inline,单文件可读 | `tests/geometry/test_projection.cpp` |
 | 2 | `src/geometry/bowl_model.hpp` | 碗为什么长这样:8 参数含义、网格/法线生成 | `tests/geometry/test_bowl_model.cpp` |
-| 3 | `src/geometry/blend_weights.cpp` → `src/geometry/bowl_model.cpp`(构造烘焙) | 接缝怎么融合:扇区边界、52°/N 过渡带、余弦 smoothstep;再看权重如何叠加可见性/羽化烘焙进顶点 | `tests/geometry/test_blend_weights.cpp`、`tests/geometry/test_bowl_model.cpp`(BowlModelBake 套件) |
+| 3 | `src/geometry/blend_weights.cpp` → `src/geometry/bowl_model.cpp`(构造烘焙) | 接缝怎么融合:扇区边界、52°/N 过渡带、余弦 smoothstep;再看权重如何叠加可见性/羽化烘焙进顶点 | `tests/geometry/test_blend_weights.cpp`、`tests/geometry/test_bowl_model.cpp`(BowlModelBakeTest 套件) |
 | 4 | `src/render/stitch_scene.cpp`(`StitchScene`) | 烘焙数据怎么上 GPU:属性布局(location 0-7)、着色器源码、纹理数组。纯结构装配,不需要 GL;构造即就绪 | `tests/render/test_stitch_scene.cpp` |
 | 5 | `src/render/osg_view_renderer.cpp` + `src/render/egl_headless_context.cpp` | 怎么无窗口渲染:每个视图一个 FBO 相机、MVP 手动传 uniform 的原因(vcpkg OSG GL2 构建怪癖)、回读翻转 | `tests/render/test_osg_view_renderer.cpp`、`tests/render/test_egl_headless_context.cpp` |
 | 6 | `src/core/stitch_engine.cpp` | 一切怎么串起来:`Configure`(建碗→烘焙→建 `StitchScene` 场景,不做 GL 绘制,但会尝试创建离屏 EGL 上下文,创建失败不抛异常)与 `RenderFrame`(传纹理→渲 5 视图)两阶段 | `tests/core/test_stitch_engine.cpp`(校验 + GL 端到端) |
@@ -229,7 +228,7 @@ JSON 集成层(`stitch_backend` / `osg_backend` / `stitch_result` / `camera_name
 export VCPKG_ROOT=/path/to/vcpkg      # CMakePresets.json 的 default preset 依赖它
 cmake --preset default                # 配置 (Unix Makefiles, build/)
 cmake --build build                   # 增量编译, 不要删 build 目录
-ctest --test-dir build                # 10 个目标
+ctest --test-dir build                # 8 个测试目标
 ```
 
 说明:`tests/core/test_stitch_engine.cpp`、`tests/render/test_osg_view_renderer.cpp` 与 `tests/render/test_egl_headless_context.cpp` 的 GL 用例自动探测 headless EGL 上下文,无 GL 环境(纯 CI 容器)会 **SKIP** 而非失败;`AVM_STITCH_TEST_GL=1` 可强制开启。

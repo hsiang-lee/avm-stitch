@@ -343,20 +343,12 @@ TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_ShipScale_NotAllBackground) {
 }
 
 // ---------------------------------------------------------------------------
-// RenderMode (enum + constructor overload, GL-gated).
+// RenderMode (constructor overload, GL-gated).
+//
+// The default-Offscreen contract has no tautological unit test: it is covered
+// behaviorally by the GL tests above that construct OSGViewRenderer without a
+// mode argument (the header default) and assert 5 rendered views.
 // ---------------------------------------------------------------------------
-
-TEST(RenderModeTest, EnumHasOffscreenAndWindowed) {
-    // Compile-time check: both enum values exist.
-    EXPECT_NE(RenderMode::Offscreen, RenderMode::Windowed);
-}
-
-TEST(RenderModeTest, DefaultModeIsOffscreen) {
-    // The default constructor argument must be Offscreen.
-    // This is a compile-time contract tested by verifying the enum value.
-    RenderMode mode = RenderMode::Offscreen;
-    EXPECT_EQ(RenderMode::Offscreen, mode);
-}
 
 TEST_F(OSGGLTest, OSGViewRenderer_OffscreenMode_Works) {
     auto ts = test::BuildTestScene(4);

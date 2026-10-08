@@ -5,7 +5,6 @@
 // replaces the previous cv::fisheye::projectPoints call.
 // (OpenCV convention: T_wc extrinsics, camera y-axis points down).
 
-#include <opencv2/calib3d.hpp>
 #include <opencv2/core.hpp>
 
 #include <algorithm>
@@ -65,13 +64,6 @@ inline void ProjectWorldToFishEye(const cv::Vec3d& P_world,
     double factor = theta_d / r_xy;
     u = intr.cx + intr.fx * factor * x;
     v = intr.cy + intr.fy * factor * y;
-}
-
-/// Check if a world point is in front of the camera (Z_cam > 0).
-/// DEPRECATED: z>0 only semantic, DO NOT use for visibility gating.
-/// Circle check replaces FOV boundary.
-inline bool IsForwardFacing(const cv::Vec3d& P_world, const CameraExtrinsics& extr) {
-    return TransformWorldToCamera(P_world, extr)[2] > 0.0;
 }
 
 // Fisheye effective-circle radius. 0 in intrinsics -> auto: the inscribed

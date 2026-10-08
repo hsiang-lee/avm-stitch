@@ -3,7 +3,6 @@
 #include "geometry/blend_weights.hpp"
 
 #include <algorithm>
-#include <cassert>
 #include <cmath>
 #include <vector>
 
@@ -66,15 +65,11 @@ BowlParams DeriveBowlParams(double car_length, double car_width, double axis_x) 
     return p;
 }
 
-// Main constructor: mesh generation (BlockBoat or BowlBoat) followed by bake.
+// Main constructor: mesh generation (BlockBoat grid) followed by bake.
 BowlModel::BowlModel(const BowlParams& params,
                      const std::vector<CameraIntrinsics>& intrinsics,
                      const std::vector<CameraExtrinsics>& extrinsics) {
-    if (params.type == BowlType::BowlBoat) {
-        GenerateBowlBoatMesh(params);
-    } else {
-        GenerateBlockBoatMesh(params);
-    }
+    GenerateBlockBoatMesh(params);
     BakeVertices(intrinsics, extrinsics, params.car_center);
 }
 
@@ -101,60 +96,6 @@ double BowlModel::ComputeRd(double x, double y, const BowlParams& params) {
     double dx = std::max(0.0, std::abs(rel_x) - (car_l_half + params.round_l));
     double dy = std::max(0.0, std::abs(rel_y) - (car_w_half + params.round_l));
     return std::sqrt(dx * dx + dy * dy);
-}
-
-// ---------------------------------------------------------------------------
-// BowlBoat rd: 9-region distance to car rectangle (S1-S9).
-// Matches avm_renderer create_bowl_boat_model.
-// ---------------------------------------------------------------------------
-double BowlModel::ComputeRdBowlBoat(double x, double y, const BowlParams& params) {
-    // D1: offset by car_center so the 9-region car rectangle is centered at
-    // car_center, not at the data origin.
-    double car_l_half = params.car_length / 2.0;
-    double car_w_half = params.car_width / 2.0;
-    double plane_x = car_l_half;
-    double plane_y = car_w_half;
-    double rel_x = x - params.car_center[0];
-    double rel_y = y - params.car_center[1];
-
-    if (rel_x > plane_x) {
-        if (rel_y > plane_y) {
-            // S1: front-left corner
-            return std::sqrt((rel_y - car_w_half) * (rel_y - car_w_half)
-                           + (rel_x - car_l_half) * (rel_x - car_l_half));
-        } else if (rel_y > -plane_y) {
-            // S2: front side
-            return std::abs(rel_x - car_l_half);
-        } else {
-            // S3: front-right corner
-            return std::sqrt((rel_y + car_w_half) * (rel_y + car_w_half)
-                           + (rel_x - car_l_half) * (rel_x - car_l_half));
-        }
-    } else if (rel_x >= -plane_x) {
-        if (rel_y > plane_y) {
-            // S8: left side
-            return std::abs(rel_y - car_w_half);
-        } else if (rel_y >= -plane_y) {
-            // S9: center (inside car rectangle)
-            return 0.0;
-        } else {
-            // S4: right side
-            return std::abs(rel_y + car_w_half);
-        }
-    } else {
-        if (rel_y > plane_y) {
-            // S7: back-left corner
-            return std::sqrt((rel_y - car_w_half) * (rel_y - car_w_half)
-                           + (rel_x + car_l_half) * (rel_x + car_l_half));
-        } else if (rel_y > -plane_y) {
-            // S6: back side
-            return std::abs(rel_x + car_l_half);
-        } else {
-            // S5: back-right corner
-            return std::sqrt((rel_y + car_w_half) * (rel_y + car_w_half)
-                           + (rel_x + car_l_half) * (rel_x + car_l_half));
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -204,98 +145,6 @@ void BowlModel::GenerateBlockBoatMesh(const BowlParams& params) {
             int p2 = grid_to_index[i * (cols_ + 1) + (j + 1)];
             int p3 = grid_to_index[(i + 1) * (cols_ + 1) + j];
             int p4 = grid_to_index[(i + 1) * (cols_ + 1) + (j + 1)];
-            if (p1 >= 0 && p2 >= 0 && p3 >= 0 && p4 >= 0) {
-                triangles_.push_back({p1, p3, p2});
-                triangles_.push_back({p2, p3, p4});
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Polar coordinate mesh (create_bowl_boat_model from avm_renderer).
-// ---------------------------------------------------------------------------
-void BowlModel::GenerateBowlBoatMesh(const BowlParams& params) {
-    const int circle_num = std::max(4, static_cast<int>(params.r_outter / params.step));
-    const int circle_segment_num = std::max(8, circle_num * 2);
-    rows_ = circle_num;
-    cols_ = circle_segment_num;
-
-    std::vector<int> grid_to_index((rows_ + 1) * (cols_ + 1), -1);
-    int vertex_count = 0;
-
-    // D1: polar grid centered at car_center, not at data origin.
-    {
-        vertices_.push_back(cv::Vec3d(params.car_center[0], params.car_center[1], 0.0));
-        normals_.push_back(cv::Vec3d(0.0, 0.0, 1.0));
-        grid_to_index[0] = vertex_count++;
-    }
-
-    // Rings from center outward
-    for (int circle_n = 1; circle_n <= circle_num; ++circle_n) {
-        double r = params.step * circle_n;
-        if (circle_n == circle_num) r = params.r_outter;
-
-        for (int seg = 0; seg <= circle_segment_num; ++seg) {
-            double angle = seg * 2.0 * M_PI / circle_segment_num;
-            // D1: polar circle centered at car_center.
-            double x = params.car_center[0] + r * std::sin(angle);
-            double y = params.car_center[1] + r * std::cos(angle);
-
-            // 9-region rd (BowlBoat specific)
-            double rd = ComputeRdBowlBoat(x, y, params);
-
-            // z = k_slop * pow(rd - L, z_exp) when rd > L
-            double z = 0.0;
-            double z_r = 0.0;
-            if (rd > params.round_l) {
-                z_r = rd - params.round_l;
-                z = params.k_slop * std::pow(z_r, params.z_exp);
-            }
-            if (z > params.max_z) continue;
-
-            vertices_.push_back(cv::Vec3d(x, y, z));
-
-            // Normal: flat → quadrant normal, curved → analytical (matching avm_renderer)
-            double normal_x, normal_y, normal_z;
-            if (rd <= params.round_l || z <= 1e-8) {
-                // Quadrant normal (matching reference)
-                normal_x = (x > 0 && y > 0) ? 1.0 : 0.0;
-                normal_y = (x < 0 && y > 0) ? 1.0 : 0.0;
-                normal_z = (x <= 0 && y < 0) ? 1.0 : 0.0;
-            } else {
-                // Analytical normal for curved surface
-                normal_x = -std::sin(angle);
-                normal_y = -std::cos(angle);
-                normal_z = -(-1.0 / (params.z_exp * z_r));  // 法线朝内
-                double len = std::sqrt(normal_x*normal_x + normal_y*normal_y + normal_z*normal_z);
-                if (len > 1e-9) {
-                    normal_x /= len;
-                    normal_y /= len;
-                    normal_z /= len;
-                }
-            }
-            normals_.push_back(cv::Vec3d(normal_x, normal_y, normal_z));
-
-            grid_to_index[circle_n * (cols_ + 1) + seg] = vertex_count++;
-        }
-    }
-
-    // Origin to first ring (fan) — matching avm_renderer
-    for (int seg = 0; seg < circle_segment_num; ++seg) {
-        int origin = 0;
-        int first_ring = 1 + seg;
-        int first_ring_next = 1 + ((seg + 1) % circle_segment_num);
-        triangles_.push_back({origin, first_ring_next, first_ring});
-    }
-
-    // Ring-to-ring connections — matching avm_renderer
-    for (int r = 1; r < circle_num; ++r) {
-        for (int s = 0; s <= circle_segment_num; ++s) {
-            int p1 = grid_to_index[r * (cols_ + 1) + s];
-            int p2 = grid_to_index[r * (cols_ + 1) + (s + 1) % (cols_ + 1)];
-            int p3 = grid_to_index[(r + 1) * (cols_ + 1) + s];
-            int p4 = grid_to_index[(r + 1) * (cols_ + 1) + (s + 1) % (cols_ + 1)];
             if (p1 >= 0 && p2 >= 0 && p3 >= 0 && p4 >= 0) {
                 triangles_.push_back({p1, p3, p2});
                 triangles_.push_back({p2, p3, p4});

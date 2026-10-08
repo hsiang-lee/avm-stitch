@@ -12,28 +12,21 @@
 #include "test_support/stitch_test_helpers.hpp"
 
 #include <array>
-#include <filesystem>
-#include <iostream>
-#include <map>
 #include <string>
 #include <vector>
-
-#include <opencv2/imgcodecs.hpp>
 
 using namespace avm_stitch;
 using avm_stitch::test::OSGGLTest;
 
 namespace {
 
-// The derived reference-car bowl. Replaces the removed BowlParams::Default():
+// The derived reference-car bowl is test::MakeCarBowl() (shared,
+// stitch_test_helpers.hpp). Replaces the removed BowlParams::Default():
 // validation/smoke tests never depended on exact bowl geometry, and the
 // derived car-anchor bowl reproduces the old defaults within ±20%. The
 // topdown band-flip test pins the exact rim curvature (k_slop=0.09,
-// z_exp=2.2), so CarBowl snaps those two fields back to their calibrated
-// values there — rendering is unaffected apart from the rim slope.
-BowlParams CarBowl() {
-    return DeriveBowlParams(5.6, 2.2, 2.9);
-}
+// z_exp=2.2), so it snaps those two fields back to their calibrated values
+// there — rendering is unaffected apart from the rim slope.
 
 // ---------------------------------------------------------------------------
 // Vertical-flip regression helpers. A 2-band red/blue frame is BLIND to the
@@ -100,75 +93,6 @@ int DominantBand(const cv::Mat& img, int y0, int y1) {
                             counts.begin());
 }
 
-// ---------------------------------------------------------------------------
-// View-dump helpers (visual inspection): write the 5 rendered views as PNGs
-// and report where the sky/ground frame colours land in each view.
-// ---------------------------------------------------------------------------
-
-const cv::Scalar kDumpSkyBlue(235, 206, 135);    // BGR light blue (sky)
-const cv::Scalar kDumpGroundGreen(0, 220, 0);    // BGR bright green (ground)
-
-// 640x480 BGR frames split vertically: top half = sky blue, bottom half =
-// ground green — a simple fisheye-like model (image top looks up/away,
-// image bottom looks down at the ground near the car).
-std::vector<cv::Mat> MakeSkyGroundFrames(int num_cameras) {
-    CameraIntrinsics intr = test::MakeIntrinsics();
-    std::vector<cv::Mat> frames;
-    for (int i = 0; i < num_cameras; ++i) {
-        cv::Mat frame(intr.height, intr.width, CV_8UC3, kDumpGroundGreen);
-        frame.rowRange(0, intr.height / 2).setTo(kDumpSkyBlue);
-        frames.push_back(frame);
-    }
-    return frames;
-}
-
-// Write the 5 views of one render to dir as {prefix}_{view_name}.png.
-// Returns the number of PNG files successfully written (expect 5).
-int DumpViews(const std::map<std::string, cv::Mat>& views,
-              const std::string& dir, const std::string& prefix) {
-    std::filesystem::create_directories(dir);
-    int written = 0;
-    for (const auto& kv : views) {
-        const std::string path = dir + "/" + prefix + "_" + kv.first + ".png";
-        if (cv::imwrite(path, kv.second)) ++written;
-    }
-    return written;
-}
-
-// Count pixels within Manhattan distance tol of a colour and report the
-// centroid as fractions of the image (y_frac 0=top .. 1=bottom, x_frac
-// 0=left .. 1=right). A negative y_frac means the colour was not found.
-void PrintColourRegionStats(const cv::Mat& img, const std::string& label,
-                             const cv::Scalar& colour, int tol) {
-    long count = 0;
-    double sum_y = 0, sum_x = 0;
-    for (int y = 0; y < img.rows; ++y) {
-        const uchar* row = img.ptr<uchar>(y);
-        for (int x = 0; x < img.cols; ++x) {
-            const uchar* px = row + x * 3;
-            const int d = std::abs(px[0] - colour[0]) +
-                          std::abs(px[1] - colour[1]) +
-                          std::abs(px[2] - colour[2]);
-            if (d <= tol) {
-                ++count;
-                sum_y += y;
-                sum_x += x;
-            }
-        }
-    }
-    const double y_frac = count ? sum_y / count / img.rows : -1.0;
-    const double x_frac = count ? sum_x / count / img.cols : -1.0;
-    std::cout << "    " << label << ": count=" << count
-              << " y_frac=" << y_frac << " x_frac=" << x_frac << "\n";
-}
-
-// Report where the sky (image-top) and ground (image-bottom) colours land.
-void PrintSkyGroundStats(const cv::Mat& img, const std::string& view_name) {
-    std::cout << "  [" << view_name << " " << img.cols << "x" << img.rows << "]\n";
-    PrintColourRegionStats(img, "sky", kDumpSkyBlue, 60);
-    PrintColourRegionStats(img, "ground", kDumpGroundGreen, 60);
-}
-
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -178,7 +102,7 @@ void PrintSkyGroundStats(const cv::Mat& img, const std::string& view_name) {
 // ---------------------------------------------------------------------------
 TEST(StitchEngineTest, ConfigureN0Throws) {
     StitchEngine engine;
-    EXPECT_THROW(engine.Configure({}, {}, CarBowl()),
+    EXPECT_THROW(engine.Configure({}, {}, test::MakeCarBowl()),
                  std::invalid_argument);
 }
 
@@ -186,7 +110,7 @@ TEST(StitchEngineTest, ConfigureN9Throws) {
     auto intrs = std::vector<CameraIntrinsics>(9, test::MakeIntrinsics());
     auto extrs = test::MakeSideCameras({0, 40, 80, 120, 160, 200, 240, 280, 320});
     StitchEngine engine;
-    EXPECT_THROW(engine.Configure(intrs, extrs, CarBowl()),
+    EXPECT_THROW(engine.Configure(intrs, extrs, test::MakeCarBowl()),
                  std::invalid_argument);
 }
 
@@ -195,7 +119,7 @@ TEST(StitchEngineTest, ConfigureMismatchedSizes) {
     auto extrs = test::MakeSideCameras({0, 90, 180, 270});
     extrs.pop_back();   // now 3 extrinsics vs 4 intrinsics
     StitchEngine engine;
-    EXPECT_THROW(engine.Configure(intrs, extrs, CarBowl()),
+    EXPECT_THROW(engine.Configure(intrs, extrs, test::MakeCarBowl()),
                  std::invalid_argument);
 }
 
@@ -206,7 +130,7 @@ TEST(StitchEngineTest, ConfigureMismatchedImageSizesThrows) {
     intrs[1].width = 320;   // camera 0 is 640x480
     auto extrs = test::MakeSideCameras({0, 90, 180, 270});
     StitchEngine engine;
-    EXPECT_THROW(engine.Configure(intrs, extrs, CarBowl()),
+    EXPECT_THROW(engine.Configure(intrs, extrs, test::MakeCarBowl()),
                  std::invalid_argument);
 }
 
@@ -217,7 +141,7 @@ TEST(StitchEngineTest, ConfigureN1_N8_Success) {
         for (int i = 0; i < n; ++i) azimuths.push_back(i * 360.0 / n);
         auto extrs = test::MakeSideCameras(azimuths);
         StitchEngine engine;
-        EXPECT_NO_THROW(engine.Configure(intrs, extrs, CarBowl()))
+        EXPECT_NO_THROW(engine.Configure(intrs, extrs, test::MakeCarBowl()))
             << "Configure failed for N=" << n;
     }
 }
@@ -231,7 +155,7 @@ TEST(StitchEngineTest, IsConfiguredTrueAfter) {
     auto intrs = std::vector<CameraIntrinsics>(4, test::MakeIntrinsics());
     auto extrs = test::MakeSideCameras({0, 90, 180, 270});
     StitchEngine engine;
-    engine.Configure(intrs, extrs, CarBowl());
+    engine.Configure(intrs, extrs, test::MakeCarBowl());
     EXPECT_TRUE(engine.IsConfigured());
 }
 
@@ -239,7 +163,7 @@ TEST(StitchEngineTest, GetNumCameras) {
     auto intrs = std::vector<CameraIntrinsics>(4, test::MakeIntrinsics());
     auto extrs = test::MakeSideCameras({0, 90, 180, 270});
     StitchEngine engine;
-    engine.Configure(intrs, extrs, CarBowl());
+    engine.Configure(intrs, extrs, test::MakeCarBowl());
     EXPECT_EQ(4, engine.GetNumCameras());
 }
 
@@ -252,7 +176,7 @@ TEST(StitchEngineTest, RenderFrameWrongImageCount) {
     auto intrs = std::vector<CameraIntrinsics>(4, test::MakeIntrinsics());
     auto extrs = test::MakeSideCameras({0, 90, 180, 270});
     StitchEngine engine;
-    engine.Configure(intrs, extrs, CarBowl());
+    engine.Configure(intrs, extrs, test::MakeCarBowl());
 
     auto frames = test::MakeColourFrames(3);   // 3 images for a 4-camera engine
     EXPECT_THROW(engine.RenderFrame(frames), std::invalid_argument);
@@ -260,7 +184,7 @@ TEST(StitchEngineTest, RenderFrameWrongImageCount) {
 
 TEST(StitchEngineTest, Configure_BowlParamsCarLengthWidth) {
     // Truck-sized bowl params must configure without throwing.
-    BowlParams bowl = CarBowl();
+    BowlParams bowl = test::MakeCarBowl();
     bowl.car_length = 18.0;
     bowl.car_width = 2.5;
     bowl.r_outter = 25.0;
@@ -278,7 +202,7 @@ TEST(StitchEngineTest, ConfigureStepZeroThrows) {
     // divides by zero) — reject it with a clear error instead of UB.
     auto intrs = std::vector<CameraIntrinsics>(4, test::MakeIntrinsics());
     auto extrs = test::MakeSideCameras({0, 90, 180, 270});
-    BowlParams bowl = CarBowl();
+    BowlParams bowl = test::MakeCarBowl();
     bowl.step = 0.0;
     StitchEngine engine;
     EXPECT_THROW(engine.Configure(intrs, extrs, bowl), std::invalid_argument);
@@ -288,7 +212,7 @@ TEST(StitchEngineTest, ConfigureNonPositiveRoutterThrows) {
     // r_outter <= 0 would produce an empty/negative-extent bowl.
     auto intrs = std::vector<CameraIntrinsics>(4, test::MakeIntrinsics());
     auto extrs = test::MakeSideCameras({0, 90, 180, 270});
-    BowlParams bowl = CarBowl();
+    BowlParams bowl = test::MakeCarBowl();
     bowl.r_outter = 0.0;
     StitchEngine engine;
     EXPECT_THROW(engine.Configure(intrs, extrs, bowl), std::invalid_argument);
@@ -297,7 +221,7 @@ TEST(StitchEngineTest, ConfigureNonPositiveRoutterThrows) {
 TEST(StitchEngineTest, ConfigureNegativeKSlopThrows) {
     auto intrs = std::vector<CameraIntrinsics>(4, test::MakeIntrinsics());
     auto extrs = test::MakeSideCameras({0, 90, 180, 270});
-    BowlParams bowl = CarBowl();
+    BowlParams bowl = test::MakeCarBowl();
     bowl.k_slop = -0.1;
     StitchEngine engine;
     EXPECT_THROW(engine.Configure(intrs, extrs, bowl), std::invalid_argument);
@@ -309,7 +233,7 @@ TEST(StitchEngineTest, ConfigureNegativeZExpThrows) {
     // vertex positions into the model.
     auto intrs = std::vector<CameraIntrinsics>(4, test::MakeIntrinsics());
     auto extrs = test::MakeSideCameras({0, 90, 180, 270});
-    BowlParams bowl = CarBowl();
+    BowlParams bowl = test::MakeCarBowl();
     bowl.z_exp = -1.0;
     StitchEngine engine;
     EXPECT_THROW(engine.Configure(intrs, extrs, bowl), std::invalid_argument);
@@ -322,7 +246,7 @@ TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_Returns5Views) {
     auto intrs = std::vector<CameraIntrinsics>(4, test::MakeIntrinsics());
     auto extrs = test::MakeLookAtCameras(4);
     StitchEngine engine;
-    engine.Configure(intrs, extrs, CarBowl());
+    engine.Configure(intrs, extrs, test::MakeCarBowl());
 
     auto views = engine.RenderFrame(test::MakeColourFrames(4));
     ASSERT_EQ(5u, views.size());
@@ -337,7 +261,7 @@ TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_OutputSize) {
     auto intrs = std::vector<CameraIntrinsics>(4, test::MakeIntrinsics());
     auto extrs = test::MakeLookAtCameras(4);
     StitchEngine engine;
-    engine.Configure(intrs, extrs, CarBowl());
+    engine.Configure(intrs, extrs, test::MakeCarBowl());
 
     auto views = engine.RenderFrame(test::MakeColourFrames(4));
     ASSERT_EQ(5u, views.size());
@@ -352,7 +276,7 @@ TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_NonBlackOutput) {
     auto intrs = std::vector<CameraIntrinsics>(4, test::MakeIntrinsics());
     auto extrs = test::MakeLookAtCameras(4);
     StitchEngine engine;
-    engine.Configure(intrs, extrs, CarBowl());
+    engine.Configure(intrs, extrs, test::MakeCarBowl());
 
     auto views = engine.RenderFrame(test::MakeColourFrames(4));
     ASSERT_EQ(5u, views.size());
@@ -369,7 +293,7 @@ TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_N8Cameras) {
     auto intrs = std::vector<CameraIntrinsics>(8, test::MakeIntrinsics());
     auto extrs = test::MakeLookAtCameras(8);
     StitchEngine engine;
-    engine.Configure(intrs, extrs, CarBowl());
+    engine.Configure(intrs, extrs, test::MakeCarBowl());
 
     auto views = engine.RenderFrame(test::MakeColourFrames(8));
     ASSERT_EQ(5u, views.size());
@@ -394,7 +318,7 @@ TEST_F(OSGGLTest, StitchEngineGL_TopdownOutputNotVerticallyFlipped) {
     // D1: pin the pole at (0,0) — this test checks view ORIENTATION, and the
     // original row expectations were calibrated on the centred bowl (the
     // Default() preset this test used before DeriveBowlParams existed).
-    BowlParams bowl = CarBowl();
+    BowlParams bowl = test::MakeCarBowl();
     bowl.car_center = cv::Vec2d(0.0, 0.0);
     engine.Configure(intrs, extrs, bowl);
 
@@ -420,7 +344,7 @@ TEST_F(OSGGLTest, StitchEngineGL_FrontViewNotVerticallyFlipped) {
         std::vector<CameraExtrinsics>{test::MakeLookAtCamera(0.0, 4.0, 2.0, 0.0)};
     StitchEngine engine;
     // D1: pin the pole at (0,0) — orientation test, centred-bowl expectations.
-    BowlParams bowl = CarBowl();
+    BowlParams bowl = test::MakeCarBowl();
     bowl.car_center = cv::Vec2d(0.0, 0.0);
     engine.Configure(intrs, extrs, bowl);
 
@@ -439,53 +363,4 @@ TEST_F(OSGGLTest, StitchEngineGL_FrontViewNotVerticallyFlipped) {
         << "3d_front output upper rows must sample camera image band 1 (was band 0 before 40-px hard gate)";
     EXPECT_EQ(4, DominantBand(front, 400, 600))
         << "3d_front output bottom rows must sample camera image band 4 (was band 5 before 40-px hard gate)";
-}
-
-// ---------------------------------------------------------------------------
-// Visual-inspection dump: render the 5 views with realistic-ish camera
-// layouts + frames and write PNGs to /tmp/opencode/stitch-views so we can
-// eyeball the bowl (ground near the car, sky at the rim, black seams between
-// camera blocks). Writes to /tmp only — harmless in CI.
-// ---------------------------------------------------------------------------
-TEST_F(OSGGLTest, StitchEngineGL_DumpViewsForInspection) {
-    const std::string dir = "/tmp/opencode/stitch-views";
-    std::filesystem::create_directories(dir);
-    const auto intrs = std::vector<CameraIntrinsics>(4, test::MakeIntrinsics());
-
-    // 1) Realistic AVM ring: 4 look-at cameras at radius 4m, height 2m, each
-    //    aimed at the bowl centre. Sky/ground split frames.
-    {
-        auto extrs = test::MakeLookAtCameras(4);
-        StitchEngine engine;
-        engine.Configure(intrs, extrs, CarBowl());
-        auto views = engine.RenderFrame(MakeSkyGroundFrames(4));
-        ASSERT_EQ(5u, views.size());
-        EXPECT_EQ(5, DumpViews(views, dir, "lookat_skyground"));
-        std::cout << "lookat_skyground views:\n";
-        for (const auto& kv : views) PrintSkyGroundStats(kv.second, kv.first);
-    }
-
-    // 2) Same look-at cameras, one distinct colour per camera — shows the
-    //    camera block layout and any black seams between blocks.
-    {
-        auto extrs = test::MakeLookAtCameras(4);
-        StitchEngine engine;
-        engine.Configure(intrs, extrs, CarBowl());
-        auto views = engine.RenderFrame(test::MakeColourFrames(4));
-        ASSERT_EQ(5u, views.size());
-        EXPECT_EQ(5, DumpViews(views, dir, "lookat_colour"));
-    }
-
-    // 3) Original side cameras (identity rotation, radius 3m, height 1m) with
-    //    the same sky/ground frames, for comparison.
-    {
-        auto extrs = test::MakeSideCameras({0, 90, 180, 270});
-        StitchEngine engine;
-        engine.Configure(intrs, extrs, CarBowl());
-        auto views = engine.RenderFrame(MakeSkyGroundFrames(4));
-        ASSERT_EQ(5u, views.size());
-        EXPECT_EQ(5, DumpViews(views, dir, "side_skyground"));
-        std::cout << "side_skyground views:\n";
-        for (const auto& kv : views) PrintSkyGroundStats(kv.second, kv.first);
-    }
 }
