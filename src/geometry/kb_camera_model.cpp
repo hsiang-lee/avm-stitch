@@ -2,6 +2,8 @@
 
 #include "geometry/projection.hpp"
 
+#include <cmath>
+#include <span>
 #include <stdexcept>
 #include <utility>
 
@@ -17,12 +19,7 @@ KbCameraModel::KbCameraModel(const CameraIntrinsics& intr)
 void KbCameraModel::ProjectPoints(std::span<const cv::Vec3d> cam_points,
                                   std::span<cv::Vec2d> out_uv,
                                   std::span<uint8_t> out_valid) const {
-    if (cam_points.size() != out_uv.size() ||
-        cam_points.size() != out_valid.size()) {
-        throw std::invalid_argument(
-            "KbCameraModel::ProjectPoints: cam_points/out_uv/out_valid must "
-            "have equal lengths");
-    }
+    RequireEqualLengths(cam_points, out_uv, out_valid);
 
     for (size_t i = 0; i < cam_points.size(); ++i) {
         const double x = cam_points[i][0];
@@ -32,9 +29,7 @@ void KbCameraModel::ProjectPoints(std::span<const cv::Vec3d> cam_points,
 
         if (r_xy < kEps) {
             out_uv[i] = cv::Vec2d(intr_.cx, intr_.cy);
-            out_valid[i] = (intr_.cx >= 0.0 && intr_.cx < width_ &&
-                            intr_.cy >= 0.0 && intr_.cy < height_)
-                               ? 1 : 0;
+            out_valid[i] = RectContains(intr_.cx, intr_.cy);
             continue;
         }
 
@@ -49,8 +44,7 @@ void KbCameraModel::ProjectPoints(std::span<const cv::Vec3d> cam_points,
         const double v = intr_.cy + intr_.fy * factor * y;
 
         out_uv[i] = cv::Vec2d(u, v);
-        out_valid[i] = (u >= 0.0 && u < static_cast<double>(width_) &&
-                        v >= 0.0 && v < static_cast<double>(height_)) ? 1 : 0;
+        out_valid[i] = RectContains(u, v);
     }
 }
 

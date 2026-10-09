@@ -42,6 +42,17 @@ public:
 
 protected:
     CameraModel(int width, int height, double cx, double cy);
+
+    // 1 iff the pixel lies in [0,width) x [0,height) — the shared
+    // out_valid gate (base-class contract, all models).
+    uint8_t RectContains(double u, double v) const;
+
+    // Throws std::invalid_argument when the three spans differ in length
+    // (shared ProjectPoints precondition of the base-class contract).
+    static void RequireEqualLengths(std::span<const cv::Vec3d> cam_points,
+                                    std::span<cv::Vec2d> out_uv,
+                                    std::span<uint8_t> out_valid);
+
     int width_;
     int height_;
     double cx_;

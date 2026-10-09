@@ -1150,9 +1150,9 @@ TEST(BowlModelCameraCtor, MatchesIntrinsicsCtor_OnKb) {
     }
 }
 
-TEST(BowlModelCameraCtor, DISABLED_LutCamera_BakesVisibleUv) {
-    // Batch B lands the "table" model (B1): a 2-point LUT camera must bake
-    // at least one vertex with weight > 0 and uv in [0,1]. Enable in batch B.
+TEST(BowlModelCameraCtor, LutCamera_BakesVisibleUv) {
+    // Batch B landed the "table" model (B1): a 2-point LUT camera bakes at
+    // least one vertex with weight > 0 and uv in [0,1].
     LutParams lut;
     lut.points = {{0.0, 0.0}, {120.0, 4.0}};
     lut.width = 640;
@@ -1169,7 +1169,8 @@ TEST(BowlModelCameraCtor, DISABLED_LutCamera_BakesVisibleUv) {
     BowlParams bowl = MakeCarBowl();
 
     BowlModel model(vertices, normals, bowl, cams);
-    ASSERT_EQ(2, model.baked_num_cameras());
+    // 1 LUT camera in -> exactly 1 baked camera slot (plan: 1 路 LUT 相机).
+    ASSERT_EQ(1, model.baked_num_cameras());
 
     int weighted = 0;
     for (int i = 0; i < model.vertex_count(); ++i) {

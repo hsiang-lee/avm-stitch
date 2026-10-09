@@ -31,6 +31,8 @@ add_library(avm_stitch STATIC
     src/geometry/blend_weights.cpp
     src/geometry/camera_model.cpp
     src/geometry/kb_camera_model.cpp
+    src/geometry/lut_camera_model.cpp
+    src/geometry/ocam_camera_model.cpp
     src/render/egl_headless_context.cpp
     src/render/stitch_scene.cpp
     src/render/osg_view_renderer.cpp
@@ -63,6 +65,8 @@ add_executable(test_bowl_model
     tests/geometry/test_bowl_model.cpp
     src/geometry/camera_model.cpp
     src/geometry/kb_camera_model.cpp
+    src/geometry/lut_camera_model.cpp
+    src/geometry/ocam_camera_model.cpp
     src/geometry/bowl_model.cpp
     src/geometry/blend_weights.cpp
 )
@@ -89,6 +93,8 @@ add_executable(test_camera_model
     tests/geometry/test_camera_model.cpp
     src/geometry/camera_model.cpp
     src/geometry/kb_camera_model.cpp
+    src/geometry/lut_camera_model.cpp
+    src/geometry/ocam_camera_model.cpp
 )
 target_include_directories(test_camera_model PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_camera_model PRIVATE
@@ -96,6 +102,36 @@ target_link_libraries(test_camera_model PRIVATE
     ${OpenCV_LIBS}
 )
 gtest_discover_tests(test_camera_model)
+
+# -- test_lut_camera_model (LutCameraModel: OQ-1 direction pin + LUT projection) --
+add_executable(test_lut_camera_model
+    tests/geometry/test_lut_camera_model.cpp
+    src/geometry/camera_model.cpp
+    src/geometry/kb_camera_model.cpp
+    src/geometry/lut_camera_model.cpp
+    src/geometry/ocam_camera_model.cpp
+)
+target_include_directories(test_lut_camera_model PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(test_lut_camera_model PRIVATE
+    GTest::gtest_main
+    ${OpenCV_LIBS}
+)
+gtest_discover_tests(test_lut_camera_model)
+
+# -- test_ocam_camera_model (OcamCameraModel: forward projection + round trip) --
+add_executable(test_ocam_camera_model
+    tests/geometry/test_ocam_camera_model.cpp
+    src/geometry/camera_model.cpp
+    src/geometry/kb_camera_model.cpp
+    src/geometry/lut_camera_model.cpp
+    src/geometry/ocam_camera_model.cpp
+)
+target_include_directories(test_ocam_camera_model PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(test_ocam_camera_model PRIVATE
+    GTest::gtest_main
+    ${OpenCV_LIBS}
+)
+gtest_discover_tests(test_ocam_camera_model)
 
 # -- test_blend_weights
 add_executable(test_blend_weights
@@ -117,6 +153,8 @@ add_executable(test_stitch_scene
     src/geometry/blend_weights.cpp
     src/geometry/camera_model.cpp
     src/geometry/kb_camera_model.cpp
+    src/geometry/lut_camera_model.cpp
+    src/geometry/ocam_camera_model.cpp
     src/render/stitch_scene.cpp
 )
 target_include_directories(test_stitch_scene PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests)
@@ -132,6 +170,8 @@ add_executable(test_stitch_engine
     tests/core/test_stitch_engine.cpp
     src/geometry/camera_model.cpp
     src/geometry/kb_camera_model.cpp
+    src/geometry/lut_camera_model.cpp
+    src/geometry/ocam_camera_model.cpp
     src/geometry/bowl_model.cpp
     src/geometry/blend_weights.cpp
     src/render/egl_headless_context.cpp
@@ -154,6 +194,8 @@ add_executable(test_stitch_engine_camera
     tests/core/test_stitch_engine_camera.cpp
     src/geometry/camera_model.cpp
     src/geometry/kb_camera_model.cpp
+    src/geometry/lut_camera_model.cpp
+    src/geometry/ocam_camera_model.cpp
     src/geometry/bowl_model.cpp
     src/geometry/blend_weights.cpp
     src/render/egl_headless_context.cpp
@@ -178,6 +220,8 @@ add_executable(test_osg_view_renderer
     src/geometry/blend_weights.cpp
     src/geometry/camera_model.cpp
     src/geometry/kb_camera_model.cpp
+    src/geometry/lut_camera_model.cpp
+    src/geometry/ocam_camera_model.cpp
     src/render/egl_headless_context.cpp
     src/render/stitch_scene.cpp
     src/render/osg_view_renderer.cpp
