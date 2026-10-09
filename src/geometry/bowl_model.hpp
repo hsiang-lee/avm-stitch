@@ -10,6 +10,7 @@
 // Mesh generation + bake live in bowl_model.cpp; only lightweight accessors
 // are inline here.
 
+#include "geometry/camera_model.hpp"
 #include "geometry/projection.hpp"
 
 #include <opencv2/core.hpp>
@@ -90,6 +91,9 @@ public:
                        const std::vector<CameraIntrinsics>& intrinsics,
                        const std::vector<CameraExtrinsics>& extrinsics);
 
+    /// Multi-model construction: bake via CameraModel::ProjectPoints (batched).
+    explicit BowlModel(const BowlParams& params, const std::vector<Camera>& cameras);
+
     /// Wrap pre-built vertex data and bake immediately (tests / custom
     /// geometry): normals are taken as-is, no grid/normal recomputation,
     /// no triangles.
@@ -97,6 +101,13 @@ public:
     BowlModel(std::vector<cv::Vec3d> vertices, std::vector<cv::Vec3d> normals,
               const std::vector<CameraIntrinsics>& intrinsics,
               const std::vector<CameraExtrinsics>& extrinsics,
+              const cv::Vec2d& car_center = cv::Vec2d(0.0, 0.0));
+
+    /// Multi-model construction over pre-built vertex data (tests / custom
+    /// geometry): same CameraModel bake, no mesh generation.
+    /// @param car_center  sector pole passed to ComputeBlendWeights (default (0,0))
+    BowlModel(std::vector<cv::Vec3d> vertices, std::vector<cv::Vec3d> normals,
+              const BowlParams& params, const std::vector<Camera>& cameras,
               const cv::Vec2d& car_center = cv::Vec2d(0.0, 0.0));
 
     // --- fine-grained read access (index + count, no container exposure) ---
@@ -157,6 +168,16 @@ private:
     void BakeVertices(const std::vector<CameraIntrinsics>& intrinsics,
                       const std::vector<CameraExtrinsics>& extrinsics,
                       const cv::Vec2d& car_center = cv::Vec2d(0.0, 0.0));
+
+    // Multi-model bake: identical gating/weight math, projection delegated
+    // to CameraModel::ProjectPoints (batched), circle/feather gating uses the
+    // model's own Cx/Cy/FisheyeRadius (radius 0 -> auto inscribed circle).
+    void BakeVertices(const std::vector<Camera>& cameras,
+                      const cv::Vec2d& car_center);
+
+    // T_wc list of a Camera vector (blend-weight sector model input).
+    static std::vector<CameraExtrinsics> ExtractExtrinsics(
+        const std::vector<Camera>& cameras);
 
     std::vector<cv::Vec3d> vertices_;
     std::vector<cv::Vec3d> normals_;
