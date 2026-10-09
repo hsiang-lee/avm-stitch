@@ -1,4 +1,4 @@
-// Tests for the OSGViewRenderer (offscreen 5-view rendering) and ViewPose /
+// Tests for the OSGViewRenderer (offscreen 4-view rendering) and ViewPose /
 // DefaultViewPoses (pure math). GL-dependent tests are gated: they skip unless
 // AVM_STITCH_TEST_GL=1 or a working OpenGL context is detected.
 
@@ -17,32 +17,27 @@ using avm_stitch::test::OSGGLTest;
 // ViewPose / DefaultViewPoses (pure math, no GL required).
 // ---------------------------------------------------------------------------
 
-TEST(ViewPoseTest, DefaultViewPoses_Returns5Views) {
+TEST(ViewPoseTest, DefaultViewPoses_Returns4Views) {
     auto poses = DefaultViewPoses();
-    ASSERT_EQ(5u, poses.size());
+    ASSERT_EQ(4u, poses.size());
 }
 
 TEST(ViewPoseTest, DefaultViewPoses_HasCorrectNames) {
     auto poses = DefaultViewPoses();
-    ASSERT_EQ(5u, poses.size());
-    EXPECT_EQ("topdown", poses[0].name);
-    EXPECT_EQ("3d_front", poses[1].name);
-    EXPECT_EQ("3d_rear", poses[2].name);
-    EXPECT_EQ("3d_left", poses[3].name);
-    EXPECT_EQ("3d_right", poses[4].name);
-}
-
-TEST(ViewPoseTest, DefaultViewPoses_TopdownPosition) {
-    auto poses = DefaultViewPoses();
-    ASSERT_GE(poses.size(), 1u);
-    EXPECT_NEAR(-1.82, poses[0].position[0], 1e-9);
-    EXPECT_NEAR(0.0, poses[0].position[1], 1e-9);
-    EXPECT_NEAR(6.0, poses[0].position[2], 1e-9);
+    ASSERT_EQ(4u, poses.size());
+    EXPECT_EQ("3d_front", poses[0].name);
+    EXPECT_EQ("3d_rear", poses[1].name);
+    EXPECT_EQ("3d_left", poses[2].name);
+    EXPECT_EQ("3d_right", poses[3].name);
+    // topdown (正俯视) 已移除：拼接页不再需要正俯视视图。
+    for (const auto& pose : poses) {
+        EXPECT_NE("topdown", pose.name);
+    }
 }
 
 TEST(ViewPoseTest, DefaultViewPoses_AllFovy60) {
     auto poses = DefaultViewPoses();
-    ASSERT_EQ(5u, poses.size());
+    ASSERT_EQ(4u, poses.size());
     for (const auto& pose : poses) {
         EXPECT_DOUBLE_EQ(60.0, pose.fovy_deg);
     }
@@ -50,7 +45,7 @@ TEST(ViewPoseTest, DefaultViewPoses_AllFovy60) {
 
 TEST(ViewPoseTest, DefaultViewPoses_AllTargetSame) {
     auto poses = DefaultViewPoses();
-    ASSERT_EQ(5u, poses.size());
+    ASSERT_EQ(4u, poses.size());
     for (const auto& pose : poses) {
         EXPECT_NEAR(0.0, pose.target[0], 1e-9);
         EXPECT_NEAR(0.0, pose.target[1], 1e-9);
@@ -119,19 +114,19 @@ TEST(ViewPoseTest, DefaultViewPoses_DefaultArgUnchanged) {
 
 TEST(ViewPoseTest, DefaultViewPoses_ScaleOneMatchesHistoricalConstants) {
     // scale=1.0 is the anchor: it must reproduce the exact hardcoded default
-    // pose set (topdown + 4 side views at the calibrated 5.8/6.0/2.0/1.82/0.2
-    // offsets) — regression pin so the car keeps its historical camera frame.
+    // pose set (4 side views at the calibrated 5.8/2.0/0.2 offsets) —
+    // regression pin so the car keeps its historical camera frame.
     auto poses = DefaultViewPoses(cv::Vec2d(0.0, 0.0), 1.0);
-    ASSERT_EQ(5u, poses.size());
-    EXPECT_NEAR(-1.82, poses[0].position[0], 1e-12);
+    ASSERT_EQ(4u, poses.size());
+    EXPECT_NEAR(5.8, std::abs(poses[0].position[0]), 1e-12);
     EXPECT_NEAR(0.0, poses[0].position[1], 1e-12);
-    EXPECT_NEAR(6.0, poses[0].position[2], 1e-12);
+    EXPECT_NEAR(2.0, poses[0].position[2], 1e-12);
     EXPECT_NEAR(0.0, poses[0].target[0], 1e-12);
     EXPECT_NEAR(0.0, poses[0].target[1], 1e-12);
     EXPECT_NEAR(0.2, poses[0].target[2], 1e-12);
-    for (size_t i = 1; i < poses.size(); ++i) {
+    for (size_t i = 0; i < poses.size(); ++i) {
         SCOPED_TRACE(poses[i].name);
-        const double offset = (i == 3 || i == 4) ? poses[i].position[1]
+        const double offset = (i == 2 || i == 3) ? poses[i].position[1]
                                                  : poses[i].position[0];
         EXPECT_NEAR(5.8, std::abs(offset), 1e-12);
         EXPECT_NEAR(2.0, poses[i].position[2], 1e-12);
@@ -195,7 +190,8 @@ TEST(ClipPlanesTest, ComputeClipPlanes_CarScale_CoversBowl) {
 
     // Bowl fully inside [near, far]: farthest vertex ≤ |eye→target| + 2·r_outter
     EXPECT_GT(cp.far, max_eye + 2.0 * scene_radius);
-    // near stays well short of the nearest bowl surface (~5.8 m below topdown).
+    // near stays well short of the nearest bowl surface (side poses sit at
+    // z=2.0 looking at z=0.2).
     EXPECT_LT(cp.near, 1.0);
     EXPECT_LT(cp.near, cp.far);
     // depth-resolution ratio stays at the historical order (1:1000).
@@ -248,7 +244,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_ConstructionDoesNotCrash) {
         OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640));
 }
 
-TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_Returns5Mats) {
+TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_Returns4Mats) {
     auto ts = test::BuildTestScene(4);
     ASSERT_TRUE(ts.scene->root().valid());
     ASSERT_TRUE(test::SceneTexture(*ts.scene).valid());
@@ -257,12 +253,12 @@ TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_Returns5Mats) {
     OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640);
     auto views = renderer.RenderAllViews();
 
-    ASSERT_EQ(5u, views.size());
-    EXPECT_NE(views.end(), views.find("topdown"));
+    ASSERT_EQ(4u, views.size());
     EXPECT_NE(views.end(), views.find("3d_front"));
     EXPECT_NE(views.end(), views.find("3d_rear"));
     EXPECT_NE(views.end(), views.find("3d_left"));
     EXPECT_NE(views.end(), views.find("3d_right"));
+    EXPECT_EQ(views.end(), views.find("topdown"));
 }
 
 TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_CorrectSize) {
@@ -272,7 +268,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_CorrectSize) {
 
     OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640);
     auto views = renderer.RenderAllViews();
-    ASSERT_EQ(5u, views.size());
+    ASSERT_EQ(4u, views.size());
 
     for (const auto& kv : views) {
         EXPECT_EQ(960, kv.second.cols) << kv.first;
@@ -282,10 +278,9 @@ TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_CorrectSize) {
 }
 
 TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_DrawsSceneNotJustBackground) {
-    // Look-at cameras cover the flat bowl centre too, so EVERY view (including
-    // topdown, which looks straight down at the centre) samples textured
-    // pixels. The old side-camera setup only textures the z>1 rim, which the
-    // topdown frustum never sees.
+    // Look-at cameras cover the flat bowl centre too, so EVERY view samples
+    // textured pixels. The old side-camera setup only textures the z>1 rim,
+    // which the view frustums never see.
     auto ts = test::BuildTestSceneWithExtrinsics(4, test::MakeLookAtCameras(4));
     ASSERT_TRUE(ts.scene->root().valid());
     ASSERT_TRUE(test::SceneTexture(*ts.scene).valid());
@@ -296,7 +291,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_DrawsSceneNotJustBackground) {
 
     OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640);
     auto views = renderer.RenderAllViews();
-    ASSERT_EQ(5u, views.size());
+    ASSERT_EQ(4u, views.size());
 
     // Background clear colour is RGB(30,36,50) — a low-saturation colour. The
     // bowl must render vivid camera-colour pixels in EVERY view, proving the
@@ -335,7 +330,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_ShipScale_NotAllBackground) {
                              DefaultViewPoses(bp.car_center, scale),
                              960, 640, RenderMode::Offscreen, bp.car_center);
     auto views = renderer.RenderAllViews();
-    ASSERT_EQ(5u, views.size());
+    ASSERT_EQ(4u, views.size());
 
     for (const auto& kv : views) {
         EXPECT_GT(test::CountVividPixels(kv.second), 1000) << kv.first;
@@ -347,7 +342,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_ShipScale_NotAllBackground) {
 //
 // The default-Offscreen contract has no tautological unit test: it is covered
 // behaviorally by the GL tests above that construct OSGViewRenderer without a
-// mode argument (the header default) and assert 5 rendered views.
+// mode argument (the header default) and assert 4 rendered views.
 // ---------------------------------------------------------------------------
 
 TEST_F(OSGGLTest, OSGViewRenderer_OffscreenMode_Works) {
@@ -359,7 +354,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_OffscreenMode_Works) {
     OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640,
                              RenderMode::Offscreen);
     auto views = renderer.RenderAllViews();
-    ASSERT_EQ(5u, views.size());
+    ASSERT_EQ(4u, views.size());
 }
 
 TEST_F(OSGGLTest, OSGViewRenderer_WindowedMode_Constructs) {

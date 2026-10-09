@@ -6,7 +6,7 @@
 //     OSG scene graph and prepares the offscreen renderer. GL-free.
 //   Phase 2 RenderFrame(images[N]) — per frame.
 //     Uploads the N fisheye images into the camera texture array and renders
-//     the 5 fixed views (topdown, 3d_front, 3d_rear, 3d_left, 3d_right).
+//     the 4 fixed side views (3d_front, 3d_rear, 3d_left, 3d_right).
 // PIMPL hides all OSG headers from callers.
 
 #include "geometry/bowl_model.hpp"
@@ -42,7 +42,7 @@ public:
                    int output_height = 640);
 
     /// Render one frame from N fisheye images (BGR888, must match Configure N).
-    /// @return {"topdown": Mat, "3d_front": Mat, ...} — 5 views, BGR888
+    /// @return {"3d_front": Mat, "3d_rear": Mat, ...} — 4 views, BGR888
     /// @throws std::runtime_error if not configured
     /// @throws std::invalid_argument if images.size() != N
     std::map<std::string, cv::Mat> RenderFrame(
