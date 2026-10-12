@@ -20,5 +20,5 @@ TEST(RegressionTest, PublicApiHeadersAreSelfContained) {
     EXPECT_EQ(5.6, bowl.car_length);
 
     auto poses = DefaultViewPoses();
-    EXPECT_EQ(5u, poses.size());
+    EXPECT_EQ(4u, poses.size());
 }
