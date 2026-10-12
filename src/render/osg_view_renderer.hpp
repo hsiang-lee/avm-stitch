@@ -39,19 +39,20 @@ struct ViewPose {
     double fovy_deg = 60.0;
 };
 
-// Default AVM view poses (pure math, header-only): the 5-view frame
-// (topdown + 4 side views). Dimensions are the historically calibrated
+// Default AVM view poses (pure math, header-only): the 4 side-view frame.
+// Dimensions are the historically calibrated
 // car-scale values; the scale factor multiplies every car-relative offset
 // AND the absolute camera/target height so the frame covers vehicles of
 // any size (callers pass r_outter/12.6 == the DeriveBowlParams scale s).
 // scale=1.0 reproduces the exact hardcoded car frame.
+// (The former topdown / straight-overhead view was removed: the stitch page
+// uses only the four 3D side views.)
 inline std::vector<ViewPose> DefaultViewPoses(const cv::Vec2d& car_center = cv::Vec2d(0.0, 0.0),
                                               double scale = 1.0) {
     const double cx = car_center[0];
     const double cy = car_center[1];
     const double z_ground = 0.2 * scale;   // look-at target height over the flat bowl centre
     return {
-        {"topdown",  {cx - 1.82 * scale, cy, 6.0 * scale}, {cx, cy, z_ground}, {0, 0, 1}, 60.0},
         {"3d_front", {cx + 5.8 * scale, cy, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
         {"3d_rear",  {cx - 5.8 * scale, cy, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
         {"3d_left",  {cx, cy + 5.8 * scale, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
@@ -69,8 +70,9 @@ struct ClipPlanes {
 /// max_eye_to_target = the farthest view-pose camera-to-target distance.
 /// Constants are GLOBAL and scale-free (not per-vehicle presets):
 ///   - kFarMargin: far = kFarMargin·(eye→target + r_outter). Calibrated so
-///     the car anchor (r_outter=12.6, max eye→target≈6.079) reproduces the
-///     historical far=100 exactly; at ship scale (r_outter≈476,
+///     the car anchor (r_outter=12.6, 4-view max eye→target≈6.0729 — side
+///     poses at z=2.0 targeting z=0.2, the topdown 6.0788 outlier removed)
+///     reproduces the historical far=100 exactly; at ship scale (r_outter≈476,
 ///     max eye≈229.6) far≈3778 — ≈6× the farthest bowl vertex from any eye,
 ///     so the bowl is never clipped at any vehicle scale.
 ///   - kNearRel: near floor = scene_radius·1% (car ≈0.13 m, ship ≈4.8 m) so
@@ -80,7 +82,7 @@ struct ClipPlanes {
 /// Invariants: near < far; near ≥ far/1000 (depth resolution never worse
 /// than the car's historical ratio).
 inline ClipPlanes ComputeClipPlanes(double scene_radius, double max_eye_to_target) {
-    constexpr double kFarMargin = 5.35365;
+    constexpr double kFarMargin = 5.3553572528096565;
     constexpr double kNearRel = 0.01;
     const double far = kFarMargin * (max_eye_to_target + scene_radius);
     const double near = std::clamp(scene_radius * kNearRel, 1.0e-3, far / 1000.0);

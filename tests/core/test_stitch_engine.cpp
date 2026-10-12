@@ -24,7 +24,7 @@ namespace {
 // stitch_test_helpers.hpp). Replaces the removed BowlParams::Default():
 // validation/smoke tests never depended on exact bowl geometry, and the
 // derived car-anchor bowl reproduces the old defaults within ±20%. The
-// topdown band-flip test pins the exact rim curvature (k_slop=0.09,
+// 3d_front band-flip test pins the exact rim curvature (k_slop=0.09,
 // z_exp=2.2), so it snaps those two fields back to their calibrated values
 // there — rendering is unaffected apart from the rim slope.
 
@@ -242,19 +242,19 @@ TEST(StitchEngineTest, ConfigureNegativeZExpThrows) {
 // ---------------------------------------------------------------------------
 // StitchEngine GL end-to-end tests (gated).
 // ---------------------------------------------------------------------------
-TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_Returns5Views) {
+TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_Returns4Views) {
     auto intrs = std::vector<CameraIntrinsics>(4, test::MakeIntrinsics());
     auto extrs = test::MakeLookAtCameras(4);
     StitchEngine engine;
     engine.Configure(intrs, extrs, test::MakeCarBowl());
 
     auto views = engine.RenderFrame(test::MakeColourFrames(4));
-    ASSERT_EQ(5u, views.size());
-    EXPECT_NE(views.end(), views.find("topdown"));
+    ASSERT_EQ(4u, views.size());
     EXPECT_NE(views.end(), views.find("3d_front"));
     EXPECT_NE(views.end(), views.find("3d_rear"));
     EXPECT_NE(views.end(), views.find("3d_left"));
     EXPECT_NE(views.end(), views.find("3d_right"));
+    EXPECT_EQ(views.end(), views.find("topdown"));
 }
 
 TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_OutputSize) {
@@ -264,7 +264,7 @@ TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_OutputSize) {
     engine.Configure(intrs, extrs, test::MakeCarBowl());
 
     auto views = engine.RenderFrame(test::MakeColourFrames(4));
-    ASSERT_EQ(5u, views.size());
+    ASSERT_EQ(4u, views.size());
     for (const auto& kv : views) {
         EXPECT_EQ(960, kv.second.cols) << kv.first;
         EXPECT_EQ(640, kv.second.rows) << kv.first;
@@ -279,7 +279,7 @@ TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_NonBlackOutput) {
     engine.Configure(intrs, extrs, test::MakeCarBowl());
 
     auto views = engine.RenderFrame(test::MakeColourFrames(4));
-    ASSERT_EQ(5u, views.size());
+    ASSERT_EQ(4u, views.size());
     // The bowl ground visible to the look-at cameras must render camera
     // colours in EVERY view — not just the clear colour / black. Background
     // clear colour is RGB(30,36,50), a low-saturation colour, so vivid
@@ -296,7 +296,7 @@ TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_N8Cameras) {
     engine.Configure(intrs, extrs, test::MakeCarBowl());
 
     auto views = engine.RenderFrame(test::MakeColourFrames(8));
-    ASSERT_EQ(5u, views.size());
+    ASSERT_EQ(4u, views.size());
     int total_vivid = 0;
     for (const auto& kv : views) total_vivid += test::CountVividPixels(kv.second);
     EXPECT_GT(total_vivid, 0);
@@ -307,37 +307,10 @@ TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_N8Cameras) {
 // The reference subprocess stitcher flips the FBO readback AND the UV content;
 // both flips are missing in the OSG path, so the output is vertically
 // mirrored. A single camera at +X looking at the bowl centre (N=1) with a
-// 6-band direction-sensitive frame exposes the bug: the +X near-camera ground
-// (camera image band 5) must render at the TOP of the topdown view.
+// 6-band direction-sensitive frame exposes the bug on the side views.
+// (The former topdown-flip test was removed with the topdown view; the
+// 3d_front test below pins the flip regression on a surviving view.)
 // ---------------------------------------------------------------------------
-TEST_F(OSGGLTest, StitchEngineGL_TopdownOutputNotVerticallyFlipped) {
-    auto intrs = std::vector<CameraIntrinsics>{test::MakeIntrinsics()};
-    auto extrs =
-        std::vector<CameraExtrinsics>{test::MakeLookAtCamera(0.0, 4.0, 2.0, 0.0)};
-    StitchEngine engine;
-    // D1: pin the pole at (0,0) — this test checks view ORIENTATION, and the
-    // original row expectations were calibrated on the centred bowl (the
-    // Default() preset this test used before DeriveBowlParams existed).
-    BowlParams bowl = test::MakeCarBowl();
-    bowl.car_center = cv::Vec2d(0.0, 0.0);
-    engine.Configure(intrs, extrs, bowl);
-
-    auto views = engine.RenderFrame({MakeBandFrame()});
-    auto it = views.find("topdown");
-    ASSERT_NE(views.end(), it);
-    const cv::Mat& topdown = it->second;
-
-    // The +X side of the bowl (nearest the single camera) renders at the TOP
-    // of the topdown output. That ground content is imaged by the camera's
-    // BOTTOM band (band 5, cyan). A vertically mirrored renderer samples the
-    // wrong band there (band 3, yellow) — this test fails before the fix.
-    // Rows 0..80 are background (the topdown frustum's outer rim is above the
-    // bowl's 12.6 m edge); the +X near-camera band-5 ground sits at rows
-    // 80..140 of the fixed output.
-    EXPECT_EQ(5, DominantBand(topdown, 80, 140))
-        << "topdown output top bowl rows must sample camera image band 5";
-}
-
 TEST_F(OSGGLTest, StitchEngineGL_FrontViewNotVerticallyFlipped) {
     auto intrs = std::vector<CameraIntrinsics>{test::MakeIntrinsics()};
     auto extrs =
