@@ -4,9 +4,54 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 
 namespace avm_stitch {
+
+namespace {
+
+// Three-tier blend-weight normalisation shared by both bake paths (kb and
+// multi-model): 1) sector-weighted when any visible camera has non-trivial
+// raw weight, 2) geometry-weighted (edge proximity) D3 fallback, 3) all-zero
+// when nothing passed the feather gate. `edge_ok[j]` marks cameras whose
+// pixel for this vertex passed the visibility gates with a non-zero feather.
+void NormalizeWeights(int n,
+                      const std::vector<double>& raw_weights,
+                      const std::vector<char>& edge_ok,
+                      const std::vector<double>& edge_factor,
+                      BakedVertex& bv) {
+    double visible_contrib_sum = 0.0;
+    double edge_only_sum = 0.0;
+    for (int j = 0; j < n; ++j) {
+        if (edge_ok[j]) {
+            if (raw_weights[j] > 1e-9) visible_contrib_sum += raw_weights[j] * edge_factor[j];
+            edge_only_sum += edge_factor[j];
+        }
+    }
+
+    if (visible_contrib_sum > 1e-9) {
+        // Tier 1: sector-weighted (normal path)
+        for (int j = 0; j < n; ++j) {
+            if (edge_ok[j] && raw_weights[j] > 1e-9) {
+                bv.weight[j] = static_cast<float>(
+                    raw_weights[j] * edge_factor[j] / visible_contrib_sum);
+            }
+        }
+    } else if (edge_only_sum > 1e-9) {
+        // Tier 2: geometry-weighted (D3 re-fallback — sector model assigned
+        // all weight to an invisible camera, so distribute over all
+        // geometrically-visible cameras by edge proximity).
+        for (int j = 0; j < n; ++j) {
+            if (edge_ok[j]) {
+                bv.weight[j] = static_cast<float>(edge_factor[j] / edge_only_sum);
+            }
+        }
+    }
+    // Tier 3: no visible camera with non-zero feather → all weights stay 0.
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // DeriveBowlParams: all bowl parameters from the vehicle's real dimensions.
@@ -71,6 +116,22 @@ BowlModel::BowlModel(const BowlParams& params,
                      const std::vector<CameraExtrinsics>& extrinsics) {
     GenerateBlockBoatMesh(params);
     BakeVertices(intrinsics, extrinsics, params.car_center);
+}
+
+// Multi-model constructor: mesh generation followed by the CameraModel bake.
+BowlModel::BowlModel(const BowlParams& params, const std::vector<Camera>& cameras) {
+    GenerateBlockBoatMesh(params);
+    BakeVertices(cameras, params.car_center);
+}
+
+// Multi-model constructor over pre-built vertex data (tests / custom geometry).
+BowlModel::BowlModel(std::vector<cv::Vec3d> vertices,
+                     std::vector<cv::Vec3d> normals,
+                     const BowlParams& params, const std::vector<Camera>& cameras,
+                     const cv::Vec2d& car_center)
+    : vertices_(std::move(vertices)), normals_(std::move(normals)) {
+    BakeVertices(cameras, car_center);
+    (void)params;
 }
 
 BowlModel::BowlModel(std::vector<cv::Vec3d> vertices,
@@ -251,7 +312,7 @@ void BowlModel::BakeVertices(const std::vector<CameraIntrinsics>& intrinsics,
         }
 
         // Normalize raw blend weights over the visible camera set.
-        // Three-tier weight assignment:
+        // Three-tier weight assignment (see NormalizeWeights):
         // 1. Normal: at least one visible camera has non-trivial raw weight →
         //    renormalise over that subset (preserves sector preference).
         // 2. D3 fallback: visible cameras exist but all have negligible raw
@@ -259,38 +320,106 @@ void BowlModel::BakeVertices(const std::vector<CameraIntrinsics>& intrinsics,
         //    distribute proportionally by edge_factor alone (geometry-weighted).
         // 3. No visible cameras with non-zero edge_factor → weights stay 0
         //    (centre car-floor physical blind zone — expected behaviour).
-        double visible_contrib_sum = 0.0;
-        double edge_only_sum = 0.0;
-        for (int j = 0; j < N; ++j) {
-            if (visible[j] && raw_weights[j] > 1e-9 && edge_factor[j] > 0.0) {
-                visible_contrib_sum += raw_weights[j] * edge_factor[j];
-            }
-            if (visible[j] && edge_factor[j] > 0.0) {
-                edge_only_sum += edge_factor[j];
-            }
-        }
-
-        if (visible_contrib_sum > 1e-9) {
-            // Tier 1: sector-weighted (normal path)
-            for (int j = 0; j < N; ++j) {
-                if (visible[j] && raw_weights[j] > 1e-9 && edge_factor[j] > 0.0) {
-                    bv.weight[j] = static_cast<float>(
-                        raw_weights[j] * edge_factor[j] / visible_contrib_sum);
-                }
-            }
-        } else if (edge_only_sum > 1e-9) {
-            // Tier 2: geometry-weighted (D3 re-fallback — sector model
-            // assigned all weight to an invisible camera, so distribute
-            // over all geometrically-visible cameras by edge proximity).
-            for (int j = 0; j < N; ++j) {
-                if (visible[j] && edge_factor[j] > 0.0) {
-                    bv.weight[j] = static_cast<float>(
-                        edge_factor[j] / edge_only_sum);
-                }
-            }
-        }
-        // Tier 3: no visible camera with non-zero feather → all weights stay 0.
+        std::vector<char> edge_ok(N, 0);
+        for (int j = 0; j < N; ++j) edge_ok[j] = visible[j] && edge_factor[j] > 0.0;
+        NormalizeWeights(N, raw_weights, edge_ok, edge_factor, bv);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Multi-model bake: identical gating/weight math to the kb overload above;
+// projection is delegated to CameraModel::ProjectPoints — one virtual call
+// per camera (batched over all vertices), circle/feather gating reuse the
+// projection.hpp helpers via a synthesized intrinsics (cx/cy/radius from the
+// model; radius 0 -> the auto inscribed-circle branch).
+// ---------------------------------------------------------------------------
+void BowlModel::BakeVertices(const std::vector<Camera>& cameras,
+                             const cv::Vec2d& car_center) {
+    const int N = static_cast<int>(cameras.size());
+    for (int j = 0; j < N; ++j) {
+        if (cameras[j].model == nullptr) {
+            throw std::invalid_argument(
+                "BowlModel: camera " + std::to_string(j) +
+                " has no model (Camera.model is null)");
+        }
+    }
+    baked_num_cameras_ = N;
+    baked_vertices_ = std::vector<BakedVertex>(vertex_count());
+
+    // Per camera, per vertex edge factor (0 = invisible / feather-gated).
+    // Function-local: the projection pass fills it, the weight pass consumes
+    // it — no need to widen the object's mutable state.
+    std::vector<std::vector<double>> edge_factors(
+        static_cast<size_t>(N), std::vector<double>(vertex_count(), 0.0));
+
+    // Camera-frame point buffers, reused across cameras (batched: one
+    // ProjectPoints call per camera — hot-loop constraint, spec D1 3.3).
+    std::vector<cv::Vec3d> cam_points(vertex_count());
+    std::vector<cv::Vec2d> uv(vertex_count());
+    std::vector<uint8_t> valid(vertex_count());
+
+    for (int j = 0; j < N; ++j) {
+        const CameraModel& model = *cameras[j].model;
+        const CameraExtrinsics& extr = cameras[j].extrinsics;
+        for (int i = 0; i < vertex_count(); ++i) {
+            cam_points[i] = TransformWorldToCamera(vertices_[i], extr);
+        }
+        model.ProjectPoints(cam_points, uv, valid);
+
+        // Gating intrinsics: only cx/cy/width/height/fisheye_radius are
+        // consumed by IsInsideFisheyeCircle / FisheyeEdgeFeather. A zero
+        // radius takes the auto inscribed-circle branch (projection.hpp).
+        CameraIntrinsics gate{};
+        gate.width = model.width();
+        gate.height = model.height();
+        gate.cx = model.Cx();
+        gate.cy = model.Cy();
+        gate.fisheye_radius = model.FisheyeRadius();
+
+        auto& factors = edge_factors[static_cast<size_t>(j)];
+        for (int i = 0; i < vertex_count(); ++i) {
+            auto& bv = baked_vertices_[i];
+            const double u_px = uv[i][0];
+            const double v_px = uv[i][1];
+
+            // Rectangle (from out_valid) + circle gate — same criterion and
+            // write order as the kb bake path above: UVs are written for
+            // rect+circle-visible vertices even when the feather gate later
+            // marks the vertex invisible (bit-parity with legacy bake).
+            const bool in_circle = valid[i] != 0
+                                   && IsInsideFisheyeCircle(gate, u_px, v_px);
+            if (in_circle) {
+                bv.uv[j][0] = static_cast<float>(u_px / gate.width);
+                bv.uv[j][1] = static_cast<float>(v_px / gate.height);
+                factors[static_cast<size_t>(i)] =
+                    FisheyeEdgeFeather(gate, u_px, v_px);
+            }
+        }
+    }
+
+    // Weight normalisation (three tiers, identical to the kb path) runs per
+    // vertex now that visibility/edge factors are known for every camera.
+    const auto extrinsics = ExtractExtrinsics(cameras);
+    for (int i = 0; i < vertex_count(); ++i) {
+        const cv::Vec3d& P = vertices_[i];
+        const auto raw_weights = ComputeBlendWeights(P, extrinsics, car_center);
+
+        std::vector<char> edge_ok(N, 0);
+        std::vector<double> edge_factor(N, 0.0);
+        for (int j = 0; j < N; ++j) {
+            edge_factor[j] = edge_factors[static_cast<size_t>(j)][static_cast<size_t>(i)];
+            edge_ok[j] = edge_factor[j] > 0.0;
+        }
+        NormalizeWeights(N, raw_weights, edge_ok, edge_factor, baked_vertices_[i]);
+    }
+}
+
+std::vector<CameraExtrinsics> BowlModel::ExtractExtrinsics(
+    const std::vector<Camera>& cameras) {
+    std::vector<CameraExtrinsics> extrs;
+    extrs.reserve(cameras.size());
+    for (const auto& cam : cameras) extrs.push_back(cam.extrinsics);
+    return extrs;
 }
 
 bool BowlModel::HasVisibleVertices() const {

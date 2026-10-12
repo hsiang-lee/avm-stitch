@@ -4,12 +4,16 @@
 #include <gtest/gtest.h>
 
 #include "geometry/bowl_model.hpp"
+#include "geometry/camera_model.hpp"
+#include "geometry/kb_camera_model.hpp"
 #include "geometry/projection.hpp"
 
 #include "test_support/stitch_test_helpers.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
+#include <utility>
 #include <vector>
 
 using namespace avm_stitch;
@@ -1084,3 +1088,116 @@ TEST(BowlModelBakeTest, EdgeGate_AllCamerasUnsafe_ZeroWeight) {
     EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(0).weight[0]);
 }
 
+
+// ---------------------------------------------------------------------------
+// Multi-model construction (plan batch A / Task A4): BowlModel(params,
+// vector<Camera>) must reproduce the legacy intrinsics/extrinsics bake
+// bit-for-bit on kb cameras (kb 回归 = spec D4-3 单元级防线), bake visible UVs
+// for non-kb models, and reject null models.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Wrap kb intrinsics + extrinsics into multi-model Camera objects.
+std::vector<Camera> WrapKbCameras(const std::vector<CameraIntrinsics>& intrs,
+                                  const std::vector<CameraExtrinsics>& extrs) {
+    std::vector<Camera> cams;
+    cams.reserve(intrs.size());
+    for (size_t i = 0; i < intrs.size(); ++i) {
+        Camera cam;
+        cam.extrinsics = extrs[i];
+        cam.model = std::make_unique<KbCameraModel>(intrs[i]);
+        cams.push_back(std::move(cam));
+    }
+    return cams;
+}
+
+} // namespace
+
+TEST(BowlModelCameraCtor, MatchesIntrinsicsCtor_OnKb) {
+    // Same pre-built mesh + same kb cameras through both constructors: every
+    // baked_vertex uv/weight must agree within 1e-9.
+    const std::vector<cv::Vec3d> vertices = {
+        {0, 0, 0},      {1, 0, 0},     {0, 2, 0},     {3, 3, 0.5},
+        {-2, 1, 1.0},   {4, -3, 2.0},  {0.5, 0.5, 0}, {-4, 4, 3.0},
+    };
+    const std::vector<cv::Vec3d> normals(vertices.size(), cv::Vec3d(0, 0, 1));
+
+    std::vector<CameraIntrinsics> intrs;
+    intrs.push_back(MakeIntrinsics());
+    intrs.push_back(MakeIntrinsics());
+    intrs.push_back({1920, 1536, 441.45, 441.45, 952.14, 758.27, 0.215, -0.05, 0.003, 0.0});
+    const auto extrs = MakeSideCameras({0, 180, 90});
+
+    const BowlModel legacy(vertices, normals, intrs, extrs);
+    const BowlModel multi(vertices, normals, MakeCarBowl(),
+                          WrapKbCameras(intrs, extrs));
+
+    ASSERT_EQ(legacy.vertex_count(), multi.vertex_count());
+    ASSERT_EQ(legacy.baked_num_cameras(), multi.baked_num_cameras());
+    for (int i = 0; i < legacy.vertex_count(); ++i) {
+        for (int j = 0; j < legacy.baked_num_cameras(); ++j) {
+            EXPECT_NEAR(legacy.baked_vertex(i).uv[j][0],
+                        multi.baked_vertex(i).uv[j][0], 1e-9)
+                << "vertex " << i << " camera " << j << " u";
+            EXPECT_NEAR(legacy.baked_vertex(i).uv[j][1],
+                        multi.baked_vertex(i).uv[j][1], 1e-9)
+                << "vertex " << i << " camera " << j << " v";
+            EXPECT_NEAR(legacy.baked_vertex(i).weight[j],
+                        multi.baked_vertex(i).weight[j], 1e-9)
+                << "vertex " << i << " camera " << j << " weight";
+        }
+    }
+}
+
+TEST(BowlModelCameraCtor, LutCamera_BakesVisibleUv) {
+    // Batch B landed the "table" model (B1): a 2-point LUT camera bakes at
+    // least one vertex with weight > 0 and uv in [0,1].
+    LutParams lut;
+    lut.points = {{0.0, 0.0}, {120.0, 4.0}};
+    lut.width = 640;
+    lut.height = 480;
+    lut.cx = 320.0;
+    lut.cy = 240.0;
+
+    std::vector<Camera> cams(1);
+    cams[0].extrinsics = MakeSideCameras({0})[0];
+    cams[0].model = MakeCameraModel("table", lut);
+
+    const std::vector<cv::Vec3d> vertices = {{2.0, 0.0, 1.0}, {2.9, 0.0, 1.0}};
+    const std::vector<cv::Vec3d> normals(vertices.size(), cv::Vec3d(0, 0, 1));
+    BowlParams bowl = MakeCarBowl();
+
+    BowlModel model(vertices, normals, bowl, cams);
+    // 1 LUT camera in -> exactly 1 baked camera slot (plan: 1 路 LUT 相机).
+    ASSERT_EQ(1, model.baked_num_cameras());
+
+    int weighted = 0;
+    for (int i = 0; i < model.vertex_count(); ++i) {
+        if (model.baked_vertex(i).weight[0] > 0.0f) {
+            ++weighted;
+            EXPECT_GE(model.baked_vertex(i).uv[0][0], 0.0f);
+            EXPECT_LE(model.baked_vertex(i).uv[0][0], 1.0f);
+            EXPECT_GE(model.baked_vertex(i).uv[0][1], 0.0f);
+            EXPECT_LE(model.baked_vertex(i).uv[0][1], 1.0f);
+        }
+    }
+    EXPECT_GT(weighted, 0);
+}
+
+TEST(BowlModelCameraCtor, NullModel_Throws) {
+    std::vector<Camera> cams(1);
+    cams[0].extrinsics = MakeSideCameras({0})[0];
+    cams[0].model = nullptr;
+
+    const std::vector<cv::Vec3d> vertices = {{0, 0, 0}};
+    const std::vector<cv::Vec3d> normals(vertices.size(), cv::Vec3d(0, 0, 1));
+    BowlParams bowl = MakeCarBowl();
+
+    // Pre-built-mesh overload forwards to the same bake; either entry point
+    // must reject a null model with std::invalid_argument.
+    EXPECT_THROW(BowlModel(vertices, normals, bowl, cams), std::invalid_argument);
+
+    BowlParams full = MakeCarBowl();
+    EXPECT_THROW(BowlModel(full, cams), std::invalid_argument);
+}
