@@ -129,5 +129,6 @@ TEST_F(OSGGLTest, LegacyWrapperStillConfigures) {
 
     auto frames = avm_stitch::test::MakeColourFrames(4);
     auto views = engine.RenderFrame(frames);
-    EXPECT_EQ(5, views.size());
+    // 4 side views (topdown removed from default view poses).
+    EXPECT_EQ(4, views.size());
 }
