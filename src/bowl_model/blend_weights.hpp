@@ -19,6 +19,8 @@ class BlendWeightsCalculator {
     static double ComputeBlendHalfAngle(int num_cameras);
 
   private:
+    bool TryBlend(int near_index, double theta_deg, double blend_half_deg,
+                  int best_index, std::vector<double>& weights) const;
     std::vector<std::pair<double, int>> sorted_;
     cv::Vec2d pole_;
     int num_cameras_ = 0;

@@ -41,6 +41,28 @@ double BlendWeightsCalculator::ComputeBlendHalfAngle(int num_cameras) {
     return 52.0 / num_cameras;
 }
 
+bool BlendWeightsCalculator::TryBlend(
+    int near_index, double theta_deg, double blend_half_deg,
+    int best_index, std::vector<double>& weights) const {
+    const int b = (near_index + 1) % num_cameras_;
+    const double boundary =
+        SectorBoundaryDeg(sorted_[near_index].first, sorted_[b].first);
+    const double dist = ShortestArcDeg(theta_deg, boundary);
+    if (dist > blend_half_deg)
+        return false;
+    const double t = 0.5 + dist / (2.0 * blend_half_deg);
+    const double w_near = 0.5 * (1.0 - std::cos(t * kPi));
+    const double w_far = 1.0 - w_near;
+    if (best_index == near_index) {
+        weights[sorted_[near_index].second] = w_near;
+        weights[sorted_[b].second] = w_far;
+    } else {
+        weights[sorted_[b].second] = w_near;
+        weights[sorted_[near_index].second] = w_far;
+    }
+    return true;
+}
+
 std::vector<double>
 BlendWeightsCalculator::WeightsFor(const cv::Vec3d& P_world) const {
     if (num_cameras_ == 0)
@@ -66,28 +88,9 @@ BlendWeightsCalculator::WeightsFor(const cv::Vec3d& P_world) const {
         }
     }
 
-    auto try_blend = [&](int a) -> bool {
-        const int b = (a + 1) % num_cameras_;
-        const double boundary = SectorBoundaryDeg(sorted_[a].first, sorted_[b].first);
-        const double dist = ShortestArcDeg(theta, boundary);
-        if (dist > blend_half)
-            return false;
-        const double t = 0.5 + dist / (2.0 * blend_half);
-        const double w_near = 0.5 * (1.0 - std::cos(t * kPi));
-        const double w_far = 1.0 - w_near;
-        if (best == a) {
-            weights[sorted_[a].second] = w_near;
-            weights[sorted_[b].second] = w_far;
-        } else {
-            weights[sorted_[b].second] = w_near;
-            weights[sorted_[a].second] = w_far;
-        }
-        return true;
-    };
-
-    if (try_blend((best - 1 + num_cameras_) % num_cameras_))
+    if (TryBlend((best - 1 + num_cameras_) % num_cameras_, theta, blend_half, best, weights))
         return weights;
-    if (try_blend(best))
+    if (TryBlend(best, theta, blend_half, best, weights))
         return weights;
 
     weights[sorted_[best].second] = 1.0;
