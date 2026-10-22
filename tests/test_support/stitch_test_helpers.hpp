@@ -69,6 +69,10 @@ inline std::vector<CameraExtrinsics> DefaultBakeCameras() {
     return MakeSideCameras({0, 180, 90, -90});
 }
 
+inline std::vector<Camera> MakeDefaultKbCameras() {
+    return WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras());
+}
+
 inline CameraExtrinsics MakeLookAtCamera(double az_deg, double r, double h,
                                          double target_z) {
     double rad = az_deg * M_PI / 180.0;

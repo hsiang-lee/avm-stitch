@@ -22,6 +22,7 @@ using avm_stitch::test::DefaultIntrinsics;
 using avm_stitch::test::MakeCarBowl;
 using avm_stitch::test::MakeCoarseBowl;
 using avm_stitch::test::MakeCoarseBowlParams;
+using avm_stitch::test::MakeDefaultKbCameras;
 using avm_stitch::test::MakeRealIntrinsics;
 using avm_stitch::test::MakeSideCameras;
 using avm_stitch::test::WrapKbCameras;
@@ -75,7 +76,7 @@ TEST(BowlModelTest, CarCenter_FlatRegionCenteredAtCarCenter) {
         .with_step(0.2)
         .with_car_center(cv::Vec2d(1.55, 0.0));
 
-    const BowlModel model(params, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
+    const BowlModel model(params, MakeDefaultKbCameras());
 
     int left_count = 0, right_count = 0;
     for (int i = 0; i < model.vertex_count(); ++i) {
@@ -98,7 +99,7 @@ TEST(BowlModelTest, CarCenter_FlatRegionCenteredAtCarCenter) {
 
 TEST(BowlModelTest, CarCenter_GridExtentSymmetricAboutCarCenter) {
     const BowlParams params = CarBowlCentered().with_car_center(cv::Vec2d(1.45, 0.0));
-    const BowlModel model(params, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
+    const BowlModel model(params, MakeDefaultKbCameras());
     ASSERT_GT(model.vertex_count(), 0);
 
     double min_x = std::numeric_limits<double>::max();
@@ -143,7 +144,7 @@ TEST(BowlModelTest, CarCenter_GridExtentSymmetricAboutCarCenter) {
 
 TEST(BowlModelTest, CarCenter_DefaultUnchanged) {
     const BowlParams p = CarBowlCentered();
-    const BowlModel model(p, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
+    const BowlModel model(p, MakeDefaultKbCameras());
     ASSERT_GT(model.vertex_count(), 0);
     const double r_outter = p.r_outter();
     for (int i = 0; i < model.vertex_count(); ++i) {
@@ -156,8 +157,7 @@ TEST(BowlModelTest, CarCenter_DefaultUnchanged) {
 }
 
 TEST(BowlModelTest, ReturnsNonEmptyMesh) {
-    const BowlModel model(CarBowlCentered(), WrapKbCameras(DefaultIntrinsics(),
-                          DefaultBakeCameras()));
+    const BowlModel model(CarBowlCentered(), MakeDefaultKbCameras());
     EXPECT_GT(model.vertex_count(), 0);
     EXPECT_GT(model.triangle_count(), 0);
     EXPECT_EQ(model.vertex_count(), model.normal_count());
@@ -165,7 +165,7 @@ TEST(BowlModelTest, ReturnsNonEmptyMesh) {
 
 TEST(BowlModelTest, GridSizeMatchesParams) {
     const BowlParams p = CarBowlCentered();
-    const BowlModel model(p, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
+    const BowlModel model(p, MakeDefaultKbCameras());
     std::vector<double> xs;
     xs.reserve(model.vertex_count());
     for (int i = 0; i < model.vertex_count(); ++i) {
@@ -182,8 +182,7 @@ TEST(BowlModelTest, GridSizeMatchesParams) {
 }
 
 TEST(BowlModelTest, VerticesInXyBounds) {
-    const BowlModel model(CarBowlCentered(), WrapKbCameras(DefaultIntrinsics(),
-                         DefaultBakeCameras()));
+    const BowlModel model(CarBowlCentered(), MakeDefaultKbCameras());
     ASSERT_GT(model.vertex_count(), 0);
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
@@ -196,7 +195,7 @@ TEST(BowlModelTest, VerticesInXyBounds) {
 
 TEST(BowlModelTest, VerticesZInRange) {
     const BowlParams p = CarBowlCentered();
-    const BowlModel model(p, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
+    const BowlModel model(p, MakeDefaultKbCameras());
     ASSERT_GT(model.vertex_count(), 0);
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
@@ -214,7 +213,7 @@ TEST(BowlModelTest, FlatCenterRegion) {
         .with_r_outter(12.6);
     const double x_half = params.x_half();
     const double y_half = params.y_half();
-    const BowlModel model(params, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
+    const BowlModel model(params, MakeDefaultKbCameras());
     bool found_flat = false;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
@@ -228,8 +227,7 @@ TEST(BowlModelTest, FlatCenterRegion) {
 
 TEST(BowlModelTest, EdgesMonotonic) {
     const BowlParams params = CarBowlCentered();
-    const BowlModel model(params, WrapKbCameras(DefaultIntrinsics(),
-                         DefaultBakeCameras()));
+    const BowlModel model(params, MakeDefaultKbCameras());
     ASSERT_GT(model.vertex_count(), 0);
 
     std::vector<std::pair<double, double>> rd_z;
@@ -250,8 +248,7 @@ TEST(BowlModelTest, EdgesMonotonic) {
 }
 
 TEST(BowlModelTest, NormalsAreUnitLength) {
-    const BowlModel model(CarBowlCentered(), WrapKbCameras(DefaultIntrinsics(),
-                         DefaultBakeCameras()));
+    const BowlModel model(CarBowlCentered(), MakeDefaultKbCameras());
     ASSERT_EQ(model.vertex_count(), model.normal_count());
     for (int i = 0; i < model.normal_count(); ++i) {
         const cv::Vec3d& n = model.normal(i);
@@ -269,7 +266,7 @@ TEST(BowlModelTest, FlatCenterNormalsUpward) {
         .with_r_outter(12.6);
     double x_half = 1.5;
     double y_half = 1.0;
-    const BowlModel model(params, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
+    const BowlModel model(params, MakeDefaultKbCameras());
     bool found_flat = false;
     for (int k = 0; k < model.vertex_count(); ++k) {
         const cv::Vec3d& v = model.vertex(k);
@@ -285,8 +282,7 @@ TEST(BowlModelTest, FlatCenterNormalsUpward) {
 }
 
 TEST(BowlModelTest, TrianglesHaveValidIndices) {
-    const BowlModel model(CarBowlCentered(), WrapKbCameras(DefaultIntrinsics(),
-                         DefaultBakeCameras()));
+    const BowlModel model(CarBowlCentered(), MakeDefaultKbCameras());
     ASSERT_GT(model.triangle_count(), 0);
     for (int t = 0; t < model.triangle_count(); ++t) {
         for (int idx : model.triangle(t)) {
@@ -301,14 +297,12 @@ TEST(BowlModelTest, DifferentCarSizeChangesFlatRegion) {
         .with_car_length(18.0)
         .with_car_width(2.5)
         .with_step(0.5);
-    const BowlModel truck_model(truck_params, WrapKbCameras(DefaultIntrinsics(),
-                               DefaultBakeCameras()));
+    const BowlModel truck_model(truck_params, MakeDefaultKbCameras());
     EXPECT_GT(truck_model.vertex_count(), 0);
 
     const BowlParams default_params = CarBowlCentered()
         .with_step(0.5);
-    const BowlModel default_model(default_params, WrapKbCameras(DefaultIntrinsics(),
-                                  DefaultBakeCameras()));
+    const BowlModel default_model(default_params, MakeDefaultKbCameras());
 
     size_t truck_flat = CountFlatVertices(truck_model, 18.0 / 2.0 + 2.0, 2.5 / 2.0 + 2.0);
     size_t default_flat = CountFlatVertices(default_model, 5.6 / 2.0 + 2.0, 2.2 / 2.0 + 2.0);
@@ -317,7 +311,7 @@ TEST(BowlModelTest, DifferentCarSizeChangesFlatRegion) {
 
 TEST(BowlModelTest, MinimalParams_OneCellMesh) {
     const BowlParams params = BowlParams().with_step(12.6).with_r_outter(12.6);
-    const BowlModel model(params, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
+    const BowlModel model(params, MakeDefaultKbCameras());
     EXPECT_GT(model.vertex_count(), 0);
     for (int t = 0; t < model.triangle_count(); ++t) {
         for (int idx : model.triangle(t)) {
