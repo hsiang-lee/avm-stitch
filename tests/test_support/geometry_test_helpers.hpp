@@ -1,6 +1,5 @@
 #pragma once
 
-
 #include "bowl_model/bowl_model.hpp"
 #include "camera_model/camera.hpp"
 #include "camera_model/kb_camera_model.hpp"

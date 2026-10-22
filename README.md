@@ -48,7 +48,7 @@ AVM(环视,亦称 Bird's Eye View / 360 全景)系统在车辆前后左右安装
 
 **为什么需要碗形模型?** 拼接的目标是把地面"摊平"成一张俯视图。真实相机成像满足透视规律:同样大小的地面块,离相机越远,在图像中占据的像素越少。如果把 4 路图像直接按方位角贴到一张平面上,接缝两侧的"拉伸比例"不一致,会拼出扭曲的地面。
 
-碗形(bowl)模型是行业通行解法:把车辆周围的世界建模成一只**中间平坦、四周缓缓升起的碗**——车底是平地(z=0),从车身外围开始地面沿 `z = k_slop · rd^z_exp` 抬升。渲染时虚拟相机看向这只碗,碗沿自然地"压缩"了远处地面,使 4 路图像在碗面上的投影恰好能平滑衔接。详见[3.1](#31-碗形模型-srcgeometrybowl_modelhpp)。
+碗形(bowl)模型是行业通行解法:把车辆周围的世界建模成一只**中间平坦、四周缓缓升起的碗**——车底是平地(z=0),从车身外围开始地面沿 `z = slope_coefficient · distance_from_flat_platform^height_exponent` 抬升。渲染时虚拟相机看向这只碗,碗沿自然地"压缩"了远处地面,使 4 路图像在碗面上的投影恰好能平滑衔接。详见[3.1](#31-碗形模型-srcgeometrybowl_modelhpp)。
 
 ## 3. 核心原理
 
@@ -59,17 +59,17 @@ AVM(环视,亦称 Bird's Eye View / 360 全景)系统在车辆前后左右安装
 hpp/cpp 拆分,纯数学,无 GL 依赖。`BowlModel model(params, cameras)`(构造函数,取代最初的工厂函数;`cameras` 为 `std::vector<Camera>`,每路 = 外参 + 模型指针)一步生成碗面三角网格并烘焙,数据经细粒度索引访问读取(`vertex_count()` / `vertex(i)` / `normal_count()` / `normal(i)` / `triangle_count()` / `triangle(i)`)——不暴露内部容器,内部布局(将来可换 SoA 等)是纯实现细节:
 
 ```
- z ^      rim:  z = k_slop * rd^z_exp   (max_z 封顶)
+ z ^      rim:  z = slope_coefficient * distance_from_flat_platform^height_exponent   (max_height 封顶)
    |    ___                          ___
    |   /    \___                ___/    \
    |  /         \___      ___/           \
    | /             \____/                 \
    |/                                     \
  0 +----|---------平地 z=0------|-----------\----> rd
-        | 车底平坦区             |          r_outter
+        | 车底平坦区             |          outer_radius
      rounded-rect               |         = 12.6 m
-     (车长/2+round_l,           curved slope
-      车宽/2+round_l)
+     (车长/2+flat_platform_radius,   curved slope
+      车宽/2+flat_platform_radius)
 ```
 
 `BowlParams` 8 个参数——没有硬编码默认值,统一由 `DeriveBowlParams(car_length, car_width, axis_x)` 从载具实际尺寸派生(车和船同一套公式):
@@ -77,12 +77,12 @@ hpp/cpp 拆分,纯数学,无 GL 依赖。`BowlModel model(params, cameras)`(构�
 | 参数 | 汽车 L=5.6 派生值 | 派生规则 |
 |------|--------|------|
 | `car_length` / `car_width` | 传入值 | 载具长/宽(m),决定平坦区大小 |
-| `round_l` | 2.0 | `0.16 × r_outter`:圆角外扩量,平坦区是以车为基准的圆角矩形 |
-| `step` | 0.2 | `r_outter / 63`:网格步长(m),网格数恒为 `126×126` |
-| `r_outter` | 12.6 | `12.6 × (L/5.6)^0.72`:碗外半径(m),幂律缩放,船(L=211.6)→≈172.2 |
-| `z_exp` | 2.2 | 固定形状常数(原标定碗形,陡壁 + 开口轮廓) |
-| `max_z` | 8.6 | `8.6 × (L/5.6)^0.55`:碗沿最大高度,超出部分的顶点被裁剪 |
-| `k_slop` | 0.09 | `0.09 × (L/5.6)^-1.25`:`p+q=(1-0.72)×2.2` 使裁剪半径 `rd* = (max_z/k_slop)^(1/2.2) = 7.95 × (L/5.6)^0.098` 随尺度连续增长(车开口比 63% → 船 90%),所有尺度下碗沿先到 max_z 再裁剪 |
+| `flat_platform_radius` | 2.0 | `0.16 × outer_radius`:圆角外扩量,平坦区是以车为基准的圆角矩形 |
+| `grid_step` | 0.2 | `outer_radius / 63`:网格步长(m),网格数恒为 `126×126` |
+| `outer_radius` | 12.6 | `12.6 × (L/5.6)^0.72`:碗外半径(m),幂律缩放,船(L=211.6)→≈172.2 |
+| `height_exponent` | 2.2 | 固定形状常数(原标定碗形,陡壁 + 开口轮廓) |
+| `max_height` | 8.6 | `8.6 × (L/5.6)^0.55`:碗沿最大高度,超出部分的顶点被裁剪 |
+| `slope_coefficient` | 0.09 | `0.09 × (L/5.6)^-1.25`:`p+q=(1-0.72)×2.2` 使裁剪半径 `rd* = (max_height/slope_coefficient)^(1/height_exponent) = 7.95 × (L/5.6)^0.098` 随尺度连续增长(车开口比 63% → 船 90%),所有尺度下碗沿先到 max_height 再裁剪 |
 
 `car_center` 也一并派生:`(axis_x/2, 0)`(后轴系)。`BowlParams` 字段默认初始化为 0(0 = 未派生);必须经 `DeriveBowlParams` 构造或全字段显式赋值。从任务 JSON 解析碗参数的集成层逻辑已迁至 avm-worker(其 `ParseBowlParams` 以 calibration.car 尺寸派生 + bowl 块逐字段覆盖)。
 

@@ -30,7 +30,7 @@ SphericalGrid MakeGrid(int w, int h) {
 
 }
 TEST(GroundDepthTest, GroundDepthKnownCase) {
-            auto [a, b] = MakeLookDownPair();
+    auto [a, b] = MakeLookDownPair();
     auto basis = MakeRectificationBasis(a, b);
     SphericalGrid g = MakeGrid(33, 33);
 
@@ -40,12 +40,14 @@ TEST(GroundDepthTest, GroundDepthKnownCase) {
 }
 
 TEST(GroundDepthTest, DisparityMonotonicWithDepth) {
-            auto [a, b] = MakeStereoPair(/*elevation=*/1.5);       auto basis = MakeRectificationBasis(a, b);
+    auto [a, b] = MakeStereoPair(/*elevation=*/1.5);
+    auto basis = MakeRectificationBasis(a, b);
     SphericalGrid g = MakeGrid(33, 33);
 
     auto map = ComputeGroundDepthMap(basis, a, b, g);
     const int col = 16;
-    std::vector<std::pair<float, float>> samples;       for (int row = 0; row < g.height; ++row) {
+    std::vector<std::pair<float, float>> samples;
+    for (int row = 0; row < g.height; ++row) {
         if (map.valid(row, col)) {
             samples.emplace_back(map.depth(row, col), map.disparity(row, col));
         }
@@ -59,7 +61,7 @@ TEST(GroundDepthTest, DisparityMonotonicWithDepth) {
 }
 
 TEST(GroundDepthTest, TriangulateDepthRoundTrip) {
-            const cv::Vec3d ta(0.0, 0.0, 1.5);
+    const cv::Vec3d ta(0.0, 0.0, 1.5);
     const cv::Vec3d tb(1.1, 0.0, 1.5);
     std::mt19937 rng(7);
     std::uniform_real_distribution<double> xy(-5.0, 5.0);
@@ -81,7 +83,7 @@ TEST(GroundDepthTest, TriangulateDepthRoundTrip) {
 }
 
 TEST(GroundDepthTest, InvalidOutsideRange) {
-            auto [a, b] = MakeLookDownPair();
+    auto [a, b] = MakeLookDownPair();
     auto basis = MakeRectificationBasis(a, b);
     SphericalGrid g = MakeGrid(33, 33);
 
@@ -104,19 +106,32 @@ TEST(GroundDepthTest, MapShapes) {
 }
 
 TEST(GroundDepthTest, DisparityAnalyticValue) {
-                    //
-                                        auto [a, b] = MakeLookDownPair();
+    //
+    auto [a, b] = MakeLookDownPair();
     auto basis = MakeRectificationBasis(a, b);
     SphericalGrid g = MakeGrid(33, 33);
 
     auto map = ComputeGroundDepthMap(basis, a, b, g);
     struct RowDisparity {
-        int row;               float expect;      };
+        int row;
+        float expect;
+    };
     const RowDisparity kRows[] = {
-        {9, 1.962523f},  {10, 3.722848f}, {11, 5.165377f}, {12, 6.269225f},
-        {13, 7.065332f}, {14, 7.597193f}, {15, 7.901194f}, {16, 8.000000f},
-        {17, 7.901194f}, {18, 7.597193f}, {19, 7.065332f}, {20, 6.269225f},
-        {21, 5.165377f}, {22, 3.722848f}, {23, 1.962523f},
+        {9, 1.962523f},
+        {10, 3.722848f},
+        {11, 5.165377f},
+        {12, 6.269225f},
+        {13, 7.065332f},
+        {14, 7.597193f},
+        {15, 7.901194f},
+        {16, 8.000000f},
+        {17, 7.901194f},
+        {18, 7.597193f},
+        {19, 7.065332f},
+        {20, 6.269225f},
+        {21, 5.165377f},
+        {22, 3.722848f},
+        {23, 1.962523f},
     };
     const int col = 16;
     for (const auto& r : kRows) {
@@ -126,7 +141,7 @@ TEST(GroundDepthTest, DisparityAnalyticValue) {
 }
 
 TEST(GroundDepthTest, DepthRangeBoundsInvalid) {
-                            auto [a, b] = MakeLookDownPair();
+    auto [a, b] = MakeLookDownPair();
     auto basis = MakeRectificationBasis(a, b);
     SphericalGrid g = MakeGrid(33, 33);
     GroundDepthOptions opts;
@@ -136,15 +151,15 @@ TEST(GroundDepthTest, DepthRangeBoundsInvalid) {
     auto map = ComputeGroundDepthMap(basis, a, b, g, opts);
     const int col = 16;
 
-        EXPECT_EQ(1, map.valid(10, col));
+    EXPECT_EQ(1, map.valid(10, col));
     EXPECT_NEAR(2.6131, map.depth(10, col), 1e-3);
     EXPECT_EQ(1, map.valid(22, col));
     EXPECT_NEAR(2.6131, map.depth(22, col), 1e-3);
 
-        EXPECT_EQ(0, map.valid(16, col));
+    EXPECT_EQ(0, map.valid(16, col));
     EXPECT_EQ(0.0f, map.depth(16, col));
 
-        EXPECT_EQ(0, map.valid(9, col));
+    EXPECT_EQ(0, map.valid(9, col));
     EXPECT_EQ(0.0f, map.depth(9, col));
     EXPECT_EQ(0, map.valid(23, col));
     EXPECT_EQ(0.0f, map.depth(23, col));

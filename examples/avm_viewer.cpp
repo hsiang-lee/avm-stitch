@@ -159,10 +159,12 @@ int main(int argc, char** argv) {
     }
 
     BowlParams bp = DeriveBowlParams(car_length, car_width, car_center[0] * 2.0);
-    std::cout << "Derived bowl params: r_outter=" << bp.r_outter()
-              << " round_l=" << bp.round_l() << " step=" << bp.step()
-              << " k_slop=" << bp.k_slop() << " z_exp=" << bp.z_exp()
-              << " max_z=" << bp.max_z() << "\n";
+    std::cout << "Derived bowl params: OuterRadius=" << bp.OuterRadius()
+              << " FlatPlatformRadius=" << bp.FlatPlatformRadius()
+              << " GridStep=" << bp.GridStep()
+              << " SlopeCoefficient=" << bp.SlopeCoefficient()
+              << " HeightExponent=" << bp.HeightExponent()
+              << " MaxHeight=" << bp.MaxHeight() << "\n";
             std::vector<Camera> cams;
     cams.reserve(intrs.size());
     for (size_t i = 0; i < intrs.size(); ++i) {
@@ -175,9 +177,8 @@ int main(int argc, char** argv) {
     StitchScene scene(bowl, intrs[0].width, intrs[0].height);
     scene.UploadCameraImages(images);
 
-    OSGViewRenderer renderer(scene, bp.r_outter(),
-                             bp.DefaultViewPoses(),
-                             960, 640, RenderMode::Windowed, bp.car_center());
+    OSGViewRenderer renderer(scene, bp,
+                             960, 640, RenderMode::Windowed);
 
     std::cout << "Controls:  LMB=rotate  RMB=zoom  MMB=pan\n";
     renderer.WaitForWindowClose();

@@ -32,8 +32,8 @@ TEST_F(OSGGLTest, MakeCurrentExposesDesktopGL) {
     const char* ver = reinterpret_cast<const char*>(glGetString(GL_VERSION));
     ASSERT_NE(nullptr, ver);
     const std::string version(ver);
-        EXPECT_EQ(std::string::npos, version.find("OpenGL ES"));
-            EXPECT_TRUE(version.find("Compatibility") != std::string::npos ||
+    EXPECT_EQ(std::string::npos, version.find("OpenGL ES"));
+    EXPECT_TRUE(version.find("Compatibility") != std::string::npos ||
                 version.compare(0, 2, "4.") == 0 ||
                 version.compare(0, 2, "3.") == 0);
     gc->releaseContextImplementation();

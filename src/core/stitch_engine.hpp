@@ -19,7 +19,7 @@ class StitchScene;
 class OSGViewRenderer;
 
 class StitchEngine {
-public:
+  public:
     StitchEngine();
     ~StitchEngine();
     StitchEngine(const StitchEngine&) = delete;
@@ -33,13 +33,13 @@ public:
                    int output_width = 960,
                    int output_height = 640);
 
-                    std::map<std::string, cv::Mat> RenderFrame(
+    std::map<std::string, cv::Mat> RenderFrame(
         const std::vector<cv::Mat>& images) const;
 
     bool IsConfigured() const;
     int GetNumCameras() const;
 
-private:
+  private:
     std::unique_ptr<StitchScene> scene_;
     std::unique_ptr<OSGViewRenderer> renderer_;
     bool configured_ = false;

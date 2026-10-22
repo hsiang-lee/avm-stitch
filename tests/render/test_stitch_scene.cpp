@@ -6,9 +6,9 @@
 
 #include "test_support/stitch_test_helpers.hpp"
 
+#include <osg/Geode>
 #include <osg/Geometry>
 #include <osg/Group>
-#include <osg/Geode>
 #include <osg/Program>
 #include <osg/Shader>
 #include <osg/StateSet>
@@ -21,12 +21,13 @@ using namespace avm_stitch;
 
 namespace {
 
-BowlModel MakeBaked(int num_cameras, double r_outter = 12.6) {
+BowlModel MakeBaked(int num_cameras, double outer_radius = 12.6) {
     KbParams intr = test::MakeRealIntrinsics();
     std::vector<double> azimuths;
-    for (int i = 0; i < num_cameras; ++i) azimuths.push_back(i * 360.0 / num_cameras);
-    return test::MakeCoarseBowl(r_outter, std::vector<KbParams>(num_cameras, intr),
-                                 test::MakeSideCameras(azimuths));
+    for (int i = 0; i < num_cameras; ++i)
+        azimuths.push_back(i * 360.0 / num_cameras);
+    return test::MakeCoarseBowl(outer_radius, std::vector<KbParams>(num_cameras, intr),
+                                test::MakeSideCameras(azimuths));
 }
 
 }
@@ -40,7 +41,7 @@ TEST(StitchSceneTest, BowlGeometryPositionAttributeCorrect) {
     ASSERT_NE(nullptr, va);
     ASSERT_EQ(static_cast<size_t>(bowl.vertex_count()), va->size());
 
-        for (int i = 0; i < bowl.vertex_count(); ++i) {
+    for (int i = 0; i < bowl.vertex_count(); ++i) {
         const cv::Vec3d& v = bowl.vertex(i);
         EXPECT_NEAR(v[0], (*va)[i].x(), 1e-6);
         EXPECT_NEAR(v[2], (*va)[i].y(), 1e-6);
@@ -77,7 +78,8 @@ TEST(StitchSceneTest, BowlGeometryIndexCount) {
     int index_count = 0;
     for (unsigned int k = 0; k < geom->getNumPrimitiveSets(); ++k) {
         auto* de = dynamic_cast<osg::DrawElementsUInt*>(geom->getPrimitiveSet(k));
-        if (de) index_count += de->getNumIndices();
+        if (de)
+            index_count += de->getNumIndices();
     }
     EXPECT_EQ(static_cast<size_t>(bowl.triangle_count()) * 3u, static_cast<size_t>(index_count));
     EXPECT_GT(index_count, 0);
@@ -107,7 +109,7 @@ void ExpectZeroPaddedBeyondBakedCameras(const BowlModel& bowl, osg::Geometry& ge
     for (int i = 0; i < bowl.vertex_count(); ++i) {
         const auto& bv = bowl.baked_vertex(i);
 
-                for (int slot = 0; slot < 4; ++slot) {
+        for (int slot = 0; slot < 4; ++slot) {
             auto* uv = dynamic_cast<osg::Vec4Array*>(
                 geom.getVertexAttribArray(kUvLocations[slot]));
             ASSERT_NE(nullptr, uv);
@@ -124,7 +126,7 @@ void ExpectZeroPaddedBeyondBakedCameras(const BowlModel& bowl, osg::Geometry& ge
                 << "uv loc=" << kUvLocations[slot] << " vertex=" << i << " camera=" << c1;
         }
 
-                for (int slot = 0; slot < 2; ++slot) {
+        for (int slot = 0; slot < 2; ++slot) {
             auto* w = dynamic_cast<osg::Vec4Array*>(
                 geom.getVertexAttribArray(kWeightLocations[slot]));
             ASSERT_NE(nullptr, w);
@@ -143,7 +145,7 @@ void ExpectZeroPaddedBeyondBakedCameras(const BowlModel& bowl, osg::Geometry& ge
 
 }
 TEST(StitchSceneTest, EmptySlotsZeroPaddedWhenBakingFourCameras) {
-        auto bowl = MakeBaked(4, 5.0);
+    auto bowl = MakeBaked(4, 5.0);
     StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     auto* geom = dynamic_cast<osg::Geometry*>(scene.bowl_drawable().get());
     ASSERT_NE(nullptr, geom);
@@ -151,7 +153,7 @@ TEST(StitchSceneTest, EmptySlotsZeroPaddedWhenBakingFourCameras) {
 }
 
 TEST(StitchSceneTest, EmptySlotsZeroPaddedWhenBakingTwoCameras) {
-        auto bowl = MakeBaked(2);
+    auto bowl = MakeBaked(2);
     StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     auto* geom = dynamic_cast<osg::Geometry*>(scene.bowl_drawable().get());
     ASSERT_NE(nullptr, geom);
@@ -164,9 +166,11 @@ const osg::Shader* FindShader(const StitchScene& scene, osg::Shader::Type type) 
     auto* ss = scene.bowl_stateset().get();
     auto* program = dynamic_cast<osg::Program*>(
         ss->getAttribute(osg::StateAttribute::PROGRAM));
-    if (!program) return nullptr;
+    if (!program)
+        return nullptr;
     for (unsigned int i = 0; i < program->getNumShaders(); ++i) {
-        if (program->getShader(i)->getType() == type) return program->getShader(i);
+        if (program->getShader(i)->getType() == type)
+            return program->getShader(i);
     }
     return nullptr;
 }
@@ -223,7 +227,7 @@ TEST(StitchSceneTest, CameraTextureArraySetsCorrectSize) {
 }
 
 TEST(StitchSceneTest, NumCamerasComesFromBakedBowl) {
-            auto bowl = MakeBaked(4);
+    auto bowl = MakeBaked(4);
     StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     EXPECT_EQ(4, scene.num_cameras());
 }
@@ -260,7 +264,9 @@ TEST(StitchSceneTest, UploadCameraImages_DoesNotCrash) {
     ASSERT_NE(nullptr, tex);
 
     std::vector<cv::Mat> images;
-    images.push_back(cv::Mat(48, 64, CV_8UC3, cv::Scalar(255, 0, 0)));       images.push_back(cv::Mat(48, 64, CV_8UC3, cv::Scalar(0, 255, 0)));       scene.UploadCameraImages(images);
+    images.push_back(cv::Mat(48, 64, CV_8UC3, cv::Scalar(255, 0, 0)));
+    images.push_back(cv::Mat(48, 64, CV_8UC3, cv::Scalar(0, 255, 0)));
+    scene.UploadCameraImages(images);
 
     EXPECT_GE(tex->getNumImages(), 2u);
 }

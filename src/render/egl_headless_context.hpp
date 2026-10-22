@@ -1,15 +1,15 @@
 #pragma once
 
-#include <osgViewer/GraphicsWindow>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <osgViewer/GraphicsWindow>
 
 namespace avm_stitch {
 
 class EGLHeadlessContext : public osgViewer::GraphicsWindow {
-public:
+  public:
     explicit EGLHeadlessContext(osg::GraphicsContext::Traits* traits);
-        bool valid() const override;
+    bool valid() const override;
     bool realizeImplementation() override;
     bool isRealizedImplementation() const override;
     void closeImplementation() override;
@@ -17,15 +17,15 @@ public:
     bool makeContextCurrentImplementation(osg::GraphicsContext* readContext) override;
     bool releaseContextImplementation() override;
     void swapBuffersImplementation() override;
-        void grabFocus() override;
+    void grabFocus() override;
     void grabFocusIfPointerInWindow() override;
     void raiseWindow() override;
     void requestWarpPointer(float x, float y) override;
 
-protected:
+  protected:
     ~EGLHeadlessContext() override;
 
-private:
+  private:
     bool InitEGL();
     EGLDisplay egl_display_ = EGL_NO_DISPLAY;
     EGLSurface egl_surface_ = EGL_NO_SURFACE;

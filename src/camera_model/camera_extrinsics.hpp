@@ -15,34 +15,34 @@
 namespace avm_stitch {
 
 class CameraExtrinsics {
-public:
-        CameraExtrinsics() : R_(cv::Matx33d::eye()), t_(0.0, 0.0, 0.0) {}
+  public:
+    CameraExtrinsics() : R_(cv::Matx33d::eye()), t_(0.0, 0.0, 0.0) {}
 
-        CameraExtrinsics(const cv::Matx33d& R_wc, const cv::Vec3d& t_wc)
+    CameraExtrinsics(const cv::Matx33d& R_wc, const cv::Vec3d& t_wc)
         : R_(R_wc), t_(t_wc) {}
 
-        cv::Vec3d ToCamera(const cv::Vec3d& P_world) const {
+    cv::Vec3d ToCamera(const cv::Vec3d& P_world) const {
         return R_.t() * (P_world - t_);
     }
 
-        cv::Vec3d ToWorld(const cv::Vec3d& P_cam) const {
+    cv::Vec3d ToWorld(const cv::Vec3d& P_cam) const {
         return R_ * P_cam + t_;
     }
 
-        cv::Vec3d RotateWorldToCamera(const cv::Vec3d& v) const {
+    cv::Vec3d RotateWorldToCamera(const cv::Vec3d& v) const {
         return R_.t() * v;
     }
     cv::Vec3d RotateCameraToWorld(const cv::Vec3d& v) const {
         return R_ * v;
     }
 
-        const cv::Vec3d& position() const { return t_; }
+    const cv::Vec3d& position() const { return t_; }
 
-            cv::Matx33d RelativeRotationFrom(const CameraExtrinsics& other) const {
+    cv::Matx33d RelativeRotationFrom(const CameraExtrinsics& other) const {
         return R_.t() * other.R_;
     }
 
-private:
+  private:
     cv::Matx33d R_;
     cv::Vec3d t_;
 };

@@ -21,42 +21,26 @@
 
 namespace avm_stitch {
 
-enum class RenderMode { Offscreen, Windowed };
-
-
-struct ClipPlanes {
-    double near;
-    double far;
-};
-
-inline ClipPlanes ComputeClipPlanes(double scene_radius, double max_eye_to_target) {
-    constexpr double kFarMargin = 5.3553572528096565;
-    constexpr double kNearRel = 0.01;
-    const double far = kFarMargin * (max_eye_to_target + scene_radius);
-    const double near = std::clamp(scene_radius * kNearRel, 1.0e-3, far / 1000.0);
-    return {near, far};
-}
+enum class RenderMode { Offscreen,
+                        Windowed };
 
 class OSGViewRenderer {
-public:
+  public:
     OSGViewRenderer(const StitchScene& scene,
-                    double scene_radius,
-                    const std::vector<ViewPose>& view_poses,
+                    const BowlParams& bowl,
                     int output_width, int output_height,
-                    RenderMode mode = RenderMode::Offscreen,
-                    const cv::Vec2d& car_center = cv::Vec2d(0.0, 0.0));
+                    RenderMode mode = RenderMode::Offscreen);
     ~OSGViewRenderer() = default;
     OSGViewRenderer(const OSGViewRenderer&) = delete;
     OSGViewRenderer& operator=(const OSGViewRenderer&) = delete;
 
-            std::map<std::string, cv::Mat> RenderAllViews();
+    std::map<std::string, cv::Mat> RenderAllViews();
 
-            void WaitForWindowClose();
+    void WaitForWindowClose();
 
-private:
+  private:
     void SetupWindowed(osg::ref_ptr<osg::Group> root);
-    void SetupOffscreenCameras(const StitchScene& scene,
-                               const std::vector<ViewPose>& view_poses);
+    void SetupOffscreenCameras(const StitchScene& scene);
     void EnsureRealized();
 
     osg::ref_ptr<osgViewer::Viewer> viewer_;
@@ -67,8 +51,7 @@ private:
     int output_height_ = 640;
     bool realized_ = false;
     RenderMode mode_ = RenderMode::Offscreen;
-    double scene_radius_ = 0.0;
-    cv::Vec2d car_center_{0.0, 0.0};
+    BowlParams bowl_;
 };
 
 }

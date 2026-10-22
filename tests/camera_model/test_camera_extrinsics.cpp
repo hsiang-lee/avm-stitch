@@ -10,10 +10,10 @@
 using namespace avm_stitch;
 
 TEST(CameraExtrinsicsTest, ToCamera_MatchesHandComputedRtPmT) {
-            const double s = 0.5, c = std::sqrt(3.0) / 2.0;
+    const double s = 0.5, c = std::sqrt(3.0) / 2.0;
     const cv::Matx33d R(c, 0, s,
                         0, 1, 0,
-                       -s, 0, c);
+                        -s, 0, c);
     const cv::Vec3d t(1.0, 2.0, -3.0);
     CameraExtrinsics extr{R, t};
 
@@ -26,10 +26,10 @@ TEST(CameraExtrinsicsTest, ToCamera_MatchesHandComputedRtPmT) {
 }
 
 TEST(CameraExtrinsicsTest, ToWorldRoundTripsToCamera) {
-            const double s = 0.5, c = std::sqrt(3.0) / 2.0;
+    const double s = 0.5, c = std::sqrt(3.0) / 2.0;
     const cv::Matx33d R(c, 0, s,
                         0, 1, 0,
-                       -s, 0, c);
+                        -s, 0, c);
     const cv::Vec3d t(1.0, -2.0, 3.0);
     CameraExtrinsics extr{R, t};
 
@@ -44,7 +44,7 @@ TEST(CameraExtrinsicsTest, ToWorld_MatchesHandComputedRPtT) {
     const double s = 0.5, c = std::sqrt(3.0) / 2.0;
     const cv::Matx33d R(c, 0, s,
                         0, 1, 0,
-                       -s, 0, c);
+                        -s, 0, c);
     const cv::Vec3d t(1.0, -2.0, 3.0);
     CameraExtrinsics extr{R, t};
 
@@ -60,7 +60,7 @@ TEST(CameraExtrinsicsTest, RotateWorldToCamera_MatchesHandComputedRtV) {
     const double s = 0.5, c = std::sqrt(3.0) / 2.0;
     const cv::Matx33d R(c, 0, s,
                         0, 1, 0,
-                       -s, 0, c);
+                        -s, 0, c);
     CameraExtrinsics extr{R, cv::Vec3d(0, 0, 0)};
 
     const cv::Vec3d v(0.5, -0.25, 0.75);
@@ -75,7 +75,7 @@ TEST(CameraExtrinsicsTest, RotateCameraToWorld_MatchesHandComputedRv) {
     const double s = 0.5, c = std::sqrt(3.0) / 2.0;
     const cv::Matx33d R(c, 0, s,
                         0, 1, 0,
-                       -s, 0, c);
+                        -s, 0, c);
     CameraExtrinsics extr{R, cv::Vec3d(0, 0, 0)};
 
     const cv::Vec3d v(0.5, -0.25, 0.75);
@@ -90,7 +90,7 @@ TEST(CameraExtrinsicsTest, Position_MatchesTVector) {
     const double s = 0.5, c = std::sqrt(3.0) / 2.0;
     const cv::Matx33d R(c, 0, s,
                         0, 1, 0,
-                       -s, 0, c);
+                        -s, 0, c);
     const cv::Vec3d t(1.0, 2.0, -3.0);
     CameraExtrinsics extr{R, t};
 
@@ -100,7 +100,7 @@ TEST(CameraExtrinsicsTest, Position_MatchesTVector) {
 }
 
 TEST(CameraExtrinsicsTest, DefaultConstructor_IsIdentity) {
-            CameraExtrinsics extr;
+    CameraExtrinsics extr;
     const cv::Vec3d P(1.0, 2.0, 3.0);
     const cv::Vec3d out = extr.ToCamera(P);
     EXPECT_DOUBLE_EQ(P[0], out[0]);
@@ -112,12 +112,13 @@ TEST(CameraExtrinsicsTest, DefaultConstructor_IsIdentity) {
 }
 
 TEST(CameraExtrinsicsTest, RelativeRotationFrom_MatchesHandComputedRbTRa) {
-            const double sa = 0.5, ca = std::sqrt(3.0) / 2.0;
-    const double sb = -0.3, cb = std::sqrt(0.91);       const cv::Matx33d Ra(ca, 0, sa,
+    const double sa = 0.5, ca = std::sqrt(3.0) / 2.0;
+    const double sb = -0.3, cb = std::sqrt(0.91);
+    const cv::Matx33d Ra(ca, 0, sa,
                          0, 1, 0,
                          -sa, 0, ca);
     const cv::Matx33d Rb(cb, sb, 0,
-                        -sb, cb, 0,
+                         -sb, cb, 0,
                          0, 0, 1);
     const cv::Vec3d ta(1.0, 0.0, 0.0);
     const cv::Vec3d tb(2.0, 1.0, 0.5);
@@ -132,13 +133,13 @@ TEST(CameraExtrinsicsTest, RelativeRotationFrom_MatchesHandComputedRbTRa) {
 }
 
 TEST(CameraExtrinsicsTest, ToCamera_OfOtherPosition_MatchesHandComputedTAb) {
-            const double sa = 0.5, ca = std::sqrt(3.0) / 2.0;
+    const double sa = 0.5, ca = std::sqrt(3.0) / 2.0;
     const double sb = -0.3, cb = std::sqrt(0.91);
     const cv::Matx33d Ra(ca, 0, sa,
                          0, 1, 0,
                          -sa, 0, ca);
     const cv::Matx33d Rb(cb, sb, 0,
-                        -sb, cb, 0,
+                         -sb, cb, 0,
                          0, 0, 1);
     const cv::Vec3d ta(1.0, 0.0, 0.0);
     const cv::Vec3d tb(2.0, 1.0, 0.5);

@@ -1,6 +1,5 @@
 #pragma once
 
-
 #include "render/egl_headless_context.hpp"
 
 #include <gtest/gtest.h>
@@ -12,7 +11,7 @@
 namespace avm_stitch::test {
 
 class OSGGLTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         if (!IsGLContextAvailable()) {
             GTEST_SKIP() << "OpenGL context not available (set AVM_STITCH_TEST_GL=1 to force)";
@@ -26,10 +25,12 @@ protected:
 
     static bool DetectGLContext() {
         const char* env = std::getenv("AVM_STITCH_TEST_GL");
-        if (env) return std::atoi(env) == 1;
-                        try {
+        if (env)
+            return std::atoi(env) == 1;
+        try {
             auto gc = CreateEGLHeadlessContext(1, 1);
-            if (!gc->realizeImplementation()) return false;
+            if (!gc->realizeImplementation())
+                return false;
             bool ok = gc->valid() && gc->makeCurrentImplementation();
             if (ok) {
                 const char* ver =

@@ -1,8 +1,8 @@
 #include "core/stitch_engine.hpp"
 
 #include "bowl_model/blend_weights.hpp"
-#include "render/stitch_scene.hpp"
 #include "render/osg_view_renderer.hpp"
+#include "render/stitch_scene.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -26,7 +26,7 @@ void ValidateConfigureArgs(const std::vector<Camera>& cameras,
                 " has no model (Camera.model is null)");
         }
     }
-            for (int i = 1; i < N; ++i) {
+    for (int i = 1; i < N; ++i) {
         if (cameras[i].Width() != cameras[0].Width() ||
             cameras[i].Height() != cameras[0].Height()) {
             throw std::invalid_argument(
@@ -37,29 +37,30 @@ void ValidateConfigureArgs(const std::vector<Camera>& cameras,
                 std::to_string(cameras[i].Height()));
         }
     }
-            if (bowl_params.step() <= 0.0) {
+    if (bowl_params.GridStep() <= 0.0) {
         throw std::invalid_argument(
-            "StitchEngine::Configure: bowl_params.step must be > 0, got " +
-            std::to_string(bowl_params.step()));
+            "StitchEngine::Configure: bowl_params.GridStep must be > 0, got " +
+            std::to_string(bowl_params.GridStep()));
     }
-    if (bowl_params.r_outter() <= 0.0) {
+    if (bowl_params.OuterRadius() <= 0.0) {
         throw std::invalid_argument(
-            "StitchEngine::Configure: bowl_params.r_outter must be > 0, got " +
-            std::to_string(bowl_params.r_outter()));
+            "StitchEngine::Configure: bowl_params.OuterRadius must be > 0, got " +
+            std::to_string(bowl_params.OuterRadius()));
     }
-    if (bowl_params.k_slop() < 0.0) {
+    if (bowl_params.SlopeCoefficient() < 0.0) {
         throw std::invalid_argument(
-            "StitchEngine::Configure: bowl_params.k_slop must be >= 0, got " +
-            std::to_string(bowl_params.k_slop()));
+            "StitchEngine::Configure: bowl_params.SlopeCoefficient must be >= 0, got " +
+            std::to_string(bowl_params.SlopeCoefficient()));
     }
-    if (bowl_params.z_exp() < 0.0) {
+    if (bowl_params.HeightExponent() < 0.0) {
         throw std::invalid_argument(
-            "StitchEngine::Configure: bowl_params.z_exp must be >= 0, got " +
-            std::to_string(bowl_params.z_exp()));
+            "StitchEngine::Configure: bowl_params.HeightExponent must be >= 0, got " +
+            std::to_string(bowl_params.HeightExponent()));
     }
 }
 
 }
+
 StitchEngine::StitchEngine() = default;
 
 StitchEngine::~StitchEngine() = default;
@@ -76,10 +77,7 @@ void StitchEngine::Configure(std::vector<Camera> cameras,
     scene_ = std::make_unique<StitchScene>(model, img_w, img_h);
 
     renderer_ = std::make_unique<OSGViewRenderer>(
-        *scene_, bowl_params.r_outter(),
-        bowl_params.DefaultViewPoses(),
-        output_width, output_height, RenderMode::Offscreen,
-        bowl_params.car_center());
+        *scene_, bowl_params, output_width, output_height, RenderMode::Offscreen);
 
     configured_ = true;
 }
@@ -89,7 +87,7 @@ std::map<std::string, cv::Mat> StitchEngine::RenderFrame(
     if (!configured_) {
         throw std::runtime_error("StitchEngine::RenderFrame called before Configure()");
     }
-            const int expected = scene_->num_cameras();
+    const int expected = scene_->num_cameras();
     if (images.size() != static_cast<size_t>(expected)) {
         throw std::invalid_argument(
             "StitchEngine::RenderFrame: expected " + std::to_string(expected) +
@@ -103,6 +101,6 @@ std::map<std::string, cv::Mat> StitchEngine::RenderFrame(
 bool StitchEngine::IsConfigured() const { return configured_; }
 
 int StitchEngine::GetNumCameras() const {
-    return scene_ ? scene_->num_cameras() : 0;   }
-
+    return scene_ ? scene_->num_cameras() : 0;
+}
 }

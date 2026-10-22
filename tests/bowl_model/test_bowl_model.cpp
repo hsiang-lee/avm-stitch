@@ -2,8 +2,8 @@
 
 #include "bowl_model/bowl_model.hpp"
 #include "camera_model/camera.hpp"
-#include "camera_model/kb_camera_model.hpp"
 #include "camera_model/camera_extrinsics.hpp"
+#include "camera_model/kb_camera_model.hpp"
 
 #include "test_support/stitch_test_helpers.hpp"
 
@@ -29,11 +29,11 @@ using avm_stitch::test::WrapKbCameras;
 
 namespace {
 
-size_t CountFlatVertices(const BowlModel& model, double x_half, double y_half) {
+size_t CountFlatVertices(const BowlModel& model, double flat_x, double flat_y) {
     size_t count = 0;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
-        if (std::abs(v[0]) < x_half - 1e-9 && std::abs(v[1]) < y_half - 1e-9) {
+        if (std::abs(v[0]) < flat_x - 1e-9 && std::abs(v[1]) < flat_y - 1e-9) {
             count++;
         }
     }
@@ -44,21 +44,21 @@ bool IsVertexVisibleToCamera(const cv::Vec3d& P, const KbParams& intr,
                              const CameraExtrinsics& extr) {
     const KbCameraModel rep{intr};
     const cv::Vec2d uv = rep.ProjectCameraPoint(extr.ToCamera(P));
-    return uv[0] >= 0.0 && uv[0] < rep.width()
-           && uv[1] >= 0.0 && uv[1] < rep.height()
-           && rep.InsideFisheyeCircle(uv[0], uv[1]);
+    return uv[0] >= 0.0 && uv[0] < rep.width() && uv[1] >= 0.0 && uv[1] < rep.height() && rep.InsideFisheyeCircle(uv[0], uv[1]);
 }
 
 bool IsVertexBakedVisible(const cv::Vec3d& P, const KbParams& intr,
                           const CameraExtrinsics& extr) {
     const KbCameraModel rep{intr};
     const cv::Vec2d uv = rep.ProjectCameraPoint(extr.ToCamera(P));
-    return IsVertexVisibleToCamera(P, intr, extr)
-           && rep.EdgeFeather(uv[0], uv[1]) > 0.0;
+    return IsVertexVisibleToCamera(P, intr, extr) && rep.EdgeFeather(uv[0], uv[1]) > 0.0;
 }
 
 BowlParams CarBowlCentered() {
-    return MakeCarBowl().with_car_center(cv::Vec2d(0.0, 0.0));
+    const BowlParams derived = DeriveBowlParams(5.6, 2.2, 2.9);
+    return BowlParams(5.6, 2.2, derived.FlatPlatformRadius(), derived.GridStep(),
+                      derived.OuterRadius(), derived.SlopeCoefficient(),
+                      derived.HeightExponent(), derived.MaxHeight(), cv::Vec2d(0.0, 0.0));
 }
 
 BowlParams TallBowlParams() {
@@ -69,25 +69,28 @@ BowlParams TallBowlParams() {
 }
 
 TEST(BowlModelTest, CarCenter_FlatRegionCenteredAtCarCenter) {
-    const BowlParams params = CarBowlCentered()
-        .with_car_length(6.0)
-        .with_car_width(4.0)
-        .with_round_l(0.5)
-        .with_step(0.2)
-        .with_car_center(cv::Vec2d(1.55, 0.0));
+    const BowlParams derived = DeriveBowlParams(5.6, 2.2, 2.9);
+    const BowlParams params(6.0, 4.0, 0.5, 0.2,
+                            derived.OuterRadius(), derived.SlopeCoefficient(),
+                            derived.HeightExponent(), derived.MaxHeight(),
+                            cv::Vec2d(1.55, 0.0));
+    const double flat_x = 6.0 / 2.0 + 0.5;
+    const double flat_y = 4.0 / 2.0 + 0.5;
 
     const BowlModel model(params, MakeDefaultKbCameras());
 
     int left_count = 0, right_count = 0;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
-        if (v[2] > 1e-9) continue;
-        double rel_x = v[0] - params.car_center()[0];
-        double rel_y = v[1] - params.car_center()[1];
-        if (std::abs(rel_x) < params.x_half() - 0.1 &&
-            std::abs(rel_y) < params.y_half() - 0.1) {
-            if (rel_x < -0.01) left_count++;
-            else if (rel_x > 0.01) right_count++;
+        if (v[2] > 1e-9)
+            continue;
+        double rel_x = v[0] - params.CarCenter()[0];
+        double rel_y = v[1] - params.CarCenter()[1];
+        if (std::abs(rel_x) < flat_x - 0.1 && std::abs(rel_y) < flat_y - 0.1) {
+            if (rel_x < -0.01)
+                left_count++;
+            else if (rel_x > 0.01)
+                right_count++;
         }
     }
 
@@ -98,7 +101,11 @@ TEST(BowlModelTest, CarCenter_FlatRegionCenteredAtCarCenter) {
 }
 
 TEST(BowlModelTest, CarCenter_GridExtentSymmetricAboutCarCenter) {
-    const BowlParams params = CarBowlCentered().with_car_center(cv::Vec2d(1.45, 0.0));
+    const BowlParams derived = DeriveBowlParams(5.6, 2.2, 2.9);
+    const BowlParams params(5.6, 2.2, derived.FlatPlatformRadius(), derived.GridStep(),
+                            derived.OuterRadius(), derived.SlopeCoefficient(),
+                            derived.HeightExponent(), derived.MaxHeight(),
+                            cv::Vec2d(1.45, 0.0));
     const BowlModel model(params, MakeDefaultKbCameras());
     ASSERT_GT(model.vertex_count(), 0);
 
@@ -112,19 +119,20 @@ TEST(BowlModelTest, CarCenter_GridExtentSymmetricAboutCarCenter) {
     }
 
     const double cx = 1.45;
-    const double r_outter = 12.6;
+    const double outer_radius = 12.6;
     const double step = 0.2;
 
-    EXPECT_NEAR(r_outter, max_x - cx, step)
-        << "front extent (max_x - cx) should be r_outter, got " << (max_x - cx);
-    EXPECT_NEAR(r_outter, cx - min_x, step)
-        << "back extent (cx - min_x) should be r_outter, got " << (cx - min_x);
+    EXPECT_NEAR(outer_radius, max_x - cx, step)
+        << "front extent (max_x - cx) should be outer_radius, got " << (max_x - cx);
+    EXPECT_NEAR(outer_radius, cx - min_x, step)
+        << "back extent (cx - min_x) should be outer_radius, got " << (cx - min_x);
 
     double max_front_axial = 0.0, max_back_axial = 0.0;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
-        double rel_y = v[1] - params.car_center()[1];
-        if (std::abs(rel_y) > step) continue;
+        double rel_y = v[1] - params.CarCenter()[1];
+        if (std::abs(rel_y) > step)
+            continue;
         double dx = v[0] - cx;
         double dist = std::abs(dx);
         if (dx > 0) {
@@ -138,21 +146,21 @@ TEST(BowlModelTest, CarCenter_GridExtentSymmetricAboutCarCenter) {
     EXPECT_NEAR(max_front_axial, max_back_axial, step)
         << "front axial radius (" << max_front_axial
         << ") should ≈ back axial radius (" << max_back_axial << ")";
-    EXPECT_NEAR(r_outter, max_front_axial, step);
-    EXPECT_NEAR(r_outter, max_back_axial, step);
+    EXPECT_NEAR(outer_radius, max_front_axial, step);
+    EXPECT_NEAR(outer_radius, max_back_axial, step);
 }
 
 TEST(BowlModelTest, CarCenter_DefaultUnchanged) {
     const BowlParams p = CarBowlCentered();
     const BowlModel model(p, MakeDefaultKbCameras());
     ASSERT_GT(model.vertex_count(), 0);
-    const double r_outter = p.r_outter();
+    const double outer_radius = p.OuterRadius();
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
-        EXPECT_GE(v[0], -r_outter - 1e-9);
-        EXPECT_LE(v[0], r_outter + 1e-9);
-        EXPECT_GE(v[1], -r_outter - 1e-9);
-        EXPECT_LE(v[1], r_outter + 1e-9);
+        EXPECT_GE(v[0], -outer_radius - 1e-9);
+        EXPECT_LE(v[0], outer_radius + 1e-9);
+        EXPECT_GE(v[1], -outer_radius - 1e-9);
+        EXPECT_LE(v[1], outer_radius + 1e-9);
     }
 }
 
@@ -177,8 +185,8 @@ TEST(BowlModelTest, GridSizeMatchesParams) {
              xs.end());
     ASSERT_GE(xs.size(), 2u);
     EXPECT_EQ(127, static_cast<int>(xs.size()));
-    EXPECT_NEAR(p.step(), xs[1] - xs[0], 1e-9);
-    EXPECT_NEAR(2.0 * p.r_outter(), xs.back() - xs.front(), 1e-9);
+    EXPECT_NEAR(p.GridStep(), xs[1] - xs[0], 1e-9);
+    EXPECT_NEAR(2.0 * p.OuterRadius(), xs.back() - xs.front(), 1e-9);
 }
 
 TEST(BowlModelTest, VerticesInXyBounds) {
@@ -200,24 +208,22 @@ TEST(BowlModelTest, VerticesZInRange) {
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
         EXPECT_GE(v[2], 0.0);
-        EXPECT_LE(v[2], p.max_z() + 1e-9);
+        EXPECT_LE(v[2], p.MaxHeight() + 1e-9);
     }
 }
 
 TEST(BowlModelTest, FlatCenterRegion) {
-    const BowlParams params = CarBowlCentered()
-        .with_car_length(2.0)
-        .with_car_width(1.0)
-        .with_round_l(0.5)
-        .with_step(0.2)
-        .with_r_outter(12.6);
-    const double x_half = params.x_half();
-    const double y_half = params.y_half();
+    const BowlParams derived = DeriveBowlParams(5.6, 2.2, 2.9);
+    const BowlParams params(2.0, 1.0, 0.5, 0.2, 12.6,
+                            derived.SlopeCoefficient(), derived.HeightExponent(), derived.MaxHeight(),
+                            cv::Vec2d(0.0, 0.0));
+    const double flat_x = 2.0 / 2.0 + 0.5;
+    const double flat_y = 1.0 / 2.0 + 0.5;
     const BowlModel model(params, MakeDefaultKbCameras());
     bool found_flat = false;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
-        if (std::abs(v[0]) < x_half - 1e-9 && std::abs(v[1]) < y_half - 1e-9) {
+        if (std::abs(v[0]) < flat_x - 1e-9 && std::abs(v[1]) < flat_y - 1e-9) {
             found_flat = true;
             EXPECT_DOUBLE_EQ(0.0, v[2]);
         }
@@ -234,14 +240,14 @@ TEST(BowlModelTest, EdgesMonotonic) {
     rd_z.reserve(model.vertex_count());
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
-        double rd = params.rd(v[0], v[1]);
+        double rd = params.DistanceFromFlatPlatform(v[0], v[1]);
         rd_z.push_back({rd, v[2]});
     }
     std::sort(rd_z.begin(), rd_z.end());
 
     for (size_t i = 1; i < rd_z.size(); ++i) {
-        if (rd_z[i].first > rd_z[i-1].first + 1e-12) {
-            EXPECT_GE(rd_z[i].second, rd_z[i-1].second - 1e-9)
+        if (rd_z[i].first > rd_z[i - 1].first + 1e-12) {
+            EXPECT_GE(rd_z[i].second, rd_z[i - 1].second - 1e-9)
                 << "z not monotonic at rd " << rd_z[i].first;
         }
     }
@@ -258,19 +264,17 @@ TEST(BowlModelTest, NormalsAreUnitLength) {
 }
 
 TEST(BowlModelTest, FlatCenterNormalsUpward) {
-    const BowlParams params = CarBowlCentered()
-        .with_car_length(2.0)
-        .with_car_width(1.0)
-        .with_round_l(0.5)
-        .with_step(0.2)
-        .with_r_outter(12.6);
-    double x_half = 1.5;
-    double y_half = 1.0;
+    const BowlParams derived = DeriveBowlParams(5.6, 2.2, 2.9);
+    const BowlParams params(2.0, 1.0, 0.5, 0.2, 12.6,
+                            derived.SlopeCoefficient(), derived.HeightExponent(), derived.MaxHeight(),
+                            cv::Vec2d(0.0, 0.0));
+    double flat_x = 2.0 / 2.0 + 0.5;
+    double flat_y = 1.0 / 2.0 + 0.5;
     const BowlModel model(params, MakeDefaultKbCameras());
     bool found_flat = false;
     for (int k = 0; k < model.vertex_count(); ++k) {
         const cv::Vec3d& v = model.vertex(k);
-        if (std::abs(v[0]) < x_half - 1e-9 && std::abs(v[1]) < y_half - 1e-9) {
+        if (std::abs(v[0]) < flat_x - 1e-9 && std::abs(v[1]) < flat_y - 1e-9) {
             found_flat = true;
             const cv::Vec3d& n = model.normal(k);
             EXPECT_NEAR(0.0, n[0], 1e-6);
@@ -293,15 +297,18 @@ TEST(BowlModelTest, TrianglesHaveValidIndices) {
 }
 
 TEST(BowlModelTest, DifferentCarSizeChangesFlatRegion) {
-    const BowlParams truck_params = CarBowlCentered()
-        .with_car_length(18.0)
-        .with_car_width(2.5)
-        .with_step(0.5);
+    const BowlParams derived = DeriveBowlParams(5.6, 2.2, 2.9);
+    const BowlParams truck_params(18.0, 2.5, derived.FlatPlatformRadius(), 0.5,
+                                  derived.OuterRadius(), derived.SlopeCoefficient(),
+                                  derived.HeightExponent(), derived.MaxHeight(),
+                                  cv::Vec2d(0.0, 0.0));
     const BowlModel truck_model(truck_params, MakeDefaultKbCameras());
     EXPECT_GT(truck_model.vertex_count(), 0);
 
-    const BowlParams default_params = CarBowlCentered()
-        .with_step(0.5);
+    const BowlParams default_params(5.6, 2.2, derived.FlatPlatformRadius(), 0.5,
+                                    derived.OuterRadius(), derived.SlopeCoefficient(),
+                                    derived.HeightExponent(), derived.MaxHeight(),
+                                    cv::Vec2d(0.0, 0.0));
     const BowlModel default_model(default_params, MakeDefaultKbCameras());
 
     size_t truck_flat = CountFlatVertices(truck_model, 18.0 / 2.0 + 2.0, 2.5 / 2.0 + 2.0);
@@ -310,7 +317,7 @@ TEST(BowlModelTest, DifferentCarSizeChangesFlatRegion) {
 }
 
 TEST(BowlModelTest, MinimalParams_OneCellMesh) {
-    const BowlParams params = BowlParams().with_step(12.6).with_r_outter(12.6);
+    const BowlParams params(0.0, 0.0, 0.0, 12.6, 12.6, 0.0, 0.0, 0.0);
     const BowlModel model(params, MakeDefaultKbCameras());
     EXPECT_GT(model.vertex_count(), 0);
     for (int t = 0; t < model.triangle_count(); ++t) {
@@ -330,7 +337,8 @@ TEST(BowlModelTest, BakeVertices_OneBakedPerMeshVertex) {
     int seen_visible = 0;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const BowlModel::BakedVertex& bv = model.baked_vertex(i);
-        if (bv.weight[0] > 1e-9f) ++seen_visible;
+        if (bv.weight[0] > 1e-9f)
+            ++seen_visible;
         EXPECT_GE(bv.uv[0][0], 0.0f);
         EXPECT_LE(bv.uv[0][0], 1.0f);
         EXPECT_GE(bv.uv[0][1], 0.0f);
@@ -350,7 +358,8 @@ TEST(BowlModelBakeTest, SingleCamera_UVMatchesProjection) {
     int checked = 0;
     const KbCameraModel rep{intr};
     for (int i = 0; i < model.vertex_count(); ++i) {
-        if (!IsVertexVisibleToCamera(model.vertex(i), intr, extr)) continue;
+        if (!IsVertexVisibleToCamera(model.vertex(i), intr, extr))
+            continue;
         ++checked;
         const cv::Vec2d uv = rep.ProjectCameraPoint(extr.ToCamera(model.vertex(i)));
         EXPECT_NEAR(model.baked_vertex(i).uv[0][0], uv[0] / rep.width(), 1e-6);
@@ -366,7 +375,8 @@ TEST_P(BowlModelBakeParamTest, BakedSlots_MatchCameraCount) {
     const int n = GetParam();
     std::vector<double> azimuths;
     azimuths.reserve(static_cast<size_t>(n));
-    for (int i = 0; i < n; ++i) azimuths.push_back(i * 360.0 / n);
+    for (int i = 0; i < n; ++i)
+        azimuths.push_back(i * 360.0 / n);
 
     auto intrs = std::vector<KbParams>(n, MakeRealIntrinsics());
     auto extrs = MakeSideCameras(azimuths);
@@ -394,7 +404,8 @@ TEST_P(BowlModelBakeParamTest, BakedSlots_MatchCameraCount) {
             ++visible_vertices;
             EXPECT_NEAR(1.0, sum, 1e-6);
         }
-        if (bv.weight[n - 1] > 0.0f) last_slot_used = true;
+        if (bv.weight[n - 1] > 0.0f)
+            last_slot_used = true;
     }
     EXPECT_GT(visible_vertices, 0);
     EXPECT_TRUE(last_slot_used);
@@ -427,7 +438,8 @@ TEST(BowlModelBakeTest, N4_WeightsSumToOne_WhenVisible) {
     for (int i = 0; i < model.vertex_count(); ++i) {
         const BowlModel::BakedVertex& bv = model.baked_vertex(i);
         double sum = 0.0;
-        for (int j = 0; j < 4; ++j) sum += bv.weight[j];
+        for (int j = 0; j < 4; ++j)
+            sum += bv.weight[j];
         if (sum > 1e-9) {
             ++visible_vertices;
             EXPECT_NEAR(1.0, sum, 1e-6);
@@ -460,7 +472,8 @@ TEST(BowlModelBakeTest, N4_InvisibleCameraHasZeroWeight) {
     bool found_invisible_pair = false;
     bool found_flat_vertex = false;
     for (int i = 0; i < model.vertex_count(); ++i) {
-        if (model.vertex(i)[2] == 0.0) found_flat_vertex = true;
+        if (model.vertex(i)[2] == 0.0)
+            found_flat_vertex = true;
         for (int j = 0; j < 4; ++j) {
             if (!IsVertexVisibleToCamera(model.vertex(i), intrs[j], extrs[j])) {
                 found_invisible_pair = true;
@@ -482,9 +495,12 @@ TEST(BowlModelBakeTest, N4_AllVerticesHaveAtLeastOneVisible) {
     for (int i = 0; i < model.vertex_count(); ++i) {
         const BowlModel::BakedVertex& bv = model.baked_vertex(i);
         double sum = 0.0;
-        for (int j = 0; j < 4; ++j) sum += bv.weight[j];
-        if (sum > 1e-9) ++visible_vertices;
-        else ++invisible_vertices;
+        for (int j = 0; j < 4; ++j)
+            sum += bv.weight[j];
+        if (sum > 1e-9)
+            ++visible_vertices;
+        else
+            ++invisible_vertices;
     }
     EXPECT_GT(visible_vertices, 0);
     EXPECT_GT(invisible_vertices, 0);
@@ -503,8 +519,7 @@ TEST(BowlModelBakeTest, PointInRectButOutsideFisheyeCircle_Invisible) {
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& P = model.vertex(i);
         const cv::Vec2d uv = rep.ProjectCameraPoint(extr.ToCamera(P));
-        if (!(uv[0] >= 0.0 && uv[0] < rep.width()
-              && uv[1] >= 0.0 && uv[1] < rep.height())) {
+        if (!(uv[0] >= 0.0 && uv[0] < rep.width() && uv[1] >= 0.0 && uv[1] < rep.height())) {
             continue;
         }
         const double r_px = std::hypot(uv[0] - rep.Cx(), uv[1] - rep.Cy());
@@ -577,11 +592,10 @@ TEST(BowlModelBakeTest, EdgeGate_UnsafeCameraZero_SafeCameraGetsFullWeight) {
     for (int i = 0; i < scan.vertex_count(); ++i) {
         const cv::Vec3d& P = scan.vertex(i);
         const cv::Vec2d uv = rep.ProjectCameraPoint(cam0.ToCamera(P));
-        if (!(uv[0] >= 0.0 && uv[0] < rep.width()
-              && uv[1] >= 0.0 && uv[1] < rep.height())) continue;
+        if (!(uv[0] >= 0.0 && uv[0] < rep.width() && uv[1] >= 0.0 && uv[1] < rep.height()))
+            continue;
         const double r_px = std::hypot(uv[0] - rep.Cx(), uv[1] - rep.Cy());
-        if (rep.InsideFisheyeCircle(uv[0], uv[1])
-            && rep.FisheyeCircleRadius() - r_px < 40.0) {
+        if (rep.InsideFisheyeCircle(uv[0], uv[1]) && rep.FisheyeCircleRadius() - r_px < 40.0) {
             target = i;
             break;
         }
@@ -610,16 +624,18 @@ TEST(BowlModelBakeTest, CarCenter_ShiftsBlendWeightDistribution) {
     auto cams = WrapKbCameras(intrs, extrs);
 
     const BowlParams base = MakeCoarseBowlParams(12.6);
-    const BowlParams shifted = base.with_car_center(cv::Vec2d(3.0, 0.0));
+    const BowlParams shifted(5.6, 2.2, base.FlatPlatformRadius(), 1.0, 12.6,
+                             base.SlopeCoefficient(), base.HeightExponent(), base.MaxHeight(),
+                             cv::Vec2d(3.0, 0.0));
     const BowlModel def(base, cams);
     const BowlModel sh(shifted, cams);
 
     auto find_world_diag = [&](const BowlModel& m) {
         for (int i = 0; i < m.vertex_count(); ++i) {
             const cv::Vec3d& P = m.vertex(i);
-            if (!(P[0] > 3.0 && P[1] > 3.0 && std::abs(P[0] - P[1]) < 1.0)) continue;
-            if (IsVertexVisibleToCamera(P, intrs[0], extrs[0])
-                && IsVertexVisibleToCamera(P, intrs[1], extrs[1])) {
+            if (!(P[0] > 3.0 && P[1] > 3.0 && std::abs(P[0] - P[1]) < 1.0))
+                continue;
+            if (IsVertexVisibleToCamera(P, intrs[0], extrs[0]) && IsVertexVisibleToCamera(P, intrs[1], extrs[1])) {
                 return i;
             }
         }
@@ -631,7 +647,8 @@ TEST(BowlModelBakeTest, CarCenter_ShiftsBlendWeightDistribution) {
 
     const BowlModel::BakedVertex& bv_def = def.baked_vertex(di_def);
     double sum_def = 0.0;
-    for (int j = 0; j < 4; ++j) sum_def += bv_def.weight[j];
+    for (int j = 0; j < 4; ++j)
+        sum_def += bv_def.weight[j];
     EXPECT_GT(bv_def.weight[0], 0.4);
     EXPECT_GT(bv_def.weight[1], 0.4);
     EXPECT_NEAR(1.0, sum_def, 1e-6);
@@ -641,7 +658,8 @@ TEST(BowlModelBakeTest, CarCenter_ShiftsBlendWeightDistribution) {
 
     const BowlModel::BakedVertex& bv_sh = sh.baked_vertex(di_sh);
     double sum_sh = 0.0;
-    for (int j = 0; j < 4; ++j) sum_sh += bv_sh.weight[j];
+    for (int j = 0; j < 4; ++j)
+        sum_sh += bv_sh.weight[j];
     EXPECT_GT(bv_sh.weight[1], bv_sh.weight[0]);
     EXPECT_NEAR(1.0, sum_sh, 1e-6);
 }
@@ -665,8 +683,7 @@ TEST(BowlModelBakeTest, D3_FallbackNormalization_OwnerInvisibleNeighborVisible) 
     int target = -1;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& P = model.vertex(i);
-        if (!IsVertexVisibleToCamera(P, intr, cam0)
-            && IsVertexBakedVisible(P, intr, cam1)) {
+        if (!IsVertexVisibleToCamera(P, intr, cam0) && IsVertexBakedVisible(P, intr, cam1)) {
             target = i;
             break;
         }
@@ -690,7 +707,8 @@ TEST(BowlModelBakeTest, BelowCameraVertexStillGetsWeight) {
     int target = -1;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& P = model.vertex(i);
-        if (P[2] >= 5.0) continue;
+        if (P[2] >= 5.0)
+            continue;
         const cv::Vec3d P_cam = extr.ToCamera(P);
         const double r_xy = std::hypot(P_cam[0], P_cam[1]);
         if (r_xy < kEps && IsVertexVisibleToCamera(P, intr, extr)) {
@@ -715,11 +733,10 @@ TEST(BowlModelBakeTest, EdgeGate_AllCamerasUnsafe_ZeroWeight) {
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& P = model.vertex(i);
         const cv::Vec2d uv = rep.ProjectCameraPoint(cam.ToCamera(P));
-        if (!(uv[0] >= 0.0 && uv[0] < rep.width()
-              && uv[1] >= 0.0 && uv[1] < rep.height())) continue;
+        if (!(uv[0] >= 0.0 && uv[0] < rep.width() && uv[1] >= 0.0 && uv[1] < rep.height()))
+            continue;
         const double r_px = std::hypot(uv[0] - rep.Cx(), uv[1] - rep.Cy());
-        if (rep.InsideFisheyeCircle(uv[0], uv[1])
-            && rep.FisheyeCircleRadius() - r_px < 40.0) {
+        if (rep.InsideFisheyeCircle(uv[0], uv[1]) && rep.FisheyeCircleRadius() - r_px < 40.0) {
             target = i;
             break;
         }

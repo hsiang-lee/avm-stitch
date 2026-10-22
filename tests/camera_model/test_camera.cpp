@@ -2,8 +2,8 @@
 #include <gtest/gtest.h>
 
 #include "camera_model/camera.hpp"
-#include "camera_model/kb_camera_model.hpp"
 #include "camera_model/camera_extrinsics.hpp"
+#include "camera_model/kb_camera_model.hpp"
 
 #include "test_support/geometry_test_helpers.hpp"
 

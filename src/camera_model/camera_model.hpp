@@ -20,10 +20,10 @@ namespace avm_stitch {
 constexpr double kEps = 1e-9;
 
 class CameraModel {
-public:
+  public:
     virtual ~CameraModel() = default;
 
-                        virtual void ProjectPoints(std::span<const cv::Vec3d> cam_points,
+    virtual void ProjectPoints(std::span<const cv::Vec3d> cam_points,
                                std::span<cv::Vec2d> out_uv,
                                std::span<uint8_t> out_valid) const = 0;
 
@@ -38,7 +38,7 @@ public:
     virtual double Cx() const { return cx_; }
     virtual double Cy() const { return cy_; }
 
-        // Implemented on the base directly (the retired hand-written intrinsic
+    // Implemented on the base directly (the retired hand-written intrinsic
     // model's gating methods moved verbatim), seeded once in the ctor from
     // the subclass-
     // provided geometry + raw fisheye_radius (0 = auto inscribed circle). The
@@ -50,14 +50,14 @@ public:
     bool InsideFisheyeCircle(double u, double v) const;
     double EdgeFeather(double u, double v, double feather_px = 40.0) const;
 
-protected:
+  protected:
     // fisheye_radius: raw configured effective-circle radius for the gating
-        CameraModel(int width, int height, double cx, double cy,
+    CameraModel(int width, int height, double cx, double cy,
                 double fisheye_radius = 0.0);
 
-            uint8_t RectContains(double u, double v) const;
+    uint8_t RectContains(double u, double v) const;
 
-            static void RequireEqualLengths(std::span<const cv::Vec3d> cam_points,
+    static void RequireEqualLengths(std::span<const cv::Vec3d> cam_points,
                                     std::span<cv::Vec2d> out_uv,
                                     std::span<uint8_t> out_valid);
 
@@ -66,7 +66,7 @@ protected:
     double cx_;
     double cy_;
 
-private:
+  private:
     // Raw configured effective-circle radius (0 = auto inscribed circle).
     // The gating formulas are the base's own implementations (moved verbatim
     // from the retired hand-written intrinsic model); no per-frame reassembly.
@@ -90,12 +90,16 @@ struct KbParams {
     double k4 = 0.0;
     double fisheye_radius = 0.0;
 };
-struct LutParams  {
-    std::vector<std::array<double, 2>> points;      double pixel_size_mm = 0.003;                   int width = 0, height = 0;
+struct LutParams {
+    std::vector<std::array<double, 2>> points;
+    double pixel_size_mm = 0.003;
+    int width = 0, height = 0;
     double cx = 0.0, cy = 0.0;
 };
 struct OcamParams {
-    std::vector<double> pol;                        std::vector<double> invpol;                     double cx = 0.0, cy = 0.0;
+    std::vector<double> pol;
+    std::vector<double> invpol;
+    double cx = 0.0, cy = 0.0;
     double c = 1.0, d = 0.0, e = 0.0;
     int width = 0, height = 0;
 };

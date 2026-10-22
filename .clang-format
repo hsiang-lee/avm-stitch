@@ -1,0 +1,12 @@
+# 项目根：.clang-format
+---
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 0
+ContinuationIndentWidth: 4
+BreakBeforeBraces: Attach
+---
+Language: Cpp
+DerivePointerAlignment: false
+PointerAlignment: Left
