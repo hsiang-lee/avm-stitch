@@ -41,6 +41,19 @@ double BlendWeightsCalculator::ComputeBlendHalfAngle(int num_cameras) {
     return 52.0 / num_cameras;
 }
 
+int BlendWeightsCalculator::NearestCameraIndex(double theta_deg) const {
+    int best = 0;
+    double best_dist = 360.0;
+    for (int j = 0; j < num_cameras_; ++j) {
+        const double d = ShortestArcDeg(theta_deg, sorted_[j].first);
+        if (d < best_dist) {
+            best_dist = d;
+            best = j;
+        }
+    }
+    return best;
+}
+
 bool BlendWeightsCalculator::TryBlend(
     int near_index, double theta_deg, double blend_half_deg,
     int best_index, std::vector<double>& weights) const {
@@ -78,15 +91,7 @@ BlendWeightsCalculator::WeightsFor(const cv::Vec3d& P_world) const {
 
     const double blend_half = ComputeBlendHalfAngle(num_cameras_);
 
-    int best = 0;
-    double best_dist = 360.0;
-    for (int j = 0; j < num_cameras_; ++j) {
-        double d = ShortestArcDeg(theta, sorted_[j].first);
-        if (d < best_dist) {
-            best_dist = d;
-            best = j;
-        }
-    }
+    const int best = NearestCameraIndex(theta);
 
     if (TryBlend((best - 1 + num_cameras_) % num_cameras_, theta, blend_half, best, weights))
         return weights;
