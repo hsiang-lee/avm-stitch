@@ -77,8 +77,7 @@ void StitchEngine::Configure(std::vector<Camera> cameras,
 
     renderer_ = std::make_unique<OSGViewRenderer>(
         *scene_, bowl_params.r_outter(),
-        DefaultViewPoses(bowl_params.car_center(),
-                         bowl_params.r_outter() / kCalibratedAnchorRoutter),
+        bowl_params.DefaultViewPoses(),
         output_width, output_height, RenderMode::Offscreen,
         bowl_params.car_center());
 

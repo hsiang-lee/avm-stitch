@@ -5,11 +5,19 @@
 #include <opencv2/core.hpp>
 
 #include <array>
+#include <string>
 #include <vector>
 
 namespace avm_stitch {
 
 enum class BowlType { BlockBoat };
+struct ViewPose {
+    std::string name;
+    cv::Vec3d position;
+    cv::Vec3d target;
+    cv::Vec3d up;
+    double fovy_deg = 60.0;
+};
 
 class BowlParams {
 public:
@@ -25,14 +33,15 @@ public:
         double round_l() const { return round_l_; }
             double k_slop() const { return k_slop_; }
     double z_exp() const { return z_exp_; }
-        double max_z() const { return max_z_; }
-        cv::Vec2d car_center() const { return car_center_; }
+    double max_z() const { return max_z_; }
+    cv::Vec2d car_center() const { return car_center_; }
 
         double x_half() const { return car_length_ / 2.0 + round_l_; }
     double y_half() const { return car_width_ / 2.0 + round_l_; }
             double rd(double x, double y) const;
                 double bowl_z(double rd) const;
     int grid_segments() const;
+    std::vector<ViewPose> DefaultViewPoses() const;
                         void GenerateBlockBoatMesh(std::vector<cv::Vec3d>& vertices,
                                std::vector<cv::Vec3d>& normals,
                                std::vector<std::array<int, 3>>& triangles) const;

@@ -4,6 +4,8 @@
 
 #include "render/stitch_scene.hpp"
 
+#include "bowl_model/bowl_params.hpp"
+
 #include <osg/Camera>
 #include <osg/Group>
 #include <osg/Image>
@@ -21,25 +23,6 @@ namespace avm_stitch {
 
 enum class RenderMode { Offscreen, Windowed };
 
-struct ViewPose {
-    std::string name;
-    cv::Vec3d position;
-    cv::Vec3d target;
-    cv::Vec3d up;
-    double fovy_deg = 60.0;
-};
-
-inline std::vector<ViewPose> DefaultViewPoses(const cv::Vec2d& car_center = cv::Vec2d(0.0, 0.0),
-                                              double scale = 1.0) {
-    const double cx = car_center[0];
-    const double cy = car_center[1];
-    const double z_ground = 0.2 * scale;       return {
-        {"3d_front", {cx + 5.8 * scale, cy, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
-        {"3d_rear",  {cx - 5.8 * scale, cy, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
-        {"3d_left",  {cx, cy + 5.8 * scale, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
-        {"3d_right", {cx, cy - 5.8 * scale, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
-    };
-}
 
 struct ClipPlanes {
     double near;

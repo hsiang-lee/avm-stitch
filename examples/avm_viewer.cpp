@@ -176,7 +176,7 @@ int main(int argc, char** argv) {
     scene.UploadCameraImages(images);
 
     OSGViewRenderer renderer(scene, bp.r_outter(),
-                             DefaultViewPoses(bp.car_center(), bp.r_outter() / kCalibratedAnchorRoutter),
+                             bp.DefaultViewPoses(),
                              960, 640, RenderMode::Windowed, bp.car_center());
 
     std::cout << "Controls:  LMB=rotate  RMB=zoom  MMB=pan\n";

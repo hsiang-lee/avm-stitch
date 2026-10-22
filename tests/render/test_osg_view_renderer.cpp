@@ -10,14 +10,20 @@
 using namespace avm_stitch;
 using avm_stitch::test::OSGGLTest;
 
+namespace {
+BowlParams BowlAtScale(double scale) {
+    return BowlParams{}.with_r_outter(kCalibratedAnchorRoutter * scale);
+}
+}
+
 
 TEST(ViewPoseTest, DefaultViewPoses_Returns4Views) {
-    auto poses = DefaultViewPoses();
+    auto poses = BowlAtScale(1.0).DefaultViewPoses();
     ASSERT_EQ(4u, poses.size());
 }
 
 TEST(ViewPoseTest, DefaultViewPoses_HasCorrectNames) {
-    auto poses = DefaultViewPoses();
+    auto poses = BowlAtScale(1.0).DefaultViewPoses();
     ASSERT_EQ(4u, poses.size());
     EXPECT_EQ("3d_front", poses[0].name);
     EXPECT_EQ("3d_rear", poses[1].name);
@@ -29,7 +35,7 @@ TEST(ViewPoseTest, DefaultViewPoses_HasCorrectNames) {
 }
 
 TEST(ViewPoseTest, DefaultViewPoses_AllFovy60) {
-    auto poses = DefaultViewPoses();
+    auto poses = BowlAtScale(1.0).DefaultViewPoses();
     ASSERT_EQ(4u, poses.size());
     for (const auto& pose : poses) {
         EXPECT_DOUBLE_EQ(60.0, pose.fovy_deg);
@@ -37,7 +43,7 @@ TEST(ViewPoseTest, DefaultViewPoses_AllFovy60) {
 }
 
 TEST(ViewPoseTest, DefaultViewPoses_AllTargetSame) {
-    auto poses = DefaultViewPoses();
+    auto poses = BowlAtScale(1.0).DefaultViewPoses();
     ASSERT_EQ(4u, poses.size());
     for (const auto& pose : poses) {
         EXPECT_NEAR(0.0, pose.target[0], 1e-9);
@@ -52,8 +58,8 @@ TEST(ViewPoseTest, DefaultViewPoses_AllTargetSame) {
 
 TEST(ViewPoseTest, DefaultViewPoses_CarCenterOffsetsAllPoses) {
         const cv::Vec2d cc(2.0, 1.0);
-    auto poses = DefaultViewPoses(cc);
-    auto ref   = DefaultViewPoses(cv::Vec2d(0.0, 0.0));
+    auto poses = BowlAtScale(1.0).with_car_center(cc).DefaultViewPoses();
+    auto ref   = BowlAtScale(1.0).DefaultViewPoses();
     ASSERT_EQ(ref.size(), poses.size());
 
     for (size_t i = 0; i < poses.size(); ++i) {
@@ -72,29 +78,8 @@ TEST(ViewPoseTest, DefaultViewPoses_CarCenterOffsetsAllPoses) {
     }
 }
 
-TEST(ViewPoseTest, DefaultViewPoses_DefaultArgUnchanged) {
-        auto default_poses = DefaultViewPoses();
-    auto explicit_poses = DefaultViewPoses(cv::Vec2d(0.0, 0.0));
-    ASSERT_EQ(default_poses.size(), explicit_poses.size());
-    for (size_t i = 0; i < default_poses.size(); ++i) {
-        SCOPED_TRACE(default_poses[i].name);
-        EXPECT_DOUBLE_EQ(default_poses[i].position[0], explicit_poses[i].position[0]);
-        EXPECT_DOUBLE_EQ(default_poses[i].position[1], explicit_poses[i].position[1]);
-        EXPECT_DOUBLE_EQ(default_poses[i].position[2], explicit_poses[i].position[2]);
-        EXPECT_DOUBLE_EQ(default_poses[i].target[0],   explicit_poses[i].target[0]);
-        EXPECT_DOUBLE_EQ(default_poses[i].target[1],   explicit_poses[i].target[1]);
-        EXPECT_DOUBLE_EQ(default_poses[i].target[2],   explicit_poses[i].target[2]);
-        EXPECT_DOUBLE_EQ(default_poses[i].up[0],       explicit_poses[i].up[0]);
-        EXPECT_DOUBLE_EQ(default_poses[i].up[1],       explicit_poses[i].up[1]);
-        EXPECT_DOUBLE_EQ(default_poses[i].up[2],       explicit_poses[i].up[2]);
-        EXPECT_DOUBLE_EQ(default_poses[i].fovy_deg,    explicit_poses[i].fovy_deg);
-        EXPECT_EQ(default_poses[i].name,               explicit_poses[i].name);
-    }
-}
-
-
 TEST(ViewPoseTest, DefaultViewPoses_ScaleOneMatchesHistoricalConstants) {
-                auto poses = DefaultViewPoses(cv::Vec2d(0.0, 0.0), 1.0);
+                auto poses = BowlAtScale(1.0).DefaultViewPoses();
     ASSERT_EQ(4u, poses.size());
     EXPECT_NEAR(5.8, std::abs(poses[0].position[0]), 1e-12);
     EXPECT_NEAR(0.0, poses[0].position[1], 1e-12);
@@ -116,8 +101,8 @@ TEST(ViewPoseTest, DefaultViewPoses_ScaleOneMatchesHistoricalConstants) {
 
 TEST(ViewPoseTest, DefaultViewPoses_ScaleMultipliesOffsetsAndHeights) {
                 const double s = 2.5;
-    auto ref = DefaultViewPoses(cv::Vec2d(0.0, 0.0), 1.0);
-    auto scaled = DefaultViewPoses(cv::Vec2d(0.0, 0.0), s);
+    auto ref = BowlAtScale(1.0).DefaultViewPoses();
+    auto scaled = BowlAtScale(s).DefaultViewPoses();
     ASSERT_EQ(ref.size(), scaled.size());
     for (size_t i = 0; i < ref.size(); ++i) {
         SCOPED_TRACE(ref[i].name);
@@ -135,12 +120,50 @@ TEST(ViewPoseTest, DefaultViewPoses_ScaleMultipliesOffsetsAndHeights) {
     }
 }
 
+TEST(ViewPoseTest, DefaultViewPoses_BowlParamsAgreesWithHandBuiltScale) {
+    const std::vector<BowlParams> shapes = {
+        DeriveBowlParams(5.6, 2.2, 2.9),
+        DeriveBowlParams(12.6, 5.0, 6.3),
+    };
+    for (const auto& bp : shapes) {
+        SCOPED_TRACE(bp.r_outter());
+        const double s = bp.r_outter() / kCalibratedAnchorRoutter;
+        auto via_bowl = bp.DefaultViewPoses();
+        const auto hand_built = [&bp, s]() -> std::vector<ViewPose> {
+            const double cx = bp.car_center()[0];
+            const double cy = bp.car_center()[1];
+            const double z_ground = 0.2 * s;
+            return {
+                {"3d_front", {cx + 5.8 * s, cy, 2.0 * s},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
+                {"3d_rear",  {cx - 5.8 * s, cy, 2.0 * s},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
+                {"3d_left",  {cx, cy + 5.8 * s, 2.0 * s},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
+                {"3d_right", {cx, cy - 5.8 * s, 2.0 * s},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
+            };
+        }();
+        ASSERT_EQ(hand_built.size(), via_bowl.size());
+        for (size_t i = 0; i < via_bowl.size(); ++i) {
+            SCOPED_TRACE(hand_built[i].name);
+            EXPECT_EQ(hand_built[i].name, via_bowl[i].name);
+            EXPECT_DOUBLE_EQ(hand_built[i].position[0], via_bowl[i].position[0]);
+            EXPECT_DOUBLE_EQ(hand_built[i].position[1], via_bowl[i].position[1]);
+            EXPECT_DOUBLE_EQ(hand_built[i].position[2], via_bowl[i].position[2]);
+            EXPECT_DOUBLE_EQ(hand_built[i].target[0], via_bowl[i].target[0]);
+            EXPECT_DOUBLE_EQ(hand_built[i].target[1], via_bowl[i].target[1]);
+            EXPECT_DOUBLE_EQ(hand_built[i].target[2], via_bowl[i].target[2]);
+            EXPECT_DOUBLE_EQ(hand_built[i].up[0], via_bowl[i].up[0]);
+            EXPECT_DOUBLE_EQ(hand_built[i].up[1], via_bowl[i].up[1]);
+            EXPECT_DOUBLE_EQ(hand_built[i].up[2], via_bowl[i].up[2]);
+            EXPECT_DOUBLE_EQ(hand_built[i].fovy_deg, via_bowl[i].fovy_deg);
+        }
+    }
+}
+
 
 namespace {
 
 double MaxEyeToTarget(double scale) {
     double max_eye = 0.0;
-    for (const auto& p : DefaultViewPoses(cv::Vec2d(0.0, 0.0), scale)) {
+    for (const auto& p : BowlAtScale(scale).DefaultViewPoses()) {
         max_eye = std::max(max_eye, cv::norm(p.position - p.target));
     }
     return max_eye;
@@ -190,7 +213,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_ConstructionDoesNotCrash) {
     ASSERT_TRUE(ts.scene->root().valid());
     ASSERT_TRUE(ts.has_visible_vertices);
     EXPECT_NO_THROW(
-        OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640));
+        OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, BowlAtScale(1.0).DefaultViewPoses(), 960, 640));
 }
 
 TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_ShipScale_NotAllBackground) {
@@ -209,7 +232,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_ShipScale_NotAllBackground) {
 
     const double scale = bp.r_outter() / kCalibratedAnchorRoutter;
     OSGViewRenderer renderer(scene, bp.r_outter(),
-                             DefaultViewPoses(bp.car_center(), scale),
+                             BowlAtScale(scale).with_car_center(bp.car_center()).DefaultViewPoses(),
                              960, 640, RenderMode::Offscreen, bp.car_center());
     auto views = renderer.RenderAllViews();
     ASSERT_EQ(4u, views.size());
@@ -226,7 +249,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_OffscreenMode_Works) {
     ASSERT_TRUE(ts.scene->root().valid());
     ASSERT_TRUE(ts.has_visible_vertices);
 
-        OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640,
+        OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, BowlAtScale(1.0).DefaultViewPoses(), 960, 640,
                              RenderMode::Offscreen);
     auto views = renderer.RenderAllViews();
     ASSERT_EQ(4u, views.size());
@@ -242,7 +265,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_WindowedMode_Constructs) {
     }
 
     EXPECT_NO_THROW(
-        OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640,
+        OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, BowlAtScale(1.0).DefaultViewPoses(), 960, 640,
                                  RenderMode::Windowed));
 }
 
@@ -257,7 +280,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_WindowedMode_Constructs_WithCarCenter) {
 
                 EXPECT_NO_THROW(
         OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter,
-                                 DefaultViewPoses(cv::Vec2d(2.0, 1.0)),
+                                 BowlAtScale(1.0).with_car_center(cv::Vec2d(2.0, 1.0)).DefaultViewPoses(),
                                  960, 640, RenderMode::Windowed,
                                  cv::Vec2d(2.0, 1.0)));
 }

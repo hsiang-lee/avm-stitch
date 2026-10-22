@@ -116,6 +116,19 @@ void BowlParams::GenerateBlockBoatMesh(std::vector<cv::Vec3d>& vertices,
     }
 }
 
+std::vector<ViewPose> BowlParams::DefaultViewPoses() const {
+    const double scale = r_outter_ / kCalibratedAnchorRoutter;
+    const double cx = car_center_[0];
+    const double cy = car_center_[1];
+    const double z_ground = 0.2 * scale;       return {
+        {"3d_front", {cx + 5.8 * scale, cy, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
+        {"3d_rear",  {cx - 5.8 * scale, cy, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
+        {"3d_left",  {cx, cy + 5.8 * scale, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
+        {"3d_right", {cx, cy - 5.8 * scale, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
+    };
+}
+
+
 BowlParams DeriveBowlParams(double car_length, double car_width, double axis_x) {
                 constexpr double kRefLength = 5.6;
     const double scale = car_length / kRefLength;
