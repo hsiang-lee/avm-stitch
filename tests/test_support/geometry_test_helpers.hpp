@@ -1,25 +1,23 @@
 #pragma once
 
-// Lightweight, OSG-free test helpers shared by the pure-geometry suites
-// (test_blend_weights, test_bowl_model) and the heavier renderer suites
-// (via stitch_test_helpers.hpp).
 
-#include "geometry/bowl_model.hpp"
+#include "bowl_model/bowl_model.hpp"
+#include "camera_model/camera.hpp"
+#include "camera_model/kb_camera_model.hpp"
 
 #include <opencv2/core.hpp>
 
 #include <cmath>
+#include <memory>
 #include <vector>
 
 namespace avm_stitch::test {
 
-// N cameras at azimuths (deg), radius 3m, height 1m.
-// Each camera's optical axis (forward) points in the azimuth direction
-// (horizontal, NOT identity rotation): the bowl rim and flat centre
-// become visible to the side cameras.
-//   forward = (cos(az), sin(az), 0)       // column 2, horizontal
-//   down    = (0, 0, -1)                   // column 1, camera Y axis
-//   right   = down × forward               // column 0
+// construction — the retired hand-written intrinsic model never existed here.
+inline KbParams MakeKbParams() {
+    return {640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+}
+
 inline std::vector<CameraExtrinsics> MakeSideCameras(
     const std::vector<double>& azimuths_deg) {
     std::vector<CameraExtrinsics> cams;
@@ -37,4 +35,14 @@ inline std::vector<CameraExtrinsics> MakeSideCameras(
     return cams;
 }
 
-} // namespace avm_stitch::test
+inline std::vector<Camera> WrapKbSideCameras(
+    const std::vector<double>& azimuths_deg) {
+    const KbParams params = MakeKbParams();
+    std::vector<Camera> cams;
+    for (const CameraExtrinsics& ext : MakeSideCameras(azimuths_deg)) {
+        cams.emplace_back(ext, MakeCameraModel("kb", params));
+    }
+    return cams;
+}
+
+}

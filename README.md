@@ -17,8 +17,8 @@ avm-stitch 把 N 路鱼眼摄像头画面实时拼接成车辆周围的"鸟瞰"�
 
 | 决策 | 位置 |
 |------|------|
-| 几何/融合全部 CPU 预计算(烘焙到顶点),GPU 只做查表混合 | `src/geometry/` |
-| 融合算法与相机数量 N 无关,4 路和 8 路同一套代码 | `src/geometry/blend_weights.cpp` |
+| 几何/融合全部 CPU 预计算(烘焙到顶点),GPU 只做查表混合 | `src/camera_model/`、`src/bowl_model/` |
+| 融合算法与相机数量 N 无关,4 路和 8 路同一套代码 | `src/bowl_model/blend_weights.cpp` |
 | GPU 侧固定 8 槽顶点属性布局,少于 8 路时空槽权重为 0 | `src/render/stitch_scene.cpp`(`StitchScene`) |
 | 库内零 JSON 依赖:`StitchEngine` 以结构体与 `cv::Mat` 进出,错误以异常表达 | `src/core/stitch_engine.cpp` |
 
@@ -54,9 +54,9 @@ AVM(环视,亦称 Bird's Eye View / 360 全景)系统在车辆前后左右安装
 
 五段算法讲解,每段给出直觉解释 + 对应代码位置。
 
-### 3.1 碗形模型(`src/geometry/bowl_model.hpp` / `.cpp`)
+### 3.1 碗形模型(`src/bowl_model/bowl_model.hpp` / `.cpp`)
 
-hpp/cpp 拆分,纯数学,无 GL 依赖。`BowlModel model(params, intrinsics, extrinsics)`(构造函数,取代最初的工厂函数)一步生成碗面三角网格并烘焙,数据经细粒度索引访问读取(`vertex_count()` / `vertex(i)` / `normal_count()` / `normal(i)` / `triangle_count()` / `triangle(i)`)——不暴露内部容器,内部布局(将来可换 SoA 等)是纯实现细节:
+hpp/cpp 拆分,纯数学,无 GL 依赖。`BowlModel model(params, cameras)`(构造函数,取代最初的工厂函数;`cameras` 为 `std::vector<Camera>`,每路 = 外参 + 模型指针)一步生成碗面三角网格并烘焙,数据经细粒度索引访问读取(`vertex_count()` / `vertex(i)` / `normal_count()` / `normal(i)` / `triangle_count()` / `triangle(i)`)——不暴露内部容器,内部布局(将来可换 SoA 等)是纯实现细节:
 
 ```
  z ^      rim:  z = k_slop * rd^z_exp   (max_z 封顶)
@@ -86,30 +86,30 @@ hpp/cpp 拆分,纯数学,无 GL 依赖。`BowlModel model(params, intrinsics, ex
 
 `car_center` 也一并派生:`(axis_x/2, 0)`(后轴系)。`BowlParams` 字段默认初始化为 0(0 = 未派生);必须经 `DeriveBowlParams` 构造或全字段显式赋值。从任务 JSON 解析碗参数的集成层逻辑已迁至 avm-worker(其 `ParseBowlParams` 以 calibration.car 尺寸派生 + bowl 块逐字段覆盖)。
 
-### 3.2 鱼眼投影(`src/geometry/projection.hpp`)
+### 3.2 鱼眼投影(`src/camera_model/camera_model.hpp`)
 
-header-only,把 3D 世界点投影到鱼眼像素。采用**手写等距鱼眼模型**(θ = atan2(r_xy, z) ∈ [0, π]),取代原先对 `cv::fisheye::projectPoints` 的委托:
+三种鱼眼模型共享 `CameraModel` 抽象基类:统一投影接口(`ProjectPoints(…)` 批量 / `ProjectCameraPoint` 单点)+ 统一门控接口(`FisheyeCircleRadius` / `InsideFisheyeCircle` / `EdgeFeather`,在三模型共享的基类上直接实现)。由工厂 `MakeCameraModel(model, params)` 按词汇表 `kb | table | ocam` 构造对应实现(`KbCameraModel` / `LutCameraModel` / `OcamCameraModel`)。内参以**平铺参数结构**传入:`KbCameraModel` 取 `KbParams`(width,height,fx,fy,cx,cy,k1..k4,fisheye_radius;`fisheye_radius=0` 即 auto 内切圆,见 `FisheyeCircleRadius()`)—经 `MakeCameraModel("kb",…)` 产 `KbCameraModel`;LUT / OCam 分别取 `LutParams` / `OcamParams`。采用**手写等距鱼眼模型**(θ = atan2(r_xy, z) ∈ [0, π]),取代原先对 `cv::fisheye::projectPoints` 的委托:
 
-- **`CameraIntrinsics`**:`{width, height, fx, fy, cx, cy, k1..k4, fisheye_radius}`,其中 `fisheye_radius=0` 表示自动取图像内切圆半径(`FisheyeCircleRadius`)
-- **`CameraExtrinsics`**:T_wc 约定(camera → world),`R` 为 3×3 行主序,`t` 为平移(m);OpenCV 惯例相机 y 轴朝下
-- **`ProjectWorldToFishEye(P_world, intr, extr, u, v)`**:世界点 → 像素;手写模型处理所有 z(含 z<0),不再有 `(-1,-1)` 提前返回
-- **`IsInsideFisheyeCircle`**:投影像素是否落在鱼眼有效圆内——像素可能在图像**矩形**内、却在镜头圆盘**外**(四角是黑区),采样黑区会把接缝染黑
-- **`FisheyeEdgeFeather`**(默认羽化 40px):靠近有效圆边缘的像素为**硬门限**——圆内且距边 ≥ `feather_px` 返回 1.0,否则 0.0(纯黑边缘无法靠线性插值挽回,故不是软衰减),把鱼眼边缘黑晕排除在采样外
+- **统一投影**:`CameraModel::ProjectCameraPoint(P_cam)`(单点)与 `ProjectPoints(…)`(批量)把相机系点 → 像素;手写模型处理所有 z(含 z<0),不再有 `(-1,-1)` 提前返回。kb 的 θ-多项式**单一事实源 = `KbCameraModel::ProjectCameraPoint`**,批量循环逐点委托同一公式
+- **统一门控**(三模型共享):`InsideFisheyeCircle(u,v)` 判定投影像素是否落在鱼眼有效圆内——像素可能在图像**矩形**内、却在镜头圆盘**外**(四角是黑区),采样黑区会把接缝染黑;`EdgeFeather(u,v)`(默认羽化 40px)把靠近有效圆边缘的像素做**硬门限**——圆内且距边 ≥ `feather_px` 返回 1.0,否则 0.0(纯黑边缘无法靠线性插值挽回,故不是软衰减),把鱼眼边缘黑晕排除在采样外
+- **`Camera` 值类**(`src/camera_model/camera.hpp`):外参 + 模型指针统一成对(模型随镜头、外参随标定;字段私有,经 `Valid()` / 委托访问器读取)。`BowlModel` 烘焙与 `StitchEngine::Configure` 内部用它对模型与外参逐路配对
+- **`CameraExtrinsics`**(`src/camera_model/camera_extrinsics.hpp`):T_wc 位姿行为类(camera → world;`ToCamera`/`ToWorld`/`Rotate*`/`position()`,内部为 3×3 行主序 R 与平移 t 米),OpenCV 惯例相机 y 轴朝下
+- **投影组合** `model.ProjectCameraPoint(extr.ToCamera(P_world))`:世界点 → 像素(外参负责位姿,模型负责成像)
 
-### 3.3 BowlModel 烘焙(构造函数,`src/geometry/bowl_model.cpp`)
+### 3.3 BowlModel 烘焙(构造函数,`src/bowl_model/bowl_model.cpp`)
 
-碗网格生成与烘焙由同一个类 `BowlModel` 承载,并**并入构造函数**:`BowlModel model(params, intrinsics, extrinsics)` 一步生成网格 + 逐顶点把"看什么、怎么混"预计算进顶点属性——这是整个设计的关键:**构造即就绪的构造不变量**(不存在"未烘焙"半状态,重烘 bug 的土壤根除)+ **运行时 GPU 零几何计算**。烘焙结果经细粒度索引访问(`baked_vertex(i)`)与语义查询(`baked_num_cameras()` / `HasVisibleVertices()`:是否存在任一槽权重 > 1e-9 的顶点)读取,不暴露内部容器。
+碗网格生成与烘焙由同一个类 `BowlModel` 承载,并**并入构造函数**:`BowlModel model(params, cameras)`(`cameras` 为 `std::vector<Camera>`,外参 + 模型指针统一成对)一步生成网格 + 逐顶点把"看什么、怎么混"预计算进顶点属性——这是整个设计的关键:**构造即就绪的构造不变量**(不存在"未烘焙"半状态,重烘 bug 的土壤根除)+ **运行时 GPU 零几何计算**。烘焙结果经细粒度索引访问(`baked_vertex(i)`)与语义查询(`baked_num_cameras()` / `HasVisibleVertices()`:是否存在任一槽权重 > 1e-9 的顶点)读取,不暴露内部容器。
 
 每个碗面顶点得到:
 
-- `uv[8][2]`:该顶点在每路相机图像上的归一化 UV(像素坐标 ÷ 图像宽高),不可见的相机槽位保持 `(0,0)`
-- `weight[8]`:该顶点在每路相机上的融合权重,**可见相机集合内归一化,和为 1**;不可见相机权重为 0
+- `uv`:该顶点在每路相机图像上的归一化 UV(像素坐标 ÷ 图像宽高),长度恰为相机数 N,不可见的相机槽位保持 `(0,0)`
+- `weight`:该顶点在每路相机上的融合权重,长度恰为相机数 N,**可见相机集合内归一化,和为 1**;不可见相机权重为 0
 
-`BakedVertex`(`src/geometry/bowl_model.hpp`)的 8 槽是为 8 路架构上限预留的:配置 N < 8 路时,空槽的 UV 和权重全为 0,着色器按 `uNumCameras` 只激活前 N 路。
+`BakedVertex`(`src/bowl_model/bowl_model.hpp`)按相机数动态定长(构造传入 N),不再为 8 路上限预留空槽;8 路上限的约束只剩 GPU 侧布局与 Configure 校验,着色器按 `uNumCameras` 只激活前 N 路。
 
 顶点级处理流程:对每路相机计算方位角融合原始权重(`ComputeBlendWeights`)→ 判定可见性(图像矩形内 + 鱼眼有效圆内;**不再使用 `IsForwardFacing`**,手写投影自然拒绝有效 FOV 外的点)→ 可见者乘上边缘羽化系数 → 在"可见且有权重"的相机集合内归一化。注意 v 坐标**不需要翻转**——T_wc/OpenCV 惯例下投影输出的 v 已经朝图像下方增长(见 `BowlModel` 构造函数内烘焙逻辑的注释)。
 
-### 3.4 融合权重(`src/geometry/blend_weights.cpp`)
+### 3.4 融合权重(`src/bowl_model/blend_weights.cpp`)
 
 **方位角扇区算法,与相机数量 N 无关**——4 路和 8 路用同一套代码:
 
@@ -155,7 +155,7 @@ OSG(OpenSceneGraph)场景图 + GLSL 330 着色器,全离屏:
 
 - **着色器**(GLSL 330 源码是 `StitchScene` 内部实现细节,装配进 stateset 的 program):片元着色器把 8 路相机**手动展开**(避免动态采样器数组索引),每路 `if (fragNumCameras > k && w_k > 0.001) result += texture(uCameraTextures, vec3(uv_k, k)).rgb * w_k;`——最终颜色就是"查表加权求和"
 - **`StitchScene::UploadCameraImages`**:N 路相机帧作为 `Texture2DArray` 的 N 个图层上传(BGR→BGRA,自持拷贝;禁用非 2 次幂重缩放)
-- **`osg_view_renderer.cpp`**:`OSGViewRenderer` 为 5 个视图位姿(`DefaultViewPoses`,定义于 `src/render/osg_view_renderer.hpp`)各建一个 FBO 相机,`RenderAllViews()` 一次渲染全部视图并回读为 BGR `cv::Mat`(默认 960×640,清屏色 RGB(30,36,50),近/远裁剪面 0.1/100,回读后垂直翻转补偿 GL 左下角原点)。`ViewPose` 结构体与 `DefaultViewPoses()`(topdown + 前后左右 4 个 3D 视图,fovy 60°)也定义在该头文件
+- **`osg_view_renderer.cpp`**:`OSGViewRenderer` 为 4 个视图位姿(`DefaultViewPoses`,定义于 `src/render/osg_view_renderer.hpp`)各建一个 FBO 相机,`RenderAllViews()` 一次渲染全部视图并回读为 BGR `cv::Mat`(默认 960×640,清屏色 RGB(30,36,50),近/远裁剪面 0.1/100,回读后垂直翻转补偿 GL 左下角原点)。`ViewPose` 结构体与 `DefaultViewPoses()`(前后左右 4 个 3D 视图,fovy 60°)也定义在该头文件
 - **`egl_headless_context.cpp`**:`EGLHeadlessContext` 实现 EGL surfaceless(Mesa)桌面 GL 3.3 兼容 Profile 的 `osgViewer::GraphicsWindow`,16×16 pbuffer 只负责持有上下文,真正的绘制全部进 FBO——无窗口、无 X server
 
 ## 4. 架构与数据流
@@ -163,9 +163,10 @@ OSG(OpenSceneGraph)场景图 + GLSL 330 着色器,全离屏:
 库的核心是 `StitchEngine` 两阶段 API(`src/core/stitch_engine.cpp`):`Configure`(一次性建碗→烘焙→建场景)+ `RenderFrame`(每帧渲染)。文字版数据流:
 
 ```
- Configure(intrinsics, extrinsics, BowlParams)      一次性
+ Configure(models, extrinsics, BowlParams)         一次性
+     |        (models 取走所有权; extrinsics 按位配对)
      |
-     | bowl model + baked uv[8] / weight[8]  (CPU 预计算, src/geometry/)
+     | bowl model + baked uv/weight (动态 N 槽, CPU 预计算, src/bowl_model/)
      v
  osg::Geometry + GLSL 330                  (src/render/stitch_scene.cpp)
      ^
@@ -173,10 +174,10 @@ OSG(OpenSceneGraph)场景图 + GLSL 330 着色器,全离屏:
  RenderFrame(N x BGR cv::Mat) ------------> Texture2DArray (N layers)
      |
      v
- 5 FBO cameras (one per ViewPose)          (src/render/osg_view_renderer.cpp)
+ 4 FBO cameras (one per ViewPose)          (src/render/osg_view_renderer.cpp)
      |
      v
- {"topdown": Mat, "3d_front": Mat, ...}    map<视图名, cv::Mat>
+ {"3d_front": Mat, "3d_rear": Mat, ...}    map<视图名, cv::Mat>
 ```
 
 JSON 任务契约(`queue:stitch` 任务解析、`algorithm` 分发、base64 图解码、`stitch_result` / `stitch_error` 信封、后端工厂 `CreateStitchBackend`)已整体迁至 avm-worker(集成层库 `avm_stitch_integration`),worker 消费本库的纯算法 API 完成协议适配。
@@ -185,16 +186,22 @@ JSON 任务契约(`queue:stitch` 任务解析、`algorithm` 分发、base64 图�
 
 ```
 src/
-├── geometry/                      纯数学,CPU 预计算
-│   ├── projection.hpp             鱼眼投影: 世界点 -> 像素, 有效圆/羽化
-│   ├── bowl_model.hpp / .cpp      碗形参数 + 碗网格生成 + 构造即烘焙(UV[8] + weight[8])
+├── camera_model/                  相机模型 (纯数学)
+│   ├── camera_extrinsics.hpp      CameraExtrinsics 外参位姿行为值类 (T_wc, header-only, 纯外参)
+│   ├── camera_model.hpp / .cpp    CameraModel 抽象基类(统一投影 + 门控)、KbParams/LutParams/OcamParams 平铺内参 + MakeCameraModel 工厂
+│   ├── camera.hpp / .cpp          Camera 值类: 外参 + 模型指针统一成对 (camera.cpp 为 header 自包含性检查 TU)
+│   └── kb_ / lut_ / ocam_camera_model.{hpp,cpp}   kb / table-LUT / ocam 三种投影模型实现
+├── bowl_model/                    碗网格与融合权重, CPU 预计算
+│   ├── bowl_params.hpp / .cpp     BowlParams 不可变参数 + 碗网格/法线生成 (GenerateBlockBoatMesh)
+│   ├── bowl_model.hpp / .cpp      构造即烘焙 (uv/weight 动态 N 槽) + 可见性查询
 │   └── blend_weights.hpp / .cpp   方位角扇区融合权重 (与 N 无关)
+├── depth/                         深度估计: 球面整流 + 立体匹配 + 地面深度
 ├── render/                        GPU / OSG
 │   ├── stitch_scene.hpp / .cpp       StitchScene: 场景图拥有者, GLSL 330 着色器, 纹理数组
-│   ├── osg_view_renderer.hpp / .cpp        离屏 5 视图渲染 (FBO 相机 + 回读); ViewPose / DefaultViewPoses 5 个默认视图位姿 (header-only)
+│   ├── osg_view_renderer.hpp / .cpp        离屏 4 视图渲染 (FBO 相机 + 回读); ViewPose / DefaultViewPoses 4 个默认视图位姿 (header-only)
 │   └── egl_headless_context.hpp / .cpp   EGL surfaceless 桌面 GL 3.3 (OSG 路径)
 └── core/
-    └── stitch_engine.hpp / .cpp   两阶段引擎: Configure + RenderFrame (PIMPL)
+    └── stitch_engine.hpp / .cpp   两阶段引擎: Configure + RenderFrame (unique_ptr 隐藏 OSG 实现类型)
 
 tests/                             8 个 gtest 目标
 ├── test_support/  stitch_test_helpers.hpp / geometry_test_helpers.hpp / gl_fixture.hpp (共享测试基建, header-only)
@@ -211,14 +218,14 @@ JSON 集成层(`stitch_backend` / `osg_backend` / `stitch_result` / `camera_name
 
 | # | 读什么 | 能理解什么 | 配套测试(用法示例) |
 |---|--------|-----------|---------------------|
-| 1 | `src/geometry/projection.hpp` | 鱼眼投影基础:内参 k1-k4、T_wc 约定、有效圆与羽化。全部 inline,单文件可读 | `tests/geometry/test_projection.cpp` |
-| 2 | `src/geometry/bowl_model.hpp` | 碗为什么长这样:8 参数含义、网格/法线生成 | `tests/geometry/test_bowl_model.cpp` |
-| 3 | `src/geometry/blend_weights.cpp` → `src/geometry/bowl_model.cpp`(构造烘焙) | 接缝怎么融合:扇区边界、52°/N 过渡带、余弦 smoothstep;再看权重如何叠加可见性/羽化烘焙进顶点 | `tests/geometry/test_blend_weights.cpp`、`tests/geometry/test_bowl_model.cpp`(BowlModelBakeTest 套件) |
+| 1 | `src/camera_model/camera_model.hpp` / `camera.hpp` / `camera_extrinsics.hpp` | 鱼眼投影基础:`CameraModel` 基类统一投影(ProjectCameraPoint/ProjectPoints + 门控 FisheyeCircleRadius/InsideFisheyeCircle/EdgeFeather)、KbParams 平铺内参、`Camera` 外参+模型指针配对、T_wc 约定 | `tests/geometry/test_projection.cpp`、`test_camera_model.cpp` |
+| 2 | `src/bowl_model/bowl_params.hpp` / `bowl_model.hpp` | 碗为什么长这样:碗参数含义、网格/法线生成(GenerateBlockBoatMesh)、烘焙管线 | `tests/geometry/test_bowl_params.cpp`、`test_bowl_model.cpp` |
+| 3 | `src/bowl_model/blend_weights.cpp` → `src/bowl_model/bowl_model.cpp`(构造烘焙) | 接缝怎么融合:扇区边界、52°/N 过渡带、余弦 smoothstep;再看权重如何叠加可见性/羽化烘焙进顶点 | `tests/geometry/test_blend_weights.cpp`、`tests/geometry/test_bowl_model.cpp`(BowlModelBakeTest 套件) |
 | 4 | `src/render/stitch_scene.cpp`(`StitchScene`) | 烘焙数据怎么上 GPU:属性布局(location 0-7)、着色器源码、纹理数组。纯结构装配,不需要 GL;构造即就绪 | `tests/render/test_stitch_scene.cpp` |
 | 5 | `src/render/osg_view_renderer.cpp` + `src/render/egl_headless_context.cpp` | 怎么无窗口渲染:每个视图一个 FBO 相机、MVP 手动传 uniform 的原因(vcpkg OSG GL2 构建怪癖)、回读翻转 | `tests/render/test_osg_view_renderer.cpp`、`tests/render/test_egl_headless_context.cpp` |
-| 6 | `src/core/stitch_engine.cpp` | 一切怎么串起来:`Configure`(建碗→烘焙→建 `StitchScene` 场景,不做 GL 绘制,但会尝试创建离屏 EGL 上下文,创建失败不抛异常)与 `RenderFrame`(传纹理→渲 5 视图)两阶段 | `tests/core/test_stitch_engine.cpp`(校验 + GL 端到端) |
+| 6 | `src/core/stitch_engine.cpp` | 一切怎么串起来:`Configure`(建碗→烘焙→建 `StitchScene` 场景,不做 GL 绘制,但会尝试创建离屏 EGL 上下文,创建失败不抛异常)与 `RenderFrame`(传纹理→渲 4 视图)两阶段 | `tests/core/test_stitch_engine.cpp`(校验 + GL 端到端) |
 
-辅助阅读:`src/render/osg_view_renderer.hpp`(5 视图位姿的具体系数,`ViewPose` / `DefaultViewPoses`)。JSON 门面(后端工厂、任务契约、错误信封)与视图名→AVMDisplayMode 映射(view_mapping)、相机 id/label 解析(camera_name)均已在 avm-worker。
+辅助阅读:`src/render/osg_view_renderer.hpp`(4 视图位姿的具体系数,`ViewPose` / `DefaultViewPoses`)。JSON 门面(后端工厂、任务契约、错误信封)与视图名→AVMDisplayMode 映射(view_mapping)、相机 id/label 解析(camera_name)均已在 avm-worker。
 
 ## 7. 构建与测试
 
@@ -240,15 +247,16 @@ ctest --test-dir build                # 8 个测试目标
 ```cpp
 using namespace avm_stitch;
 
-StitchEngine engine;
-engine.Configure(intrinsics, extrinsics,
-                 DeriveBowlParams(5.6, 2.2, 2.9));   // 一次性,从载具尺寸派生碗参数
-auto views = engine.RenderFrame(bgr_images);   // 每帧: map<视图名, cv::Mat>
-```
+std::vector<std::unique_ptr<CameraModel>> models;   // N 路,MakeCameraModel("kb"|"table"|"ocam", params) 产出
+std::vector<CameraExtrinsics> extrinsics;           // N 路外参 T_wc,与 models 按位配对
 
-- `intrinsics` / `extrinsics`:`std::vector<CameraIntrinsics>` / `std::vector<CameraExtrinsics>`(`src/geometry/projection.hpp`,T_wc 约定)
-- `BowlParams`:碗形参数结构体(`src/geometry/bowl_model.hpp`);无硬编码默认值,必须经 `DeriveBowlParams(car_length, car_width, axis_x)` 派生或全字段显式赋值
-- `RenderFrame` 输入 N 路 BGR `cv::Mat`,输出 5 个视图(`topdown` / `3d_front` / `3d_rear` / `3d_left` / `3d_right`)
+StitchEngine engine;
+engine.Configure(std::move(models), extrinsics,
+                 DeriveBowlParams(5.6, 2.2, 2.9));   auto views = engine.RenderFrame(bgr_images);   ```
+
+- `models` / `extrinsics`:`std::vector<std::unique_ptr<CameraModel>>`(`MakeCameraModel(model, params)` 按 kb/lut/ocam 构造;kb 内参用 `KbParams` 平铺字段) / `std::vector<CameraExtrinsics>`(`src/camera_model/camera_extrinsics.hpp`,T_wc 约定);`Configure` 转移模型所有权,内部按位配成 `std::vector<Camera>`
+- `BowlParams`:不可变碗参数类(`src/bowl_model/bowl_params.hpp`),网格生成 `GenerateBlockBoatMesh(vertices, normals, triangles)` 亦归其所有;无硬编码默认值,经 `DeriveBowlParams(car_length, car_width, axis_x)` 派生或值构造,调整用 `with_*` 副本方法
+- `RenderFrame` 输入 N 路 BGR `cv::Mat`,输出 4 个视图(`3d_front` / `3d_rear` / `3d_left` / `3d_right`,原 `topdown` 正俯视视图已移除)
 - 错误以异常表达(如 `Configure` 对 N∈[1,8] 之外的输入抛 `std::invalid_argument`)
 
 **任务 JSON 契约(`queue:stitch` 任务、base64 图解码、`stitch_result` / `stitch_error` 信封、`CreateStitchBackend` 工厂、`ParseBowlParams`、流式会话接口)已迁至 avm-worker**(其 `avm_stitch_integration` / `avm_renderer_bridge` 库),由 worker 统一完成 redis 协议适配与算法分发;本库不再涉及任何 JSON 形态。
@@ -259,18 +267,16 @@ auto views = engine.RenderFrame(bgr_images);   // 每帧: map<视图名, cv::Mat
 
 | 瓶颈 | 位置 | 现状 |
 |------|------|------|
-| 顶点属性槽位 | `src/geometry/bowl_model.hpp` `BakedVertex` | 固定 `uv[8][2]` + `weight[8]` |
 | GLSL 属性布局 | `src/render/stitch_scene.cpp:18-22` | UV 打包 4×vec4(location 2-5),权重打包 2×vec4(location 6-7),共 8 location,恰好覆盖 8 路 |
 | 片元着色器展开 | `src/render/stitch_scene.cpp` 匿名 ns `FragmentShaderSource()` | 手动展开 8 路 `if (fragNumCameras > k ...)` 分支 |
 | Configure 校验 | `src/core/stitch_engine.cpp` `ValidateConfigureArgs` | `N ∈ [1,8]`,超出抛 `std::invalid_argument` |
 
 扩到 16 路需要动:
 
-1. `BakedVertex` 槽位 8 → 16(`uv[16][2]`、`weight[16]`)
-2. `StitchScene` 内的几何构建重新打包:UV 需 8×vec4(location 2-9),权重需 4×vec4(location 10-13)——注意 GLSL 330 保证的顶点属性数至少 16,layout 0-13 仍在安全范围,但需在目标 GPU 上验证
-3. 片元着色器展开 16 路分支;`WEIGHT_MIN` 阈值机制可沿用
-4. `Configure` 校验上限放到 16
-5. **不需要动**:`ComputeBlendWeights`(N 无关,过渡半角自动变为 52/16 = 3.25°)、`BowlModel` 构造、`StitchScene::UploadCameraImages`(纹理数组层数即 N)
+1. `StitchScene` 内的几何构建重新打包:UV 需 8×vec4(location 2-9),权重需 4×vec4(location 10-13)——注意 GLSL 330 保证的顶点属性数至少 16,layout 0-13 仍在安全范围,但需在目标 GPU 上验证
+2. 片元着色器展开 16 路分支;`WEIGHT_MIN` 阈值机制可沿用
+3. `Configure` 校验上限放到 16
+4. **不需要动**:`ComputeBlendWeights`(N 无关,过渡半角自动变为 52/16 = 3.25°)、`BowlModel` 构造、`StitchScene::UploadCameraImages`(纹理数组层数即 N)
 
 ## 10. 已知限制
 

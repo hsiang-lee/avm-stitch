@@ -16,13 +16,13 @@ namespace avm_stitch {
 
 namespace {
 
-// Fixed 8-camera slot layout (locations 2-5 = UV vec4, 6-7 = weights vec4).
 constexpr int kUvSlotBase = 2;
 constexpr int kNumUvSlots = 4;
 constexpr int kWeightSlotBase = 6;
 constexpr int kNumWeightSlots = 2;
 
-// Build a per-vertex packed Vec4 attribute array (one vec4 per baked vertex).
+constexpr std::array<float, 2> kZeroUv{0.0f, 0.0f};
+
 template <typename Accessor>
 osg::ref_ptr<osg::Vec4Array> BuildPackedVec4(const BowlModel& bowl,
                                              Accessor accessor) {
@@ -37,8 +37,7 @@ osg::ref_ptr<osg::Vec4Array> BuildPackedVec4(const BowlModel& bowl,
 osg::ref_ptr<osg::Geometry> BuildBowlGeometry(const BowlModel& bowl) {
     auto geom = new osg::Geometry;
 
-    // ---- vertex positions (location 0), VCS -> OpenGL: (x,y,z) -> (x,z,-y)
-    auto pos_array = new osg::Vec3Array;
+        auto pos_array = new osg::Vec3Array;
     pos_array->reserve(bowl.vertex_count());
     for (int i = 0; i < bowl.vertex_count(); ++i) {
         const cv::Vec3d& v = bowl.vertex(i);
@@ -46,8 +45,7 @@ osg::ref_ptr<osg::Geometry> BuildBowlGeometry(const BowlModel& bowl) {
     }
     geom->setVertexArray(pos_array);
 
-    // ---- normals (location 1), same VCS -> OpenGL conversion
-    auto normal_array = new osg::Vec3Array;
+        auto normal_array = new osg::Vec3Array;
     normal_array->reserve(bowl.normal_count());
     for (int i = 0; i < bowl.normal_count(); ++i) {
         const cv::Vec3d& n = bowl.normal(i);
@@ -56,32 +54,36 @@ osg::ref_ptr<osg::Geometry> BuildBowlGeometry(const BowlModel& bowl) {
     geom->setNormalArray(normal_array);
     geom->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
 
-    // ---- UV attributes (locations 2-5): 4 vec4 slots, 2 cameras per slot
+        const int n = bowl.baked_num_cameras();
     for (int slot = 0; slot < kNumUvSlots; ++slot) {
         int c0 = slot * 2;
         int c1 = c0 + 1;
-        auto uv_array = BuildPackedVec4(bowl, [c0, c1](const BakedVertex& bv) {
-            return osg::Vec4(bv.uv[c0][0], bv.uv[c0][1], bv.uv[c1][0], bv.uv[c1][1]);
+        auto uv_array = BuildPackedVec4(bowl, [n, c0, c1](const BowlModel::BakedVertex& bv) {
+                                                const std::array<float, 2>& u0 =
+                (c0 < n) ? bv.uv[static_cast<size_t>(c0)] : kZeroUv;
+            const std::array<float, 2>& u1 =
+                (c1 < n) ? bv.uv[static_cast<size_t>(c1)] : kZeroUv;
+            return osg::Vec4(u0[0], u0[1], u1[0], u1[1]);
         });
         geom->setVertexAttribArray(kUvSlotBase + slot, uv_array);
         geom->setVertexAttribBinding(kUvSlotBase + slot,
                                      osg::Geometry::BIND_PER_VERTEX);
     }
 
-    // ---- weight attributes (locations 6-7): 2 vec4 slots, 4 cameras per slot
-    for (int slot = 0; slot < kNumWeightSlots; ++slot) {
+        for (int slot = 0; slot < kNumWeightSlots; ++slot) {
         int c0 = slot * 4;
-        auto w_array = BuildPackedVec4(bowl, [c0](const BakedVertex& bv) {
-            return osg::Vec4(bv.weight[c0], bv.weight[c0 + 1],
-                             bv.weight[c0 + 2], bv.weight[c0 + 3]);
+        auto w_array = BuildPackedVec4(bowl, [n, c0](const BowlModel::BakedVertex& bv) {
+            auto w = [n, &bv](int c) -> float {
+                return (c < n) ? bv.weight[static_cast<size_t>(c)] : 0.0f;
+            };
+            return osg::Vec4(w(c0), w(c0 + 1), w(c0 + 2), w(c0 + 3));
         });
         geom->setVertexAttribArray(kWeightSlotBase + slot, w_array);
         geom->setVertexAttribBinding(kWeightSlotBase + slot,
                                      osg::Geometry::BIND_PER_VERTEX);
     }
 
-    // ---- triangle indices
-    auto indices = new osg::DrawElementsUInt(GL_TRIANGLES);
+        auto indices = new osg::DrawElementsUInt(GL_TRIANGLES);
     indices->reserve(bowl.triangle_count() * 3);
     for (int t = 0; t < bowl.triangle_count(); ++t) {
         const std::array<int, 3> tri = bowl.triangle(t);
@@ -95,29 +97,16 @@ osg::ref_ptr<osg::Geometry> BuildBowlGeometry(const BowlModel& bowl) {
 }
 
 const char* VertexShaderSource() {
-    // N-camera mapping vertex shader (generalised mapping.vs).
-    // NOTE: osg_ModelViewProjectionMatrix is not auto-updated by the vcpkg
-    // osg GL2 build; OSGViewRenderer sets it per camera as a StateSet uniform.
-    return R"(#version 330 core
+                return R"(#version 330 core
 
-// Vertex attributes (from osg::Geometry::setVertexAttribArray)
 layout(location = 0) in vec3 vertexPosition;
 layout(location = 1) in vec3 vertexNormal;
-layout(location = 2) in vec4 uvCoord0;   // (u0, v0, u1, v1)
-layout(location = 3) in vec4 uvCoord1;   // (u2, v2, u3, v3)
-layout(location = 4) in vec4 uvCoord2;   // (u4, v4, u5, v5)
-layout(location = 5) in vec4 uvCoord3;   // (u6, v6, u7, v7)
-layout(location = 6) in vec4 weights0;   // (w0, w1, w2, w3)
-layout(location = 7) in vec4 weights1;   // (w4, w5, w6, w7)
-
+layout(location = 2) in vec4 uvCoord0;   layout(location = 3) in vec4 uvCoord1;   layout(location = 4) in vec4 uvCoord2;   layout(location = 5) in vec4 uvCoord3;   layout(location = 6) in vec4 weights0;   layout(location = 7) in vec4 weights1;
 uniform mat4 osg_ModelViewProjectionMatrix;
 uniform int uNumCameras;
 
 out vec3 fragNormal;
-out vec4 fragUV[4];      // uvCoord0..3 pass-through
-out vec4 fragWeights0;   // weights0
-out vec4 fragWeights1;   // weights1
-flat out int fragNumCameras;
+out vec4 fragUV[4];      out vec4 fragWeights0;   out vec4 fragWeights1;   flat out int fragNumCameras;
 
 void main()
 {
@@ -136,8 +125,7 @@ void main()
 }
 
 const char* FragmentShaderSource() {
-    // N-camera mapping fragment shader: unrolled 8-camera blend (mapping.fs).
-    return R"(#version 330 core
+        return R"(#version 330 core
 
 uniform sampler2DArray uCameraTextures;
 uniform int uNumCameras;
@@ -154,8 +142,7 @@ const float WEIGHT_MIN = 0.001;
 
 void main()
 {
-    // Manually unrolled 8-camera blend (avoids dynamic sampler-array indexing)
-    vec3 result = vec3(0.0, 0.0, 0.0);
+        vec3 result = vec3(0.0, 0.0, 0.0);
 
     // Camera 0
     if (fragNumCameras > 0 && fragWeights0.x > WEIGHT_MIN) {
@@ -200,12 +187,8 @@ osg::ref_ptr<osg::Texture2DArray> CreateCameraTextures(
     auto tex = new osg::Texture2DArray;
     tex->setTextureSize(w, h, num_layers);
     tex->setInternalFormat(GL_RGBA8);
-    tex->setSourceFormat(GL_BGRA);     // OpenCV BGR -> BGRA (A=255)
-    tex->setSourceType(GL_UNSIGNED_BYTE);
-    // Do NOT rescale non-power-of-two camera frames: osg::Texture defaults
-    // _resizeNonPowerOfTwoHint to true, which would scale e.g. 1920x1536 to
-    // 2048x2048 and then refuse to upload (dimension mismatch -> black output).
-    tex->setResizeNonPowerOfTwoHint(false);
+    tex->setSourceFormat(GL_BGRA);         tex->setSourceType(GL_UNSIGNED_BYTE);
+                tex->setResizeNonPowerOfTwoHint(false);
     tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
     tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
     tex->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
@@ -213,24 +196,22 @@ osg::ref_ptr<osg::Texture2DArray> CreateCameraTextures(
     return tex;
 }
 
-} // namespace
-
+}
 StitchScene::StitchScene(const BowlModel& bowl, int image_w, int image_h) {
     root_ = new osg::Group;
 
-    const int num_cameras = bowl.baked_num_cameras();
+    num_cameras_ = bowl.baked_num_cameras();
     auto geom = BuildBowlGeometry(bowl);
 
     bowl_geode_ = new osg::Geode;
     bowl_geode_->addDrawable(geom);
 
-    texture_ = CreateCameraTextures(num_cameras, image_w, image_h);
+    texture_ = CreateCameraTextures(num_cameras_, image_w, image_h);
 
     auto program = new osg::Program;
     program->addShader(new osg::Shader(osg::Shader::VERTEX, VertexShaderSource()));
     program->addShader(new osg::Shader(osg::Shader::FRAGMENT, FragmentShaderSource()));
-    // Explicit attribute binding (shader layout qualifiers already match).
-    program->addBindAttribLocation("uvCoord0", 2);
+        program->addBindAttribLocation("uvCoord0", 2);
     program->addBindAttribLocation("uvCoord1", 3);
     program->addBindAttribLocation("uvCoord2", 4);
     program->addBindAttribLocation("uvCoord3", 5);
@@ -239,12 +220,9 @@ StitchScene::StitchScene(const BowlModel& bowl, int image_w, int image_h) {
 
     auto state_set = bowl_geode_->getOrCreateStateSet();
     state_set->setAttributeAndModes(program, osg::StateAttribute::ON);
-    // Fixed-function lighting would shade the baked bowl; the mapping shader
-    // outputs the blended texture colour directly.
-    state_set->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
-    state_set->addUniform(new osg::Uniform("uNumCameras", num_cameras));
-    state_set->addUniform(new osg::Uniform("uCameraTextures", 0));  // unit 0
-    state_set->setTextureAttributeAndModes(0, texture_, osg::StateAttribute::ON);
+            state_set->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    state_set->addUniform(new osg::Uniform("uNumCameras", num_cameras_));
+    state_set->addUniform(new osg::Uniform("uCameraTextures", 0));      state_set->setTextureAttributeAndModes(0, texture_, osg::StateAttribute::ON);
 
     root_->addChild(bowl_geode_);
 }
@@ -267,17 +245,13 @@ void StitchScene::UploadCameraImages(const std::vector<cv::Mat>& images) {
         cv::Mat bgra;
         cv::cvtColor(images[i], bgra, cv::COLOR_BGR2BGRA);
 
-        // Copy the pixels into an owned osg::Image. We deliberately do NOT use
-        // NO_DELETE on the cv::Mat buffer: the cv::Mat is transient in the
-        // RenderFrame call, so an owned copy keeps the texture layer valid.
-        auto img = new osg::Image;
+                                auto img = new osg::Image;
         img->allocateImage(bgra.cols, bgra.rows, 1, GL_BGRA, GL_UNSIGNED_BYTE);
-        // Match the texture's internal format so the subload path accepts it.
-        img->setInternalTextureFormat(GL_RGBA8);
+                img->setInternalTextureFormat(GL_RGBA8);
         std::memcpy(img->data(), bgra.data, bgra.total() * bgra.elemSize());
         texture_->setImage(i, img);
     }
     texture_->dirtyTextureObject();
 }
 
-} // namespace avm_stitch
+}

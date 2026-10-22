@@ -7,12 +7,7 @@ namespace avm_stitch {
 
 EGLHeadlessContext::EGLHeadlessContext(osg::GraphicsContext::Traits* traits) {
     _traits = traits;
-    // Create the EGL display/surface/context eagerly (mirrors
-    // GraphicsWindowX11::init()): osgViewer::Viewer::realize() collects the
-    // camera's context via getContexts(onlyValid=true) BEFORE calling
-    // realize(), so a context created only inside realizeImplementation() would
-    // never be found and the viewer would fall back to an X11 window.
-    InitEGL();
+                        InitEGL();
     if (valid_) {
         setState(new osg::State);
         getState()->setGraphicsContext(this);
@@ -39,9 +34,7 @@ bool EGLHeadlessContext::isRealizedImplementation() const {
 }
 
 bool EGLHeadlessContext::InitEGL() {
-    // EGL_EXT_platform_base entry point; the surfaceless platform is only
-    // reachable through it (no X11 display involved).
-    PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay =
+            PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay =
         (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
     if (!getPlatformDisplay) {
         OSG_WARN << "EGLHeadlessContext: eglGetPlatformDisplayEXT unavailable"
@@ -53,11 +46,7 @@ bool EGLHeadlessContext::InitEGL() {
     EGLDisplay dpy =
         getPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, nullptr);
     if (dpy == EGL_NO_DISPLAY) {
-        // No fallback to eglGetDisplay(EGL_DEFAULT_DISPLAY): on a desktop with
-        // X11 that call silently creates an X11-connected display, defeating
-        // the "no X server" headless claim and giving false confidence before
-        // docker deployment.
-        OSG_WARN << "EGLHeadlessContext: EGL_PLATFORM_SURFACELESS_MESA unavailable (need Mesa EGL surfaceless platform)"
+                                        OSG_WARN << "EGLHeadlessContext: EGL_PLATFORM_SURFACELESS_MESA unavailable (need Mesa EGL surfaceless platform)"
                  << std::endl;
         valid_ = false;
         return false;
@@ -97,8 +86,7 @@ bool EGLHeadlessContext::InitEGL() {
         return false;
     }
 
-    // Tiny pbuffer: the stitch renderer renders into FBOs, not this surface.
-    const EGLint pbAttribs[] = {EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE};
+        const EGLint pbAttribs[] = {EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE};
     EGLSurface surf = eglCreatePbufferSurface(dpy, config, pbAttribs);
     if (surf == EGL_NO_SURFACE) {
         OSG_WARN << "EGLHeadlessContext: eglCreatePbufferSurface failed"
@@ -108,10 +96,7 @@ bool EGLHeadlessContext::InitEGL() {
     }
     egl_surface_ = surf;
 
-    // Desktop GL 3.3 compatibility profile: the osg GL2 build calls legacy
-    // APIs (glEnableClientState, glBegin/glEnd, ...) and needs VAO-free paths,
-    // so a core profile would break it.
-    const EGLint ctxAttribs[] = {
+                const EGLint ctxAttribs[] = {
         EGL_CONTEXT_MAJOR_VERSION_KHR, 3,
         EGL_CONTEXT_MINOR_VERSION_KHR, 3,
         EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,
@@ -138,19 +123,13 @@ bool EGLHeadlessContext::InitEGL() {
 
 bool EGLHeadlessContext::realizeImplementation() {
     if (realized_) return true;
-    // The EGL context is created in the constructor (like GraphicsWindowX11),
-    // so realize only marks the context ready to render.
-    realized_ = valid_;
+            realized_ = valid_;
     return realized_;
 }
 
 void EGLHeadlessContext::closeImplementation() {
     if (egl_display_ != EGL_NO_DISPLAY) {
-        // Only tear down EGL objects on an initialized display. egl_display_ is
-        // set before eglInitialize succeeds; if InitEGL failed at eglInitialize
-        // (or earlier) there is nothing created yet, and calling eglTerminate on
-        // an un-initialized display is undefined.
-        if (egl_initialized_) {
+                                        if (egl_initialized_) {
             eglMakeCurrent(egl_display_, EGL_NO_SURFACE, EGL_NO_SURFACE,
                            EGL_NO_CONTEXT);
             if (egl_context_ != EGL_NO_CONTEXT) {
@@ -178,9 +157,7 @@ bool EGLHeadlessContext::makeCurrentImplementation() {
 
 bool EGLHeadlessContext::makeContextCurrentImplementation(
     osg::GraphicsContext* readContext) {
-    // Single-context design: read and draw are the same EGL context.
-    // Not needed for the FBO-based single-threaded renderer.
-    (void)readContext;
+            (void)readContext;
     return makeCurrentImplementation();
 }
 
@@ -191,9 +168,7 @@ bool EGLHeadlessContext::releaseContextImplementation() {
 }
 
 void EGLHeadlessContext::swapBuffersImplementation() {
-    // All rendering is into FBOs; the pbuffer only owns the GL context.
-    // Nothing to present. (eglSwapBuffers on the dummy pbuffer is wasted work.)
-}
+        }
 
 void EGLHeadlessContext::grabFocus() {}
 
@@ -220,11 +195,8 @@ osg::ref_ptr<EGLHeadlessContext> CreateEGLHeadlessContext(int width, int height)
     traits->doubleBuffer = true;
     traits->vsync = false;
     traits->glContextVersion = "3.3";
-    // glContextProfileMask is interpreted by X11/GLX windowing, not by our EGL
-    // context; the compatibility profile is set explicitly in the EGL context
-    // attributes inside InitEGL(). Leave it 0.
-    traits->glContextProfileMask = 0;
+                traits->glContextProfileMask = 0;
     return new EGLHeadlessContext(traits.get());
 }
 
-} // namespace avm_stitch
+}

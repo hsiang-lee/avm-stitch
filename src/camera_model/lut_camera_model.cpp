@@ -1,4 +1,4 @@
-#include "geometry/lut_camera_model.hpp"
+#include "camera_model/lut_camera_model.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -15,10 +15,6 @@ LutCameraModel::LutCameraModel(std::vector<std::array<double, 2>> points,
       points_(std::move(points)),
       pixel_size_mm_(pixel_size_mm) {}
 
-// Forward projection = direct table lookup (OQ-1 direction pin):
-// theta = atan2(r_xy, z) in [0, pi]; r_dist_px = interp(theta)/pixel_mm;
-// u = cx + r_px * x/r_xy, v = cy + r_px * y/r_xy (no fx/fy scaling —
-// the table result is already in pixels).
 void LutCameraModel::ProjectPoints(std::span<const cv::Vec3d> cam_points,
                                    std::span<cv::Vec2d> out_uv,
                                    std::span<uint8_t> out_valid) const {
@@ -47,9 +43,6 @@ void LutCameraModel::ProjectPoints(std::span<const cv::Vec3d> cam_points,
     }
 }
 
-// Linear interpolation over the ascending angle column; clamps to the table
-// endpoints (same semantics as renderer LensDistortionTable::interp,
-// lens_distortion_table.hpp:179-192).
 double LutCameraModel::RadiusPxForAngle(double theta_deg) const {
     const auto& xs = points_;
     auto at = [&](size_t i) { return xs[i][1]; };
@@ -71,4 +64,4 @@ double LutCameraModel::RadiusPxForAngle(double theta_deg) const {
     return (at(lo) + t * (at(hi) - at(lo))) / pixel_size_mm_;
 }
 
-} // namespace avm_stitch
+}
