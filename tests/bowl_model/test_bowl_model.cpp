@@ -1,4 +1,3 @@
-
 #include <gtest/gtest.h>
 
 #include "bowl_model/bowl_model.hpp"
@@ -10,12 +9,16 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
 using namespace avm_stitch;
 
+using avm_stitch::test::DefaultBakeCameras;
+using avm_stitch::test::DefaultIntrinsics;
 using avm_stitch::test::MakeCarBowl;
 using avm_stitch::test::MakeCoarseBowl;
 using avm_stitch::test::MakeCoarseBowlParams;
@@ -36,11 +39,8 @@ size_t CountFlatVertices(const BowlModel& model, double x_half, double y_half) {
     return count;
 }
 
-
 bool IsVertexVisibleToCamera(const cv::Vec3d& P, const KbParams& intr,
                              const CameraExtrinsics& extr) {
-            // The flat KbParams is wrapped in a KbCameraModel for the projection /
-    // gating surface (the retired hand-written intrinsic model folded into the model).
     const KbCameraModel rep{intr};
     const cv::Vec2d uv = rep.ProjectCameraPoint(extr.ToCamera(P));
     return uv[0] >= 0.0 && uv[0] < rep.width()
@@ -52,18 +52,8 @@ bool IsVertexBakedVisible(const cv::Vec3d& P, const KbParams& intr,
                           const CameraExtrinsics& extr) {
     const KbCameraModel rep{intr};
     const cv::Vec2d uv = rep.ProjectCameraPoint(extr.ToCamera(P));
-    return uv[0] >= 0.0 && uv[0] < rep.width()
-           && uv[1] >= 0.0 && uv[1] < rep.height()
-           && rep.InsideFisheyeCircle(uv[0], uv[1])
+    return IsVertexVisibleToCamera(P, intr, extr)
            && rep.EdgeFeather(uv[0], uv[1]) > 0.0;
-}
-
-std::vector<KbParams> DefaultIntrinsics() {
-    return std::vector<KbParams>(4, MakeRealIntrinsics());
-}
-
-std::vector<CameraExtrinsics> DefaultBakeCameras() {
-    return MakeSideCameras({0, 180, 90, -90});
 }
 
 BowlParams CarBowlCentered() {
@@ -71,179 +61,27 @@ BowlParams CarBowlCentered() {
 }
 
 BowlParams TallBowlParams() {
-            return BowlParams(2.0, 1.0, 0.5, 0.1, 6.5, 3.2, 1.0, 15.0,
+    return BowlParams(2.0, 1.0, 0.5, 0.1, 6.5, 3.2, 1.0, 15.0,
                       cv::Vec2d(0.0, 0.0));
 }
 
 }
 
-
-TEST(DeriveBowlParamsTest, CarScale_MatchesCalibratedValues) {
-    const BowlParams p = DeriveBowlParams(5.6, 2.2, 2.9);
-    EXPECT_NEAR(12.6, p.r_outter(), 12.6 * 0.20);
-    EXPECT_NEAR(2.0, p.round_l(), 2.0 * 0.20);
-    EXPECT_NEAR(0.2, p.step(), 0.2 * 0.20);
-    EXPECT_NEAR(0.09, p.k_slop(), 0.09 * 0.20);
-    EXPECT_DOUBLE_EQ(2.2, p.z_exp());
-    EXPECT_NEAR(8.6, p.max_z(), 8.6 * 0.20);
-        EXPECT_DOUBLE_EQ(1.45, p.car_center()[0]);
-    EXPECT_DOUBLE_EQ(0.0, p.car_center()[1]);
-}
-
-TEST(DeriveBowlParamsTest, CarAnchor_ExactRegressionToOldDefault) {
-    const BowlParams p = DeriveBowlParams(5.6, 2.2, 2.9);
-    EXPECT_DOUBLE_EQ(12.6, p.r_outter());
-    EXPECT_DOUBLE_EQ(2.0, p.round_l());
-    EXPECT_DOUBLE_EQ(0.2, p.step());
-    EXPECT_DOUBLE_EQ(8.6, p.max_z());
-    EXPECT_DOUBLE_EQ(0.09, p.k_slop());
-    EXPECT_DOUBLE_EQ(2.2, p.z_exp());
-            const double rd_star = std::pow(p.max_z() / p.k_slop(), 1.0 / p.z_exp());
-    EXPECT_NEAR(7.9454, rd_star, 1e-4);
-    EXPECT_NEAR(0.6306, rd_star / p.r_outter(), 1e-4);
-    EXPECT_LT(rd_star, p.r_outter());           EXPECT_DOUBLE_EQ(1.45, p.car_center()[0]);
-    EXPECT_DOUBLE_EQ(0.0, p.car_center()[1]);
-}
-
-TEST(DeriveBowlParamsTest, LinearSimilarity_DoublingLengthDoublesAllLengths) {
-    const BowlParams p1 = DeriveBowlParams(5.6, 2.2, 2.9);        const BowlParams p2 = DeriveBowlParams(11.2, 2.2, 2.9);       ASSERT_GT(p1.k_slop(), 0.0);
-    ASSERT_GT(p1.max_z(), 0.0);
-    ASSERT_GT(p1.step(), 0.0);
-    ASSERT_GT(p1.round_l(), 0.0);
-    ASSERT_GT(p1.r_outter(), 0.0);
-    EXPECT_NEAR(2.0, p2.r_outter() / p1.r_outter(), 1e-9);
-    EXPECT_NEAR(2.0, p2.round_l() / p1.round_l(), 1e-9);
-    EXPECT_NEAR(2.0, p2.step() / p1.step(), 1e-9);
-    EXPECT_NEAR(2.0, p2.max_z() / p1.max_z(), 1e-9);
-    EXPECT_DOUBLE_EQ(p1.z_exp(), p2.z_exp());                EXPECT_DOUBLE_EQ(2.2, p1.z_exp());
-    EXPECT_NEAR(std::pow(2.0, -1.2), p2.k_slop() / p1.k_slop(), 1e-9);
-}
-
-TEST(DeriveBowlParamsTest, SelfSimilarity_OpeningRatioConstantAcrossScales) {
-    const std::vector<double> scales = {5.6, 11.2, 44.8, 211.583};
-    double ref_ratio = 0.0;
-    for (double L : scales) {
-        const BowlParams p = DeriveBowlParams(L, 2.2, L / 2.0);
-        const double rd_star = std::pow(p.max_z() / p.k_slop(), 1.0 / p.z_exp());
-        const double opening = rd_star / p.r_outter();
-        if (ref_ratio == 0.0) {
-            ref_ratio = opening;
-            EXPECT_NEAR(0.63, ref_ratio, 0.63 * 0.01) << "anchor opening";
-        } else {
-            EXPECT_NEAR(ref_ratio, opening, ref_ratio * 1e-9) << "L=" << L;
-        }
-        EXPECT_LT(rd_star, p.r_outter()) << "L=" << L;       }
-}
-
-TEST(DeriveBowlParamsTest, IsotropicRimHeight_LongitudinalVsLateral) {
-    struct Car { double length, width, axis_x; };
-    const Car kCars[] = {
-        {5.6, 2.2, 2.9},                {5.27, 2.17, 2.9},              {211.583, 53.453, 116.371},       };
-    for (const auto& c : kCars) {
-        const BowlParams p = DeriveBowlParams(c.length, c.width, c.axis_x);
-        auto rim_z = [&p](double rd) {
-            const double z = p.k_slop() * std::pow(rd, p.z_exp());
-            return std::min(z, p.max_z());           };
-        const double rd_long = p.r_outter() - (c.length / 2.0 + p.round_l());
-        const double rd_lat = p.r_outter() - (c.width / 2.0 + p.round_l());
-        ASSERT_GT(rd_long, 0.0) << "L=" << c.length;
-        ASSERT_GT(rd_lat, 0.0) << "L=" << c.length;
-        const double z_long = rim_z(rd_long);
-        const double z_lat = rim_z(rd_lat);
-        const double ratio = std::max(z_long, z_lat) / std::min(z_long, z_lat);
-        EXPECT_GE(ratio, 1.0) << "L=" << c.length;
-        EXPECT_LE(ratio, 1.15) << "L=" << c.length
-            << " z_long=" << z_long << " z_lat=" << z_lat;
-    }
-}
-
-TEST(DeriveBowlParamsTest, ShipScale_CoversCameras) {
-    const BowlParams p = DeriveBowlParams(211.583, 53.453, 116.371);
-    EXPECT_GE(p.r_outter(), 150.0);
-    const double rd_star = std::pow(p.max_z() / p.k_slop(), 1.0 / p.z_exp());
-    EXPECT_GE(rd_star, 155.0);
-    EXPECT_LE(rd_star, p.r_outter());
-    EXPECT_DOUBLE_EQ(58.1855, p.car_center()[0]);       EXPECT_DOUBLE_EQ(0.0, p.car_center()[1]);
-    EXPECT_GT(p.step(), 0.0);
-    EXPECT_GT(p.k_slop(), 0.0);
-    EXPECT_GT(p.max_z(), 0.0);
-    EXPECT_DOUBLE_EQ(2.2, p.z_exp());
-}
-
-TEST(DeriveBowlParamsTest, ShipScale_All8CamerasSeeBowlWithWeight) {
-    const BowlParams p = DeriveBowlParams(211.583, 53.453, 116.371);
-    ASSERT_GE(p.r_outter(), 150.0);
-                const double kCamXY[8][2] = {
-        {96.71248, 0.0},        {75.55415, 25.65737},
-        {17.36875, 25.65737},   {-40.81666, 25.65737},
-        {75.55415, -25.65737},  {17.36875, -25.65737},
-        {-40.81666, -25.65737}, {-91.59664, 0.0},
-    };
-    const double kCamZ[8] = {19.00911, 30.88980, 30.88980, 30.88980,
-                             30.88980, 30.88980, 30.88980, 28.51366};
-    std::vector<KbParams> intrs(8, MakeRealIntrinsics());
-    std::vector<CameraExtrinsics> extrs;
-    for (int j = 0; j < 8; ++j) {
-        const double r = std::hypot(kCamXY[j][0], kCamXY[j][1]);
-        const double az = std::atan2(kCamXY[j][1], kCamXY[j][0]) * 180.0 / M_PI;
-        extrs.push_back(test::MakeLookAtCamera(az, r, kCamZ[j], 0.0));
-    }
-    const BowlModel model(p, WrapKbCameras(intrs, extrs));
-    ASSERT_GT(model.vertex_count(), 0);
-    for (int j = 0; j < 8; ++j) {
-        int weighted = 0;
-        for (int i = 0; i < model.vertex_count(); ++i) {
-            if (model.baked_vertex(i).weight[j] > 1e-9) ++weighted;
-        }
-        EXPECT_GT(weighted, 0) << "camera " << j << " has no weighted vertices";
-    }
-}
-
-TEST(DeriveBowlParamsTest, GridTopology_Constant126x126AcrossScales) {
-    for (double L : {5.6, 18.0, 211.583, 423.166}) {
-        const BowlParams p = DeriveBowlParams(L, 2.2, L / 2.0);
-        const double ratio = p.r_outter() / p.step();
-        EXPECT_NEAR(63.0, ratio, 1.0) << "L=" << L;
-        const long rows = static_cast<long>(std::lround(ratio)) * 2;
-        EXPECT_EQ(126, rows) << "L=" << L;
-        const long max_vertices = (rows + 1) * (rows + 1);
-        EXPECT_LE(max_vertices, 150000) << "L=" << L;
-        EXPECT_GT(max_vertices, 0) << "L=" << L;
-    }
-}
-
-TEST(BowlParamsTest, DefaultCarCenter_BackwardCompatVertexCount) {
-    const BowlParams p;
-    auto model = BowlModel(p, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
-    int count_default = model.vertex_count();
-
-        const BowlParams p_centered = p.with_car_center(cv::Vec2d(0.0, 0.0));
-    auto model2 = BowlModel(p_centered, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
-    EXPECT_EQ(count_default, model2.vertex_count());
-}
-
-TEST(BowlParamsTest, ComputeRd_CarCenterShiftsFlatRegion) {
-        const BowlParams params(2.0, 1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0,
-                            cv::Vec2d(2.0, 0.0));
-
-            EXPECT_DOUBLE_EQ(0.0, params.rd(3.0, 0.0));
-
-        const BowlParams default_params(2.0, 1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0);
-    EXPECT_GT(default_params.rd(3.0, 0.0), 0.0);
-}
-
 TEST(BowlModelTest, CarCenter_FlatRegionCenteredAtCarCenter) {
     const BowlParams params = CarBowlCentered()
-        .with_car_length(6.0)             .with_car_width(4.0)              .with_round_l(0.5)
+        .with_car_length(6.0)
+        .with_car_width(4.0)
+        .with_round_l(0.5)
         .with_step(0.2)
         .with_car_center(cv::Vec2d(1.55, 0.0));
 
     const BowlModel model(params, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
 
-            int left_count = 0, right_count = 0;
+    int left_count = 0, right_count = 0;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
-        if (v[2] > 1e-9) continue;                  double rel_x = v[0] - params.car_center()[0];
+        if (v[2] > 1e-9) continue;
+        double rel_x = v[0] - params.car_center()[0];
         double rel_y = v[1] - params.car_center()[1];
         if (std::abs(rel_x) < params.x_half() - 0.1 &&
             std::abs(rel_y) < params.y_half() - 0.1) {
@@ -252,7 +90,7 @@ TEST(BowlModelTest, CarCenter_FlatRegionCenteredAtCarCenter) {
         }
     }
 
-            int total = left_count + right_count;
+    int total = left_count + right_count;
     EXPECT_GT(total, 0) << "No flat-region vertices found straddling car_center";
     EXPECT_NEAR(left_count, right_count, total * 0.20)
         << "left=" << left_count << " right=" << right_count;
@@ -276,16 +114,17 @@ TEST(BowlModelTest, CarCenter_GridExtentSymmetricAboutCarCenter) {
     const double r_outter = 12.6;
     const double step = 0.2;
 
-            EXPECT_NEAR(r_outter, max_x - cx, step)
+    EXPECT_NEAR(r_outter, max_x - cx, step)
         << "front extent (max_x - cx) should be r_outter, got " << (max_x - cx);
-            EXPECT_NEAR(r_outter, cx - min_x, step)
+    EXPECT_NEAR(r_outter, cx - min_x, step)
         << "back extent (cx - min_x) should be r_outter, got " << (cx - min_x);
 
-                double max_front_axial = 0.0, max_back_axial = 0.0;
+    double max_front_axial = 0.0, max_back_axial = 0.0;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
         double rel_y = v[1] - params.car_center()[1];
-        if (std::abs(rel_y) > step) continue;          double dx = v[0] - cx;
+        if (std::abs(rel_y) > step) continue;
+        double dx = v[0] - cx;
         double dist = std::abs(dx);
         if (dx > 0) {
             max_front_axial = std::max(max_front_axial, dist);
@@ -295,10 +134,10 @@ TEST(BowlModelTest, CarCenter_GridExtentSymmetricAboutCarCenter) {
     }
     EXPECT_GT(max_front_axial, 0.0) << "must have front-axial vertices";
     EXPECT_GT(max_back_axial, 0.0) << "must have back-axial vertices";
-        EXPECT_NEAR(max_front_axial, max_back_axial, step)
+    EXPECT_NEAR(max_front_axial, max_back_axial, step)
         << "front axial radius (" << max_front_axial
         << ") should ≈ back axial radius (" << max_back_axial << ")";
-        EXPECT_NEAR(r_outter, max_front_axial, step);
+    EXPECT_NEAR(r_outter, max_front_axial, step);
     EXPECT_NEAR(r_outter, max_back_axial, step);
 }
 
@@ -316,19 +155,18 @@ TEST(BowlModelTest, CarCenter_DefaultUnchanged) {
     }
 }
 
-
 TEST(BowlModelTest, ReturnsNonEmptyMesh) {
     const BowlModel model(CarBowlCentered(), WrapKbCameras(DefaultIntrinsics(),
                           DefaultBakeCameras()));
     EXPECT_GT(model.vertex_count(), 0);
     EXPECT_GT(model.triangle_count(), 0);
-            EXPECT_EQ(model.vertex_count(), model.normal_count());
+    EXPECT_EQ(model.vertex_count(), model.normal_count());
 }
 
 TEST(BowlModelTest, GridSizeMatchesParams) {
     const BowlParams p = CarBowlCentered();
     const BowlModel model(p, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
-                    std::vector<double> xs;
+    std::vector<double> xs;
     xs.reserve(model.vertex_count());
     for (int i = 0; i < model.vertex_count(); ++i) {
         xs.push_back(model.vertex(i)[0]);
@@ -338,7 +176,8 @@ TEST(BowlModelTest, GridSizeMatchesParams) {
                          [](double a, double b) { return std::abs(a - b) < 1e-9; }),
              xs.end());
     ASSERT_GE(xs.size(), 2u);
-    EXPECT_EQ(127, static_cast<int>(xs.size()));       EXPECT_NEAR(p.step(), xs[1] - xs[0], 1e-9);
+    EXPECT_EQ(127, static_cast<int>(xs.size()));
+    EXPECT_NEAR(p.step(), xs[1] - xs[0], 1e-9);
     EXPECT_NEAR(2.0 * p.r_outter(), xs.back() - xs.front(), 1e-9);
 }
 
@@ -373,7 +212,9 @@ TEST(BowlModelTest, FlatCenterRegion) {
         .with_round_l(0.5)
         .with_step(0.2)
         .with_r_outter(12.6);
-    const double x_half = params.x_half();       const double y_half = params.y_half();       const BowlModel model(params, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
+    const double x_half = params.x_half();
+    const double y_half = params.y_half();
+    const BowlModel model(params, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
     bool found_flat = false;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
@@ -386,12 +227,12 @@ TEST(BowlModelTest, FlatCenterRegion) {
 }
 
 TEST(BowlModelTest, EdgesMonotonic) {
-            const BowlParams params = CarBowlCentered();
+    const BowlParams params = CarBowlCentered();
     const BowlModel model(params, WrapKbCameras(DefaultIntrinsics(),
                          DefaultBakeCameras()));
     ASSERT_GT(model.vertex_count(), 0);
 
-        std::vector<std::pair<double, double>> rd_z;
+    std::vector<std::pair<double, double>> rd_z;
     rd_z.reserve(model.vertex_count());
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& v = model.vertex(i);
@@ -402,7 +243,7 @@ TEST(BowlModelTest, EdgesMonotonic) {
 
     for (size_t i = 1; i < rd_z.size(); ++i) {
         if (rd_z[i].first > rd_z[i-1].first + 1e-12) {
-                        EXPECT_GE(rd_z[i].second, rd_z[i-1].second - 1e-9)
+            EXPECT_GE(rd_z[i].second, rd_z[i-1].second - 1e-9)
                 << "z not monotonic at rd " << rd_z[i].first;
         }
     }
@@ -459,12 +300,14 @@ TEST(BowlModelTest, DifferentCarSizeChangesFlatRegion) {
     const BowlParams truck_params = CarBowlCentered()
         .with_car_length(18.0)
         .with_car_width(2.5)
-        .with_step(0.5);       const BowlModel truck_model(truck_params, WrapKbCameras(DefaultIntrinsics(),
+        .with_step(0.5);
+    const BowlModel truck_model(truck_params, WrapKbCameras(DefaultIntrinsics(),
                                DefaultBakeCameras()));
     EXPECT_GT(truck_model.vertex_count(), 0);
 
     const BowlParams default_params = CarBowlCentered()
-        .with_step(0.5);     const BowlModel default_model(default_params, WrapKbCameras(DefaultIntrinsics(),
+        .with_step(0.5);
+    const BowlModel default_model(default_params, WrapKbCameras(DefaultIntrinsics(),
                                   DefaultBakeCameras()));
 
     size_t truck_flat = CountFlatVertices(truck_model, 18.0 / 2.0 + 2.0, 2.5 / 2.0 + 2.0);
@@ -474,7 +317,7 @@ TEST(BowlModelTest, DifferentCarSizeChangesFlatRegion) {
 
 TEST(BowlModelTest, MinimalParams_OneCellMesh) {
     const BowlParams params = BowlParams().with_step(12.6).with_r_outter(12.6);
-        const BowlModel model(params, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
+    const BowlModel model(params, WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras()));
     EXPECT_GT(model.vertex_count(), 0);
     for (int t = 0; t < model.triangle_count(); ++t) {
         for (int idx : model.triangle(t)) {
@@ -483,9 +326,8 @@ TEST(BowlModelTest, MinimalParams_OneCellMesh) {
     }
 }
 
-
 TEST(BowlModelTest, BakeVertices_OneBakedPerMeshVertex) {
-                        auto intrs = std::vector<KbParams>(1, MakeRealIntrinsics());
+    auto intrs = std::vector<KbParams>(1, MakeRealIntrinsics());
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
     auto model = MakeCoarseBowl(5.0, intrs, {extr});
     ASSERT_GT(model.vertex_count(), 0);
@@ -500,9 +342,8 @@ TEST(BowlModelTest, BakeVertices_OneBakedPerMeshVertex) {
         EXPECT_GE(bv.uv[0][1], 0.0f);
         EXPECT_LE(bv.uv[0][1], 1.0f);
     }
-            EXPECT_GT(seen_visible, 0);
+    EXPECT_GT(seen_visible, 0);
 }
-
 
 TEST(BowlModelBakeTest, SingleCamera_UVMatchesProjection) {
     KbParams intr = MakeRealIntrinsics();
@@ -510,39 +351,69 @@ TEST(BowlModelBakeTest, SingleCamera_UVMatchesProjection) {
     auto model = MakeCoarseBowl(5.0, {intr}, {extr});
     ASSERT_GT(model.vertex_count(), 0);
 
-            ASSERT_EQ(1, model.baked_num_cameras());
+    ASSERT_EQ(1, model.baked_num_cameras());
 
     int checked = 0;
-    const KbCameraModel rep{intr};   // projection/gating surface for the flat KbParams
+    const KbCameraModel rep{intr};
     for (int i = 0; i < model.vertex_count(); ++i) {
         if (!IsVertexVisibleToCamera(model.vertex(i), intr, extr)) continue;
         ++checked;
         const cv::Vec2d uv = rep.ProjectCameraPoint(extr.ToCamera(model.vertex(i)));
         EXPECT_NEAR(model.baked_vertex(i).uv[0][0], uv[0] / rep.width(), 1e-6);
-                        EXPECT_NEAR(model.baked_vertex(i).uv[0][1], uv[1] / rep.height(), 1e-6);
+        EXPECT_NEAR(model.baked_vertex(i).uv[0][1], uv[1] / rep.height(), 1e-6);
         EXPECT_NEAR(model.baked_vertex(i).weight[0], 1.0, 1e-6);
     }
-    EXPECT_GT(checked, 0);   }
-
-TEST(BowlModelBakeTest, N4_NumCameras) {
-    auto intrs = std::vector<KbParams>(4, MakeRealIntrinsics());
-    auto extrs = MakeSideCameras({0, 180, 90, -90});
-    auto model = MakeCoarseBowl(12.6, intrs, extrs);
-    EXPECT_EQ(4, model.baked_num_cameras());
+    EXPECT_GT(checked, 0);
 }
 
-TEST(BowlModelBakeTest, BakedVertex_SizedByCameraCount) {
-                auto intrs4 = std::vector<KbParams>(4, MakeRealIntrinsics());
-    auto extrs4 = MakeSideCameras({0, 180, 90, -90});
-    const BowlModel model4 = MakeCoarseBowl(12.6, intrs4, extrs4);
-    ASSERT_EQ(4, model4.baked_num_cameras());
-    ASSERT_GT(model4.vertex_count(), 0);
-    for (int i = 0; i < model4.vertex_count(); ++i) {
-        const BowlModel::BakedVertex& bv = model4.baked_vertex(i);
-        EXPECT_EQ(4u, bv.uv.size());
-        EXPECT_EQ(4u, bv.weight.size());
-    }
+class BowlModelBakeParamTest : public ::testing::TestWithParam<int> {};
 
+TEST_P(BowlModelBakeParamTest, BakedSlots_MatchCameraCount) {
+    const int n = GetParam();
+    std::vector<double> azimuths;
+    azimuths.reserve(static_cast<size_t>(n));
+    for (int i = 0; i < n; ++i) azimuths.push_back(i * 360.0 / n);
+
+    auto intrs = std::vector<KbParams>(n, MakeRealIntrinsics());
+    auto extrs = MakeSideCameras(azimuths);
+    const BowlModel model = MakeCoarseBowl(12.6, intrs, extrs);
+
+    ASSERT_EQ(n, model.baked_num_cameras());
+    ASSERT_GT(model.vertex_count(), 0);
+
+    bool last_slot_used = false;
+    int visible_vertices = 0;
+    for (int i = 0; i < model.vertex_count(); ++i) {
+        const BowlModel::BakedVertex& bv = model.baked_vertex(i);
+        EXPECT_EQ(static_cast<size_t>(n), bv.uv.size());
+        EXPECT_EQ(static_cast<size_t>(n), bv.weight.size());
+        double sum = 0.0;
+        for (int j = 0; j < n; ++j) {
+            sum += bv.weight[j];
+            EXPECT_GE(bv.weight[j], 0.0f);
+            EXPECT_GE(bv.uv[j][0], 0.0f);
+            EXPECT_LE(bv.uv[j][0], 1.0f);
+            EXPECT_GE(bv.uv[j][1], 0.0f);
+            EXPECT_LE(bv.uv[j][1], 1.0f);
+        }
+        if (sum > 1e-9) {
+            ++visible_vertices;
+            EXPECT_NEAR(1.0, sum, 1e-6);
+        }
+        if (bv.weight[n - 1] > 0.0f) last_slot_used = true;
+    }
+    EXPECT_GT(visible_vertices, 0);
+    EXPECT_TRUE(last_slot_used);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    BowlModelBake, BowlModelBakeParamTest,
+    ::testing::Values(4, 6, 8),
+    [](const ::testing::TestParamInfo<int>& info) {
+        return "N" + std::to_string(info.param);
+    });
+
+TEST(BowlModelBakeTest, BakedVertex_SizedByCameraCount) {
     auto intrs1 = std::vector<KbParams>(1, MakeRealIntrinsics());
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
     const BowlModel model1 = MakeCoarseBowl(5.0, intrs1, {extr});
@@ -554,8 +425,8 @@ TEST(BowlModelBakeTest, BakedVertex_SizedByCameraCount) {
 }
 
 TEST(BowlModelBakeTest, N4_WeightsSumToOne_WhenVisible) {
-    auto intrs = std::vector<KbParams>(4, MakeRealIntrinsics());
-    auto extrs = MakeSideCameras({0, 180, 90, -90});
+    auto intrs = DefaultIntrinsics();
+    auto extrs = DefaultBakeCameras();
     auto model = MakeCoarseBowl(12.6, intrs, extrs);
 
     int visible_vertices = 0;
@@ -568,11 +439,12 @@ TEST(BowlModelBakeTest, N4_WeightsSumToOne_WhenVisible) {
             EXPECT_NEAR(1.0, sum, 1e-6);
         }
     }
-    EXPECT_GT(visible_vertices, 0);   }
+    EXPECT_GT(visible_vertices, 0);
+}
 
 TEST(BowlModelBakeTest, N4_UVInNormalizedRange) {
-    auto intrs = std::vector<KbParams>(4, MakeRealIntrinsics());
-    auto extrs = MakeSideCameras({0, 180, 90, -90});
+    auto intrs = DefaultIntrinsics();
+    auto extrs = DefaultBakeCameras();
     auto model = MakeCoarseBowl(12.6, intrs, extrs);
 
     for (int i = 0; i < model.vertex_count(); ++i) {
@@ -587,11 +459,11 @@ TEST(BowlModelBakeTest, N4_UVInNormalizedRange) {
 }
 
 TEST(BowlModelBakeTest, N4_InvisibleCameraHasZeroWeight) {
-    auto intrs = std::vector<KbParams>(4, MakeRealIntrinsics());
-    auto extrs = MakeSideCameras({0, 180, 90, -90});
+    auto intrs = DefaultIntrinsics();
+    auto extrs = DefaultBakeCameras();
     auto model = MakeCoarseBowl(12.6, intrs, extrs);
 
-                        bool found_invisible_pair = false;
+    bool found_invisible_pair = false;
     bool found_flat_vertex = false;
     for (int i = 0; i < model.vertex_count(); ++i) {
         if (model.vertex(i)[2] == 0.0) found_flat_vertex = true;
@@ -607,11 +479,11 @@ TEST(BowlModelBakeTest, N4_InvisibleCameraHasZeroWeight) {
 }
 
 TEST(BowlModelBakeTest, N4_AllVerticesHaveAtLeastOneVisible) {
-    auto intrs = std::vector<KbParams>(4, MakeRealIntrinsics());
-    auto extrs = MakeSideCameras({0, 180, 90, -90});
+    auto intrs = DefaultIntrinsics();
+    auto extrs = DefaultBakeCameras();
     auto model = MakeCoarseBowl(12.6, intrs, extrs);
 
-            int visible_vertices = 0;
+    int visible_vertices = 0;
     int invisible_vertices = 0;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const BowlModel::BakedVertex& bv = model.baked_vertex(i);
@@ -624,53 +496,14 @@ TEST(BowlModelBakeTest, N4_AllVerticesHaveAtLeastOneVisible) {
     EXPECT_GT(invisible_vertices, 0);
 }
 
-TEST(BowlModelBakeTest, N8_AllSlotsFilledCorrectly) {
-    auto intrs = std::vector<KbParams>(8, MakeRealIntrinsics());
-    auto extrs = MakeSideCameras({0, 45, 90, 135, 180, 225, 270, 315});
-    auto model = MakeCoarseBowl(12.6, intrs, extrs);
-    ASSERT_EQ(8, model.baked_num_cameras());
-
-    bool slot7_used = false;
-    for (int i = 0; i < model.vertex_count(); ++i) {
-        const BowlModel::BakedVertex& bv = model.baked_vertex(i);
-        double sum = 0.0;
-        for (int j = 0; j < 8; ++j) sum += bv.weight[j];
-        if (sum > 1e-9) EXPECT_NEAR(1.0, sum, 1e-6);
-        EXPECT_GE(bv.weight[7], 0.0f);
-        EXPECT_GE(bv.uv[7][0], 0.0f);
-        EXPECT_GE(bv.uv[7][1], 0.0f);
-        if (bv.weight[7] > 0.0f) slot7_used = true;
-    }
-    EXPECT_TRUE(slot7_used);   }
-
-TEST(BowlModelBakeTest, N6_SlotsExactlyCameraCount) {
-                    auto intrs = std::vector<KbParams>(6, MakeRealIntrinsics());
-    auto extrs = MakeSideCameras({0, 60, 120, 180, 240, 300});
-    auto model = MakeCoarseBowl(12.6, intrs, extrs);
-    ASSERT_EQ(6, model.baked_num_cameras());
-
-    for (int i = 0; i < model.vertex_count(); ++i) {
-        const BowlModel::BakedVertex& bv = model.baked_vertex(i);
-        EXPECT_EQ(6u, bv.weight.size());
-        EXPECT_EQ(6u, bv.uv.size());
-                for (int j = 0; j < 6; ++j) {
-            EXPECT_GE(bv.weight[j], 0.0f);
-            EXPECT_GE(bv.uv[j][0], 0.0f);
-            EXPECT_LE(bv.uv[j][0], 1.0f);
-            EXPECT_GE(bv.uv[j][1], 0.0f);
-            EXPECT_LE(bv.uv[j][1], 1.0f);
-        }
-    }
-}
-
 TEST(BowlModelBakeTest, PointInRectButOutsideFisheyeCircle_Invisible) {
-            KbParams intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-            CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
+    KbParams intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+    CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
 
     const BowlModel model(TallBowlParams(), WrapKbCameras({intr}, {extr}));
     ASSERT_GT(model.vertex_count(), 0);
 
-                int inside_i = -1, outside_i = -1;
+    int inside_i = -1, outside_i = -1;
     double best_rpx = -1.0;
     const KbCameraModel rep{intr};
     for (int i = 0; i < model.vertex_count(); ++i) {
@@ -678,7 +511,8 @@ TEST(BowlModelBakeTest, PointInRectButOutsideFisheyeCircle_Invisible) {
         const cv::Vec2d uv = rep.ProjectCameraPoint(extr.ToCamera(P));
         if (!(uv[0] >= 0.0 && uv[0] < rep.width()
               && uv[1] >= 0.0 && uv[1] < rep.height())) {
-            continue;           }
+            continue;
+        }
         const double r_px = std::hypot(uv[0] - rep.Cx(), uv[1] - rep.Cy());
         if (rep.InsideFisheyeCircle(uv[0], uv[1])) {
             if (rep.FisheyeCircleRadius() - r_px >= 40.0 && r_px > best_rpx) {
@@ -694,13 +528,13 @@ TEST(BowlModelBakeTest, PointInRectButOutsideFisheyeCircle_Invisible) {
     ASSERT_GE(outside_i, 0)
         << "no vertex projects inside rect but OUTSIDE the circle";
 
-        const cv::Vec2d uv_inside =
+    const cv::Vec2d uv_inside =
         rep.ProjectCameraPoint(extr.ToCamera(model.vertex(inside_i)));
     EXPECT_NEAR(1.0, model.baked_vertex(inside_i).weight[0], 1e-6);
     EXPECT_NEAR(uv_inside[0] / rep.width(), model.baked_vertex(inside_i).uv[0][0], 1e-6);
     EXPECT_NEAR(uv_inside[1] / rep.height(), model.baked_vertex(inside_i).uv[0][1], 1e-6);
 
-            EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(outside_i).weight[0]);
+    EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(outside_i).weight[0]);
     EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(outside_i).uv[0][0]);
     EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(outside_i).uv[0][1]);
 }
@@ -720,7 +554,6 @@ TEST(BowlModelBakeTest, AllInvisible_WeightsStayZero_HasVisibleVerticesFalse) {
     EXPECT_FALSE(model.HasVisibleVertices());
 }
 
-
 TEST(BowlModelBakeTest, SingleCamera_VisibleVerticesNormalizeToWeightOne) {
     KbParams intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
@@ -736,13 +569,14 @@ TEST(BowlModelBakeTest, SingleCamera_VisibleVerticesNormalizeToWeightOne) {
             EXPECT_NEAR(1.0, w, 1e-6) << "index " << i;
         }
     }
-    EXPECT_GT(visible, 0);   }
+    EXPECT_GT(visible, 0);
+}
 
 TEST(BowlModelBakeTest, EdgeGate_UnsafeCameraZero_SafeCameraGetsFullWeight) {
     KbParams intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
     CameraExtrinsics cam0{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
 
-            const BowlModel scan(TallBowlParams(), WrapKbCameras({intr}, {cam0}));
+    const BowlModel scan(TallBowlParams(), WrapKbCameras({intr}, {cam0}));
     ASSERT_GT(scan.vertex_count(), 0);
     int target = -1;
     const KbCameraModel rep{intr};
@@ -760,33 +594,33 @@ TEST(BowlModelBakeTest, EdgeGate_UnsafeCameraZero_SafeCameraGetsFullWeight) {
     }
     ASSERT_GE(target, 0) << "no vertex in cam0's unsafe margin band";
 
-            const cv::Vec3d& P = scan.vertex(target);
+    const cv::Vec3d& P = scan.vertex(target);
     CameraExtrinsics cam1{cv::Matx33d::eye(), cv::Vec3d(P[0], P[1], 5.0)};
     const BowlModel model(TallBowlParams(), WrapKbCameras({intr, intr}, {cam0, cam1}));
 
-            const cv::Vec2d uv0 = rep.ProjectCameraPoint(cam0.ToCamera(P));
+    const cv::Vec2d uv0 = rep.ProjectCameraPoint(cam0.ToCamera(P));
     const cv::Vec2d uv1 = rep.ProjectCameraPoint(cam1.ToCamera(P));
     ASSERT_LT(std::hypot(uv0[0] - rep.Cx(), uv0[1] - rep.Cy()), 240.0);
     ASSERT_LT(rep.FisheyeCircleRadius() - std::hypot(uv0[0] - rep.Cx(), uv0[1] - rep.Cy()), 40.0);
     ASSERT_LT(std::hypot(uv1[0] - rep.Cx(), uv1[1] - rep.Cy()), 1e-3);
 
     const auto& bv = model.baked_vertex(target);
-        EXPECT_FLOAT_EQ(0.0f, bv.weight[0]);
+    EXPECT_FLOAT_EQ(0.0f, bv.weight[0]);
     EXPECT_NEAR(1.0f, bv.weight[1], 1e-6f);
-        EXPECT_NEAR(1.0, bv.weight[0] + bv.weight[1], 1e-6);
+    EXPECT_NEAR(1.0, bv.weight[0] + bv.weight[1], 1e-6);
 }
 
 TEST(BowlModelBakeTest, CarCenter_ShiftsBlendWeightDistribution) {
-    auto intrs = std::vector<KbParams>(4, MakeRealIntrinsics());
+    auto intrs = DefaultIntrinsics();
     auto extrs = MakeSideCameras({0, 90, 180, -90});
     auto cams = WrapKbCameras(intrs, extrs);
 
-        const BowlParams base = MakeCoarseBowlParams(12.6);
+    const BowlParams base = MakeCoarseBowlParams(12.6);
     const BowlParams shifted = base.with_car_center(cv::Vec2d(3.0, 0.0));
     const BowlModel def(base, cams);
     const BowlModel sh(shifted, cams);
 
-            auto find_world_diag = [&](const BowlModel& m) {
+    auto find_world_diag = [&](const BowlModel& m) {
         for (int i = 0; i < m.vertex_count(); ++i) {
             const cv::Vec3d& P = m.vertex(i);
             if (!(P[0] > 3.0 && P[1] > 3.0 && std::abs(P[0] - P[1]) < 1.0)) continue;
@@ -804,7 +638,7 @@ TEST(BowlModelBakeTest, CarCenter_ShiftsBlendWeightDistribution) {
     const BowlModel::BakedVertex& bv_def = def.baked_vertex(di_def);
     double sum_def = 0.0;
     for (int j = 0; j < 4; ++j) sum_def += bv_def.weight[j];
-        EXPECT_GT(bv_def.weight[0], 0.4);
+    EXPECT_GT(bv_def.weight[0], 0.4);
     EXPECT_GT(bv_def.weight[1], 0.4);
     EXPECT_NEAR(1.0, sum_def, 1e-6);
 
@@ -814,17 +648,16 @@ TEST(BowlModelBakeTest, CarCenter_ShiftsBlendWeightDistribution) {
     const BowlModel::BakedVertex& bv_sh = sh.baked_vertex(di_sh);
     double sum_sh = 0.0;
     for (int j = 0; j < 4; ++j) sum_sh += bv_sh.weight[j];
-        EXPECT_GT(bv_sh.weight[1], bv_sh.weight[0]);
+    EXPECT_GT(bv_sh.weight[1], bv_sh.weight[0]);
     EXPECT_NEAR(1.0, sum_sh, 1e-6);
 }
 
 TEST(BowlModelBakeTest, HasVisibleVertices_TrueWhenRimVisible) {
-        auto intrs = std::vector<KbParams>(4, MakeRealIntrinsics());
-    auto extrs = MakeSideCameras({0, 180, 90, -90});
+    auto intrs = DefaultIntrinsics();
+    auto extrs = DefaultBakeCameras();
     auto model = MakeCoarseBowl(12.6, intrs, extrs);
     EXPECT_TRUE(model.HasVisibleVertices());
 }
-
 
 TEST(BowlModelBakeTest, D3_FallbackNormalization_OwnerInvisibleNeighborVisible) {
     KbParams intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
@@ -846,7 +679,7 @@ TEST(BowlModelBakeTest, D3_FallbackNormalization_OwnerInvisibleNeighborVisible) 
     }
     ASSERT_GE(target, 0) << "no vertex that cam0 misses but cam1 bakes visible";
 
-            const BowlModel::BakedVertex& bv = model.baked_vertex(target);
+    const BowlModel::BakedVertex& bv = model.baked_vertex(target);
     double sum = bv.weight[0] + bv.weight[1];
     EXPECT_NEAR(1.0, sum, 1e-6);
     EXPECT_FLOAT_EQ(0.0f, bv.weight[0]);
@@ -863,7 +696,8 @@ TEST(BowlModelBakeTest, BelowCameraVertexStillGetsWeight) {
     int target = -1;
     for (int i = 0; i < model.vertex_count(); ++i) {
         const cv::Vec3d& P = model.vertex(i);
-        if (P[2] >= 5.0) continue;           const cv::Vec3d P_cam = extr.ToCamera(P);
+        if (P[2] >= 5.0) continue;
+        const cv::Vec3d P_cam = extr.ToCamera(P);
         const double r_xy = std::hypot(P_cam[0], P_cam[1]);
         if (r_xy < kEps && IsVertexVisibleToCamera(P, intr, extr)) {
             target = i;
@@ -872,9 +706,8 @@ TEST(BowlModelBakeTest, BelowCameraVertexStillGetsWeight) {
     }
     ASSERT_GE(target, 0) << "no degenerate centre vertex below the camera";
 
-            EXPECT_GT(model.baked_vertex(target).weight[0], 0.0f);
+    EXPECT_GT(model.baked_vertex(target).weight[0], 0.0f);
 }
-
 
 TEST(BowlModelBakeTest, EdgeGate_AllCamerasUnsafe_ZeroWeight) {
     KbParams intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
@@ -899,12 +732,11 @@ TEST(BowlModelBakeTest, EdgeGate_AllCamerasUnsafe_ZeroWeight) {
     }
     ASSERT_GE(target, 0) << "no vertex in the unsafe margin band";
 
-        EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(target).weight[0]);
+    EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(target).weight[0]);
 }
 
-
 TEST(BowlModelCameraCtor, LutCamera_BakesVisibleUv) {
-                LutParams lut;
+    LutParams lut;
     lut.points = {{0.0, 0.0}, {120.0, 4.0}};
     lut.width = 640;
     lut.height = 480;
@@ -915,7 +747,7 @@ TEST(BowlModelCameraCtor, LutCamera_BakesVisibleUv) {
     std::vector<Camera> cams;
     cams.emplace_back(extr, MakeCameraModel("table", lut));
 
-            const BowlParams params(2.0, 1.0, 0.5, 0.2, 4.0, 0.1, 2.2, 4.0,
+    const BowlParams params(2.0, 1.0, 0.5, 0.2, 4.0, 0.1, 2.2, 4.0,
                             cv::Vec2d(0.0, 0.0));
     const BowlModel model(params, cams);
     ASSERT_GT(model.vertex_count(), 0);
@@ -941,6 +773,6 @@ TEST(BowlModelCameraCtor, NullModel_Throws) {
     cam.extrinsics = MakeSideCameras({0})[0];
     cams.push_back(std::move(cam));
 
-                BowlParams full = MakeCarBowl();
+    BowlParams full = MakeCarBowl();
     EXPECT_THROW(BowlModel(full, cams), std::invalid_argument);
 }

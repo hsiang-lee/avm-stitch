@@ -61,6 +61,14 @@ inline BowlModel MakeCoarseBowl(double r_outter,
     return BowlModel(MakeCoarseBowlParams(r_outter), WrapKbCameras(intrs, extrs));
 }
 
+inline std::vector<KbParams> DefaultIntrinsics() {
+    return std::vector<KbParams>(4, MakeRealIntrinsics());
+}
+
+inline std::vector<CameraExtrinsics> DefaultBakeCameras() {
+    return MakeSideCameras({0, 180, 90, -90});
+}
+
 inline CameraExtrinsics MakeLookAtCamera(double az_deg, double r, double h,
                                          double target_z) {
     double rad = az_deg * M_PI / 180.0;
