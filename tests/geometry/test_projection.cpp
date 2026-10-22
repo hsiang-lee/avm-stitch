@@ -1,11 +1,10 @@
-// Tests for avm_stitch projection (3D world -> fisheye pixel chain).
-// Pure math, no GL / OSG dependency. Reference oracle: cv::fisheye::projectPoints.
 
 #include <gtest/gtest.h>
 
 #include <opencv2/calib3d.hpp>
 
-#include "geometry/projection.hpp"
+#include "camera_model/kb_camera_model.hpp"
+#include "camera_model/camera_extrinsics.hpp"
 
 #include <cmath>
 #include <vector>
@@ -16,9 +15,17 @@ namespace {
 
 constexpr double kPi = 3.14159265358979323846;
 
-// Build a camera-to-world rotation R_wc such that the camera at `pos` looks at
-// `target` along its local +Z axis. Columns of R_wc are the camera axes in
-// world space: [right | down | forward].
+// Hand-written equidistant model factory (the retired hand-written intrinsic
+// model folded into KbCameraModel; KbParams is flat, fisheye_radius is the
+// last field, 0 = auto inscribed circle).
+KbCameraModel MakeKbModel(int width, int height, double fx, double fy,
+                          double cx, double cy, double k1, double k2,
+                          double k3, double k4, double fisheye_radius = 0.0) {
+    const KbParams p{width, height, fx, fy, cx, cy, k1, k2, k3, k4,
+                     fisheye_radius};
+    return KbCameraModel(p);
+}
+
 cv::Matx33d MakeLookAtRotation(const cv::Vec3d& pos, const cv::Vec3d& target) {
     cv::Vec3d f = target - pos;
     f /= cv::norm(f);
@@ -32,64 +39,45 @@ cv::Matx33d MakeLookAtRotation(const cv::Vec3d& pos, const cv::Vec3d& target) {
                        r[2], u[2], f[2]);
 }
 
-} // namespace
-
-// ---------------------------------------------------------------------------
-// ProjectWorldToFishEye
-// ---------------------------------------------------------------------------
+}
 
 TEST(ProjectionTest, IdentityCamera_Center) {
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+    KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
-    double u, v;
-    ProjectWorldToFishEye(cv::Vec3d(0, 0, 1), intr, extr, u, v);
-    EXPECT_NEAR(320.0, u, 1e-6);
-    EXPECT_NEAR(240.0, v, 1e-6);
+    const cv::Vec2d uv = intr.ProjectCameraPoint(extr.ToCamera(cv::Vec3d(0, 0, 1)));
+    EXPECT_NEAR(320.0, uv[0], 1e-6);
+    EXPECT_NEAR(240.0, uv[1], 1e-6);
 }
 
 TEST(ProjectionTest, IdentityCamera_OffCenter) {
-    // Fisheye with zero distortion: u = cx + fx * atan(x_n), NOT cx + fx*x_n.
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+        KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
-    double u, v;
-    ProjectWorldToFishEye(cv::Vec3d(1, 0, 1), intr, extr, u, v);
-    EXPECT_NEAR(320.0 + 300.0 * std::atan(1.0), u, 1e-6);   // x_n = 1, theta = pi/4
-    EXPECT_NEAR(240.0, v, 1e-6);                            // y_n = 0
-}
+    const cv::Vec2d uv = intr.ProjectCameraPoint(extr.ToCamera(cv::Vec3d(1, 0, 1)));
+    EXPECT_NEAR(320.0 + 300.0 * std::atan(1.0), uv[0], 1e-6);       EXPECT_NEAR(240.0, uv[1], 1e-6);                            }
 
 TEST(ProjectionTest, WithRotation) {
-    // R_wc = Ry(30deg), t = 0. P_cam = Ry(30)^T * (0,0,1) = (-sin30, 0, cos30).
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+        KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
     double s = 0.5, c = std::sqrt(3.0) / 2.0;
     CameraExtrinsics extr{cv::Matx33d(c, 0, s,
                                       0, 1, 0,
                                      -s, 0, c),
                           cv::Vec3d(0, 0, 0)};
-    double u, v;
-    ProjectWorldToFishEye(cv::Vec3d(0, 0, 1), intr, extr, u, v);
-    // P_cam = (-0.5, 0, 0.866): x_n = -tan(30), theta = 30deg = pi/6
-    EXPECT_NEAR(320.0 - 300.0 * (kPi / 6.0), u, 1e-6);
-    EXPECT_NEAR(240.0, v, 1e-6);
+    const cv::Vec2d uv = intr.ProjectCameraPoint(extr.ToCamera(cv::Vec3d(0, 0, 1)));
+        EXPECT_NEAR(320.0 - 300.0 * (kPi / 6.0), uv[0], 1e-6);
+    EXPECT_NEAR(240.0, uv[1], 1e-6);
 }
 
 TEST(ProjectionTest, WithTranslation) {
-    // P_cam = R^T (P - t) = (0,0,1) -> on-axis -> image center.
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+        KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(1, 0, 0)};
-    double u, v;
-    ProjectWorldToFishEye(cv::Vec3d(1, 0, 1), intr, extr, u, v);
-    EXPECT_NEAR(320.0, u, 1e-6);
-    EXPECT_NEAR(240.0, v, 1e-6);
+    const cv::Vec2d uv = intr.ProjectCameraPoint(extr.ToCamera(cv::Vec3d(1, 0, 1)));
+    EXPECT_NEAR(320.0, uv[0], 1e-6);
+    EXPECT_NEAR(240.0, uv[1], 1e-6);
 }
 
 TEST(ProjectionTest, MatchesOpenCV) {
-    // Compare against cv::fisheye::projectPoints for a look-at camera with
-    // distortion. NOTE: extr.R is T_wc (camera->world); cv::fisheye needs
-    // world->camera, so pass R_cw = R_wc^T and t_cw = -R_cw * t_wc.
-    // Hand-written equidistant model must match cv::fisheye within 1e-6 px
-    // for all z>0 points (all points are forward-facing after transform).
-    CameraIntrinsics intr{1920, 1536, 441.45, 441.45, 952.14, 758.27,
-                          0.215, -0.05, 0.003, 0.0};
+                            KbCameraModel intr = MakeKbModel(1920, 1536, 441.45, 441.45, 952.14, 758.27,
+                                     0.215, -0.05, 0.003, 0.0);
     cv::Vec3d pos(3.84, -0.016, 0.66);
     cv::Vec3d target(0.0, 0.0, 0.2);
     CameraExtrinsics extr{MakeLookAtRotation(pos, target), pos};
@@ -99,164 +87,271 @@ TEST(ProjectionTest, MatchesOpenCV) {
         {2.0, 2.0, 0.5}, {-2.0, -1.0, 0.8}, {3.0, 0.0, 0.6}
     };
 
-    // world -> camera rvec/tvec for cv::fisheye
-    cv::Matx33d Rcw = extr.R.t();
-    cv::Vec3d tcw = -Rcw * extr.t;
+            cv::Matx33d Rcw = extr.RelativeRotationFrom(avm_stitch::CameraExtrinsics{});
+    cv::Vec3d tcw = -Rcw * extr.position();
     cv::Mat rvec;
     cv::Rodrigues(cv::Mat(Rcw), rvec);
     cv::Mat tvec = (cv::Mat_<double>(3, 1) << tcw[0], tcw[1], tcw[2]);
     cv::Mat K = (cv::Mat_<double>(3, 3) <<
-        intr.fx, 0, intr.cx, 0, intr.fy, intr.cy, 0, 0, 1);
-    cv::Mat D = (cv::Mat_<double>(4, 1) << intr.k1, intr.k2, intr.k3, intr.k4);
+        441.45, 0, 952.14, 0, 441.45, 758.27, 0, 0, 1);
+    cv::Mat D = (cv::Mat_<double>(4, 1) << 0.215, -0.05, 0.003, 0.0);
 
     for (const auto& P : points) {
-        double u, v;
-        ProjectWorldToFishEye(P, intr, extr, u, v);
+        const cv::Vec2d uv = intr.ProjectCameraPoint(extr.ToCamera(P));
 
         std::vector<cv::Point3d> obj_pts(1, cv::Point3d(P[0], P[1], P[2]));
         std::vector<cv::Point2d> img_pts;
         cv::fisheye::projectPoints(obj_pts, img_pts, rvec, tvec, K, D);
-        EXPECT_NEAR(img_pts[0].x, u, 1e-6);
-        EXPECT_NEAR(img_pts[0].y, v, 1e-6);
-        EXPECT_NEAR(img_pts[0].x, u, 1e-6);
-        EXPECT_NEAR(img_pts[0].y, v, 1e-6);
+        EXPECT_NEAR(img_pts[0].x, uv[0], 1e-6);
+        EXPECT_NEAR(img_pts[0].y, uv[1], 1e-6);
     }
 }
 
 TEST(ProjectionTest, PointAtCameraZ) {
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+    KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
-    double u, v;
-    ProjectWorldToFishEye(cv::Vec3d(0, 0, 2), intr, extr, u, v);
-    EXPECT_NEAR(320.0, u, 1e-6);
-    EXPECT_NEAR(240.0, v, 1e-6);
+    const cv::Vec2d uv = intr.ProjectCameraPoint(extr.ToCamera(cv::Vec3d(0, 0, 2)));
+    EXPECT_NEAR(320.0, uv[0], 1e-6);
+    EXPECT_NEAR(240.0, uv[1], 1e-6);
 }
 
 TEST(ProjectionTest, LargeDistortionK1) {
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 1.0, 0, 0, 0};
+    KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 1.0, 0, 0, 0);
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
-    double u, v;
-    ProjectWorldToFishEye(cv::Vec3d(0.5, 0, 1), intr, extr, u, v);
-    EXPECT_TRUE(std::isfinite(u));
-    EXPECT_TRUE(std::isfinite(v));
-    // theta_d = theta*(1 + k1*theta^2); theta = atan(0.5)
-    double theta = std::atan(0.5);
+    const cv::Vec2d uv = intr.ProjectCameraPoint(extr.ToCamera(cv::Vec3d(0.5, 0, 1)));
+    EXPECT_TRUE(std::isfinite(uv[0]));
+    EXPECT_TRUE(std::isfinite(uv[1]));
+        double theta = std::atan(0.5);
     double theta_d = theta * (1.0 + 1.0 * theta * theta);
-    EXPECT_NEAR(320.0 + 300.0 * theta_d, u, 1e-6);
-    EXPECT_NEAR(240.0, v, 1e-6);
+    EXPECT_NEAR(320.0 + 300.0 * theta_d, uv[0], 1e-6);
+    EXPECT_NEAR(240.0, uv[1], 1e-6);
 }
 
-// ---------------------------------------------------------------------------
-// z<0 input tests (hand-written equidistant model handles all z)
-// ---------------------------------------------------------------------------
 
 TEST(ProjectionTest, PointBehindCamera_ReturnsValidUV) {
-    // z<0 inputs no longer return (-1,-1). With identity extrinsics:
-    //   P=(0,0,-1): r_xy=0 -> degenerate -> principal point.
-    //   P=(1,0,-1): theta=atan2(1,-1)=3pi/4 -> u > cx (correct half-plane).
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+                KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
-    double u, v;
 
-    // P=(0,0,-1): r_xy=0 -> degenerate -> principal point
-    ProjectWorldToFishEye(cv::Vec3d(0, 0, -1), intr, extr, u, v);
-    EXPECT_NEAR(320.0, u, 1e-6);
-    EXPECT_NEAR(240.0, v, 1e-6);
+        {
+        const cv::Vec2d uv = intr.ProjectCameraPoint(extr.ToCamera(cv::Vec3d(0, 0, -1)));
+        EXPECT_NEAR(320.0, uv[0], 1e-6);
+        EXPECT_NEAR(240.0, uv[1], 1e-6);
+    }
 
-    // P=(1,0,-1): theta=3pi/4, u > cx (correct half-plane, not mirror)
-    ProjectWorldToFishEye(cv::Vec3d(1, 0, -1), intr, extr, u, v);
-    EXPECT_GT(u, 320.0);
-    EXPECT_NEAR(240.0, v, 1e-6);
+        {
+        const cv::Vec2d uv = intr.ProjectCameraPoint(extr.ToCamera(cv::Vec3d(1, 0, -1)));
+        EXPECT_GT(uv[0], 320.0);
+        EXPECT_NEAR(240.0, uv[1], 1e-6);
+    }
 }
 
 TEST(ProjectionTest, DegenerateBranch_OnAxis) {
-    // r_xy < eps -> u=cx, v=cy regardless of z
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
+        KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
-    double u, v;
-    ProjectWorldToFishEye(cv::Vec3d(0, 0, 1), intr, extr, u, v);
-    EXPECT_NEAR(320.0, u, 1e-6);
-    EXPECT_NEAR(240.0, v, 1e-6);
+    const cv::Vec2d uv = intr.ProjectCameraPoint(extr.ToCamera(cv::Vec3d(0, 0, 1)));
+    EXPECT_NEAR(320.0, uv[0], 1e-6);
+    EXPECT_NEAR(240.0, uv[1], 1e-6);
 }
 
-// ---------------------------------------------------------------------------
-// FisheyeCircleRadius / IsInsideFisheyeCircle
-// ---------------------------------------------------------------------------
 
 TEST(ProjectionTest, FisheyeCircleRadius_AutoInscribedCircle) {
-    // Auto radius = min(cx, cy, width-cx, height-cy) = min(320,240,320,240).
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-    EXPECT_NEAR(240.0, FisheyeCircleRadius(intr), 1e-9);
+        KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
+    EXPECT_NEAR(240.0, intr.FisheyeCircleRadius(), 1e-9);
 }
 
 TEST(ProjectionTest, FisheyeCircleRadius_ExplicitOverridesAuto) {
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-    intr.fisheye_radius = 300.0;
-    EXPECT_NEAR(300.0, FisheyeCircleRadius(intr), 1e-9);
+    KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0,
+                                     0, 0, 0, 0, 300.0);       EXPECT_NEAR(300.0, intr.FisheyeCircleRadius(), 1e-9);
 }
 
 TEST(ProjectionTest, FisheyeCircleRadius_ExplicitZeroFallsBackToAuto) {
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-    intr.fisheye_radius = 0.0;
-    EXPECT_NEAR(240.0, FisheyeCircleRadius(intr), 1e-9);
+    KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0,
+                                     0, 0, 0, 0, 0.0);       EXPECT_NEAR(240.0, intr.FisheyeCircleRadius(), 1e-9);
 }
 
-TEST(ProjectionTest, IsInsideFisheyeCircle_InsideRectAndCircle) {
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-    // (410,330): inside the rect, r = hypot(90,90) = 127.3 < 240.
-    EXPECT_TRUE(IsInsideFisheyeCircle(intr, 410.0, 330.0));
+TEST(ProjectionTest, InsideFisheyeCircle_InsideRectAndCircle) {
+    KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
+        EXPECT_TRUE(intr.InsideFisheyeCircle(410.0, 330.0));
 }
 
-TEST(ProjectionTest, IsInsideFisheyeCircle_InsideRectOutsideCircle) {
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-    // (500,420): inside the 640x480 rect (the black-dead-zone case) but
-    // r = hypot(180,180) = 254.6 > 240 -> outside the effective circle.
-    EXPECT_FALSE(IsInsideFisheyeCircle(intr, 500.0, 420.0));
+TEST(ProjectionTest, InsideFisheyeCircle_InsideRectOutsideCircle) {
+    KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
+            EXPECT_FALSE(intr.InsideFisheyeCircle(500.0, 420.0));
 }
 
-TEST(ProjectionTest, IsInsideFisheyeCircle_OnBoundary) {
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-    // Exactly on the r = 240 circle (right of centre): still valid content.
-    EXPECT_TRUE(IsInsideFisheyeCircle(intr, 320.0 + 240.0, 240.0));
-    EXPECT_FALSE(IsInsideFisheyeCircle(intr, 320.0 + 240.0 + 1e-6, 240.0));
+TEST(ProjectionTest, InsideFisheyeCircle_OnBoundary) {
+    KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
+        EXPECT_TRUE(intr.InsideFisheyeCircle(320.0 + 240.0, 240.0));
+    EXPECT_FALSE(intr.InsideFisheyeCircle(320.0 + 240.0 + 1e-6, 240.0));
 }
 
-// ---------------------------------------------------------------------------
-// FisheyeEdgeFeather — hard gate (was linear fade before 2026-09-11 fix).
-// Measured vignette profile: luminance r220=71, r230=19, r240=0.15.
-// feather_px=40 ensures points within 40px of the fisheye circle edge are
-// fully excluded (edge_factor=0), preventing the dark vignette from being
-// sampled. Points at margin >= 40 return edge_factor=1.0 (safe).
-// ---------------------------------------------------------------------------
 
-TEST(ProjectionTest, FisheyeEdgeFeather_InsideFull) {
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-    // r = 100 px from the principal point; radius 240 -> margin 140 >= 40.
-    EXPECT_NEAR(1.0, FisheyeEdgeFeather(intr, 320.0, 340.0), 1e-12);
+TEST(ProjectionTest, EdgeFeather_InsideFull) {
+    KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
+        EXPECT_NEAR(1.0, intr.EdgeFeather(320.0, 340.0), 1e-12);
 }
 
-TEST(ProjectionTest, FisheyeEdgeFeather_NearEdge_HardGate_Zero) {
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-    // r = 230 px, margin = 10 < 40 -> hard gate returns 0.0.
-    // (was 10/16 = 0.625 before the hard-gate fix)
-    EXPECT_DOUBLE_EQ(0.0, FisheyeEdgeFeather(intr, 320.0, 240.0 + 230.0));
+TEST(ProjectionTest, EdgeFeather_NearEdge_HardGate_Zero) {
+    KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
+            EXPECT_DOUBLE_EQ(0.0, intr.EdgeFeather(320.0, 240.0 + 230.0));
 }
 
-TEST(ProjectionTest, FisheyeEdgeFeather_Margin30_Zero) {
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-    // r = 210 px, margin = 30 < 40 -> hard gate: 0.0.
-    EXPECT_DOUBLE_EQ(0.0, FisheyeEdgeFeather(intr, 320.0, 240.0 + 210.0));
+TEST(ProjectionTest, EdgeFeather_Margin30_Zero) {
+    KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
+        EXPECT_DOUBLE_EQ(0.0, intr.EdgeFeather(320.0, 240.0 + 210.0));
 }
 
-TEST(ProjectionTest, FisheyeEdgeFeather_Margin50_One) {
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-    // r = 190 px, margin = 50 >= 40 -> hard gate: 1.0.
-    EXPECT_DOUBLE_EQ(1.0, FisheyeEdgeFeather(intr, 320.0, 240.0 + 190.0));
+TEST(ProjectionTest, EdgeFeather_Margin50_One) {
+    KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
+        EXPECT_DOUBLE_EQ(1.0, intr.EdgeFeather(320.0, 240.0 + 190.0));
 }
 
-TEST(ProjectionTest, FisheyeEdgeFeather_ZeroFeatherWidth) {
-    CameraIntrinsics intr{640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
-    // feather_px <= 0 disables the gate entirely (returns 1.0 for all).
-    EXPECT_NEAR(1.0, FisheyeEdgeFeather(intr, 320.0, 240.0 + 230.0, 0.0), 1e-12);
-    EXPECT_NEAR(1.0, FisheyeEdgeFeather(intr, 320.0 + 239.0, 240.0, -5.0), 1e-12);
+TEST(ProjectionTest, EdgeFeather_ZeroFeatherWidth) {
+    KbCameraModel intr = MakeKbModel(640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0);
+        EXPECT_NEAR(1.0, intr.EdgeFeather(320.0, 240.0 + 230.0, 0.0), 1e-12);
+    EXPECT_NEAR(1.0, intr.EdgeFeather(320.0 + 239.0, 240.0, -5.0), 1e-12);
+}
+
+
+TEST(CameraExtrinsicsTest, ToCamera_MatchesHandComputedRtPmT) {
+            const double s = 0.5, c = std::sqrt(3.0) / 2.0;
+    const cv::Matx33d R(c, 0, s,
+                        0, 1, 0,
+                       -s, 0, c);
+    const cv::Vec3d t(1.0, 2.0, -3.0);
+    CameraExtrinsics extr{R, t};
+
+    const cv::Vec3d P(4.0, -5.0, 6.0);
+    const cv::Vec3d expected = R.t() * (P - t);
+    const cv::Vec3d got = extr.ToCamera(P);
+    EXPECT_DOUBLE_EQ(expected[0], got[0]);
+    EXPECT_DOUBLE_EQ(expected[1], got[1]);
+    EXPECT_DOUBLE_EQ(expected[2], got[2]);
+}
+
+TEST(CameraExtrinsicsTest, ToWorldRoundTripsToCamera) {
+            const double s = 0.5, c = std::sqrt(3.0) / 2.0;
+    const cv::Matx33d R(c, 0, s,
+                        0, 1, 0,
+                       -s, 0, c);
+    const cv::Vec3d t(1.0, -2.0, 3.0);
+    CameraExtrinsics extr{R, t};
+
+    const cv::Vec3d P(-2.0, 0.5, 4.0);
+    const cv::Vec3d back = extr.ToWorld(extr.ToCamera(P));
+    EXPECT_NEAR(P[0], back[0], 1e-12);
+    EXPECT_NEAR(P[1], back[1], 1e-12);
+    EXPECT_NEAR(P[2], back[2], 1e-12);
+}
+
+TEST(CameraExtrinsicsTest, ToWorld_MatchesHandComputedRPtT) {
+    const double s = 0.5, c = std::sqrt(3.0) / 2.0;
+    const cv::Matx33d R(c, 0, s,
+                        0, 1, 0,
+                       -s, 0, c);
+    const cv::Vec3d t(1.0, -2.0, 3.0);
+    CameraExtrinsics extr{R, t};
+
+    const cv::Vec3d P_cam(0.3, -0.7, 1.4);
+    const cv::Vec3d expected = R * P_cam + t;
+    const cv::Vec3d got = extr.ToWorld(P_cam);
+    EXPECT_DOUBLE_EQ(expected[0], got[0]);
+    EXPECT_DOUBLE_EQ(expected[1], got[1]);
+    EXPECT_DOUBLE_EQ(expected[2], got[2]);
+}
+
+TEST(CameraExtrinsicsTest, RotateWorldToCamera_MatchesHandComputedRtV) {
+    const double s = 0.5, c = std::sqrt(3.0) / 2.0;
+    const cv::Matx33d R(c, 0, s,
+                        0, 1, 0,
+                       -s, 0, c);
+    CameraExtrinsics extr{R, cv::Vec3d(0, 0, 0)};
+
+    const cv::Vec3d v(0.5, -0.25, 0.75);
+    const cv::Vec3d expected = R.t() * v;
+    const cv::Vec3d got = extr.RotateWorldToCamera(v);
+    EXPECT_DOUBLE_EQ(expected[0], got[0]);
+    EXPECT_DOUBLE_EQ(expected[1], got[1]);
+    EXPECT_DOUBLE_EQ(expected[2], got[2]);
+}
+
+TEST(CameraExtrinsicsTest, RotateCameraToWorld_MatchesHandComputedRv) {
+    const double s = 0.5, c = std::sqrt(3.0) / 2.0;
+    const cv::Matx33d R(c, 0, s,
+                        0, 1, 0,
+                       -s, 0, c);
+    CameraExtrinsics extr{R, cv::Vec3d(0, 0, 0)};
+
+    const cv::Vec3d v(0.5, -0.25, 0.75);
+    const cv::Vec3d expected = R * v;
+    const cv::Vec3d got = extr.RotateCameraToWorld(v);
+    EXPECT_DOUBLE_EQ(expected[0], got[0]);
+    EXPECT_DOUBLE_EQ(expected[1], got[1]);
+    EXPECT_DOUBLE_EQ(expected[2], got[2]);
+}
+
+TEST(CameraExtrinsicsTest, Position_MatchesTVector) {
+    const double s = 0.5, c = std::sqrt(3.0) / 2.0;
+    const cv::Matx33d R(c, 0, s,
+                        0, 1, 0,
+                       -s, 0, c);
+    const cv::Vec3d t(1.0, 2.0, -3.0);
+    CameraExtrinsics extr{R, t};
+
+    EXPECT_DOUBLE_EQ(t[0], extr.position()[0]);
+    EXPECT_DOUBLE_EQ(t[1], extr.position()[1]);
+    EXPECT_DOUBLE_EQ(t[2], extr.position()[2]);
+}
+
+TEST(CameraExtrinsicsTest, DefaultConstructor_IsIdentity) {
+            CameraExtrinsics extr;
+    const cv::Vec3d P(1.0, 2.0, 3.0);
+    const cv::Vec3d out = extr.ToCamera(P);
+    EXPECT_DOUBLE_EQ(P[0], out[0]);
+    EXPECT_DOUBLE_EQ(P[1], out[1]);
+    EXPECT_DOUBLE_EQ(P[2], out[2]);
+    EXPECT_DOUBLE_EQ(0.0, extr.position()[0]);
+    EXPECT_DOUBLE_EQ(0.0, extr.position()[1]);
+    EXPECT_DOUBLE_EQ(0.0, extr.position()[2]);
+}
+
+TEST(CameraExtrinsicsTest, RelativeRotationFrom_MatchesHandComputedRbTRa) {
+            const double sa = 0.5, ca = std::sqrt(3.0) / 2.0;
+    const double sb = -0.3, cb = std::sqrt(0.91);       const cv::Matx33d Ra(ca, 0, sa,
+                         0, 1, 0,
+                        -sa, 0, ca);
+    const cv::Matx33d Rb(cb, sb, 0,
+                        -sb, cb, 0,
+                         0, 0, 1);
+    const cv::Vec3d ta(1.0, 0.0, 0.0);
+    const cv::Vec3d tb(2.0, 1.0, 0.5);
+    CameraExtrinsics a{Ra, ta};
+    CameraExtrinsics b{Rb, tb};
+
+    const cv::Matx33d expected = Rb.t() * Ra;
+    const cv::Matx33d got = b.RelativeRotationFrom(a);
+    for (int r = 0; r < 3; ++r)
+        for (int c2 = 0; c2 < 3; ++c2)
+            EXPECT_DOUBLE_EQ(expected(r, c2), got(r, c2));
+}
+
+TEST(CameraExtrinsicsTest, ToCamera_OfOtherPosition_MatchesHandComputedTAb) {
+            const double sa = 0.5, ca = std::sqrt(3.0) / 2.0;
+    const double sb = -0.3, cb = std::sqrt(0.91);
+    const cv::Matx33d Ra(ca, 0, sa,
+                         0, 1, 0,
+                        -sa, 0, ca);
+    const cv::Matx33d Rb(cb, sb, 0,
+                        -sb, cb, 0,
+                         0, 0, 1);
+    const cv::Vec3d ta(1.0, 0.0, 0.0);
+    const cv::Vec3d tb(2.0, 1.0, 0.5);
+    CameraExtrinsics a{Ra, ta};
+    CameraExtrinsics b{Rb, tb};
+
+    const cv::Vec3d expected = Rb.t() * (ta - tb);
+    const cv::Vec3d got = b.ToCamera(a.position());
+    EXPECT_DOUBLE_EQ(expected[0], got[0]);
+    EXPECT_DOUBLE_EQ(expected[1], got[1]);
+    EXPECT_DOUBLE_EQ(expected[2], got[2]);
 }

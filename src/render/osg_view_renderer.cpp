@@ -20,24 +20,15 @@ namespace avm_stitch {
 
 namespace {
 
-constexpr int kWindowSize = 16;   // tiny pbuffer that owns the GL context
-
-// Background clear colour RGB(30,36,50) — matches the stitcher default.
+constexpr int kWindowSize = 16;
 osg::Vec4 BackgroundClearColor() {
     return osg::Vec4(30.0 / 255.0, 36.0 / 255.0, 50.0 / 255.0, 1.0);
 }
 
-// VCS -> OpenGL coordinate conversion: (x, y, z) -> (x, z, -y).
 osg::Vec3 VcsToOgl(const cv::Vec3d& v) {
     return osg::Vec3(v[0], v[2], -v[1]);
 }
 
-// One FBO camera per view pose: renders the bowl geometry with its own
-// view/projection into an attached osg::Image (RGBA). Each camera gets its own
-// Geode that references the SAME Geometry drawable and StateSet: osg::Node has
-// single-parent ownership, so the same Geode cannot be a child of several
-// cameras (addChild would silently reparent it to the last one). Sharing the
-// Drawable/StateSet across Geodes is legal — only Nodes are single-parent.
 osg::ref_ptr<osg::Camera> CreateViewCamera(const ViewPose& pose,
                                            const osg::ref_ptr<osg::Drawable>& bowl_drawable,
                                            const osg::ref_ptr<osg::StateSet>& bowl_stateset,
@@ -62,28 +53,18 @@ osg::ref_ptr<osg::Camera> CreateViewCamera(const ViewPose& pose,
     cam->setViewMatrixAsLookAt(VcsToOgl(pose.position), VcsToOgl(pose.target),
                                VcsToOgl(pose.up));
 
-    // The vcpkg osg GL2 build does not auto-update osg_ModelViewProjectionMatrix
-    // (fixed-function mode), so supply it explicitly per camera. Must use
-    // osg::Matrixf: Matrixd uniforms trigger GL_INVALID_OPERATION on this build.
-    osg::Matrixf mvp(cam->getViewMatrix() * cam->getProjectionMatrix());
+                osg::Matrixf mvp(cam->getViewMatrix() * cam->getProjectionMatrix());
     cam->getOrCreateStateSet()->addUniform(
         new osg::Uniform("osg_ModelViewProjectionMatrix", mvp));
 
     if (bowl_drawable) {
         auto geode = new osg::Geode;
-        geode->addDrawable(bowl_drawable.get());   // SAME geometry, own geode — legal
-        if (bowl_stateset) geode->setStateSet(bowl_stateset.get());
+        geode->addDrawable(bowl_drawable.get());           if (bowl_stateset) geode->setStateSet(bowl_stateset.get());
         cam->addChild(geode);
     }
     return cam;
 }
 
-// Pre-draw callback that recomputes osg_ModelViewProjectionMatrix from the
-// camera's own view/projection matrices every frame. Required in Windowed
-// mode: the TrackballManipulator changes the view matrix per frame, but the
-// vcpkg OSG GL2 build does not auto-update the built-in uniform. NOTE: must
-// read camera_->getViewMatrix(), NOT state->getModelViewMatrix() — the
-// latter returns identity when GLSL shaders are active on this build.
 struct MVPUpdateCallback : public osg::Camera::DrawCallback {
     osg::ref_ptr<osg::Uniform> uniform_;
     osg::ref_ptr<osg::Camera> camera_;
@@ -97,8 +78,7 @@ struct MVPUpdateCallback : public osg::Camera::DrawCallback {
     }
 };
 
-} // namespace
-
+}
 OSGViewRenderer::OSGViewRenderer(const StitchScene& scene,
                                  double scene_radius,
                                  const std::vector<ViewPose>& view_poses,
@@ -122,10 +102,8 @@ OSGViewRenderer::OSGViewRenderer(const StitchScene& scene,
 
     if (mode == RenderMode::Windowed) {
         SetupWindowed(root);
-        return;  // Windowed mode: skip FBO camera creation
-    } else {
-        // Headless EGL surfaceless GL context (Offscreen).
-        osg::ref_ptr<EGLHeadlessContext> gc =
+        return;      } else {
+                osg::ref_ptr<EGLHeadlessContext> gc =
             CreateEGLHeadlessContext(kWindowSize, kWindowSize);
         osg::Camera* main_cam = viewer_->getCamera();
         main_cam->setGraphicsContext(gc.get());
@@ -136,8 +114,7 @@ OSGViewRenderer::OSGViewRenderer(const StitchScene& scene,
 }
 
 void OSGViewRenderer::SetupWindowed(osg::ref_ptr<osg::Group> root) {
-    // Real X11 window — requires DISPLAY / WAYLAND_DISPLAY.
-    osg::ref_ptr<osg::GraphicsContext::Traits> traits =
+        osg::ref_ptr<osg::GraphicsContext::Traits> traits =
         new osg::GraphicsContext::Traits;
     traits->x = 100;
     traits->y = 100;
@@ -150,8 +127,7 @@ void OSGViewRenderer::SetupWindowed(osg::ref_ptr<osg::Group> root) {
 
     osg::ref_ptr<osg::GraphicsContext> gc =
         osg::GraphicsContext::createGraphicsContext(traits.get());
-    if (!gc) return;  // bail out gracefully if no display
-
+    if (!gc) return;
     osg::Camera* main_cam = viewer_->getCamera();
     main_cam->setGraphicsContext(gc);
     main_cam->setViewport(0, 0, traits->width, traits->height);
@@ -161,40 +137,25 @@ void OSGViewRenderer::SetupWindowed(osg::ref_ptr<osg::Group> root) {
     double aspect =
         static_cast<double>(traits->width) / traits->height;
 
-    // Offset home camera eye/target by car_center so the view
-    // centres on the bowl geometry rather than the data origin.
-    // VCS(x,y,z) → OGL(x,z,-y), so OGL offset = (cx, 0, -cy).
-    // The whole home rig scales with the bowl (scale=1 reproduces the exact
-    // historical car rig: eye (10,-6,6), target (0,0,0.5), trackball 12 m) so
-    // the example viewer frames ships as well as cars.
-    const double cx = car_center_[0];
+                            const double cx = car_center_[0];
     const double cy = car_center_[1];
     const double scale = scene_radius_ / kCalibratedAnchorRoutter;
     const osg::Vec3d home_eye(10.0 * scale + cx, -6.0 * scale, 6.0 * scale - cy);
     const osg::Vec3d home_target(cx, 0.0, 0.5 * scale - cy);
     const osg::Vec3d home_up(0.0, 0.0, 1.0);
 
-    // Depth clip planes derived from the windowed home camera's own
-    // eye→target distance + the bowl radius (scale-derived, never fixed
-    // car-scale constants).
-    const double max_eye = (home_eye - home_target).length();
+                const double max_eye = (home_eye - home_target).length();
     const ClipPlanes clip = ComputeClipPlanes(scene_radius_, max_eye);
     main_cam->setProjectionMatrixAsPerspective(60.0, aspect, clip.near, clip.far);
     main_cam->setViewMatrixAsLookAt(home_eye, home_target, home_up);
 
-    // vcpkg OSG GL2 build does not auto-update osg_ModelViewProjectionMatrix;
-    // the TrackballManipulator changes the view matrix every frame, so
-    // recompute the uniform per-draw via PreDraw callback.
-    auto mvp_uniform = new osg::Uniform("osg_ModelViewProjectionMatrix",
+                auto mvp_uniform = new osg::Uniform("osg_ModelViewProjectionMatrix",
                                          osg::Matrixf::identity());
     main_cam->getOrCreateStateSet()->addUniform(mvp_uniform);
     main_cam->setPreDrawCallback(new MVPUpdateCallback(mvp_uniform, main_cam));
 
-    // scene.root() already contains bowl_geode_ — do not add it again.
 
-    // Set TrackballManipulator for mouse interaction. The interaction
-    // distance scales with the bowl (scale=1 → the historical 12.0 m).
-    auto manip = new osgGA::TrackballManipulator;
+            auto manip = new osgGA::TrackballManipulator;
     manip->setDistance(12.0 * scale);
     manip->setTransformation(home_eye, home_target, home_up);
     viewer_->setCameraManipulator(manip);
@@ -206,17 +167,10 @@ void OSGViewRenderer::SetupOffscreenCameras(const StitchScene& scene,
                                              const std::vector<ViewPose>& view_poses) {
     osg::ref_ptr<osg::Group> root = scene.root();
 
-    // The bowl drawable + mapping-shader StateSet are shared across all
-    // per-view cameras: take them from the scene, then let each camera build
-    // its OWN geode around them.
-    osg::ref_ptr<osg::Drawable> bowl_drawable = scene.bowl_drawable();
+                osg::ref_ptr<osg::Drawable> bowl_drawable = scene.bowl_drawable();
     osg::ref_ptr<osg::StateSet> bowl_stateset = scene.bowl_stateset();
 
-    // One shared near/far pair for all views: depth clip planes derived from
-    // the scene scale and the FARTHEST view-pose eye→target distance — the
-    // built-in fixed near/far (0.1/100) clipped the whole bowl for 219-277 m
-    // ship view poses (black worker output). scale=1 reproduces 0.1/100.
-    double max_eye = 0.0;
+                    double max_eye = 0.0;
     for (const auto& pose : view_poses) {
         max_eye = std::max(max_eye, cv::norm(pose.position - pose.target));
     }
@@ -251,18 +205,13 @@ std::map<std::string, cv::Mat> OSGViewRenderer::RenderAllViews() {
     for (size_t i = 0; i < view_cameras_.size(); ++i) {
         osg::Image* color_image = view_images_[i].get();
         if (!color_image || !color_image->data()) {
-            // No rendered pixels (e.g. no GL context): leave an empty Mat.
-            results[view_names_[i]] = cv::Mat();
+                        results[view_names_[i]] = cv::Mat();
             continue;
         }
         cv::Mat rgba(output_height_, output_width_, CV_8UC4, color_image->data());
         cv::Mat bgr;
         cv::cvtColor(rgba, bgr, cv::COLOR_RGBA2BGR);
-        // FBO readback flip: GL framebuffer row 0 is the scene BOTTOM (GL
-        // window origin is bottom-left), but cv::Mat row 0 is the image TOP.
-        // The reference subprocess stitcher flips the readback; without this
-        // the rendered view is vertically mirrored.
-        cv::flip(bgr, bgr, 0);
+                                        cv::flip(bgr, bgr, 0);
         results[view_names_[i]] = bgr.clone();
     }
     return results;
@@ -271,10 +220,9 @@ std::map<std::string, cv::Mat> OSGViewRenderer::RenderAllViews() {
 void OSGViewRenderer::WaitForWindowClose() {
     if (mode_ == RenderMode::Offscreen || !viewer_.valid()) return;
     EnsureRealized();
-    // Block until the viewer's window is closed.
-    while (!viewer_->done()) {
+        while (!viewer_->done()) {
         viewer_->frame();
     }
 }
 
-} // namespace avm_stitch
+}

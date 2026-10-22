@@ -1,7 +1,3 @@
-// Tests for the headless EGL surfaceless GraphicsWindow (desktop GL 3.3
-// compatibility profile, no window, no X server). These tests MUST pass with
-// DISPLAY unset (`env -u DISPLAY ./build/test_egl_headless_context`): the EGL
-// surfaceless platform ignores DISPLAY entirely.
 
 #define GL_GLEXT_PROTOTYPES
 #include <GL/gl.h>
@@ -19,7 +15,6 @@
 using namespace avm_stitch;
 using avm_stitch::test::OSGGLTest;
 
-// The context must realize and report valid without any window/display.
 TEST_F(OSGGLTest, RealizesValidHeadless) {
     auto gc = CreateEGLHeadlessContext(16, 16);
     ASSERT_TRUE(gc.valid());
@@ -30,8 +25,6 @@ TEST_F(OSGGLTest, RealizesValidHeadless) {
     EXPECT_FALSE(gc->isRealizedImplementation());
 }
 
-// makeCurrent must succeed and expose a desktop-GL context (GL_VERSION
-// non-null and not an ES string).
 TEST_F(OSGGLTest, MakeCurrentExposesDesktopGL) {
     auto gc = CreateEGLHeadlessContext(16, 16);
     ASSERT_TRUE(gc->realizeImplementation());
@@ -39,19 +32,14 @@ TEST_F(OSGGLTest, MakeCurrentExposesDesktopGL) {
     const char* ver = reinterpret_cast<const char*>(glGetString(GL_VERSION));
     ASSERT_NE(nullptr, ver);
     const std::string version(ver);
-    // ES contexts report "OpenGL ES X.Y"; desktop GL reports "X.Y ...".
-    EXPECT_EQ(std::string::npos, version.find("OpenGL ES"));
-    // A compatibility profile names the profile; otherwise a desktop GL
-    // version prefix (3.x/4.x) also proves this is not an ES context.
-    EXPECT_TRUE(version.find("Compatibility") != std::string::npos ||
+        EXPECT_EQ(std::string::npos, version.find("OpenGL ES"));
+            EXPECT_TRUE(version.find("Compatibility") != std::string::npos ||
                 version.compare(0, 2, "4.") == 0 ||
                 version.compare(0, 2, "3.") == 0);
     gc->releaseContextImplementation();
     gc->closeImplementation();
 }
 
-// A GLSL 330 core shader must compile on the context (proves it is a real
-// desktop GL 3.3+ context, not an ES-only context).
 TEST_F(OSGGLTest, GLSL330Compiles) {
     auto gc = CreateEGLHeadlessContext(16, 16);
     ASSERT_TRUE(gc->realizeImplementation());
@@ -71,7 +59,6 @@ TEST_F(OSGGLTest, GLSL330Compiles) {
     gc->closeImplementation();
 }
 
-// releaseContext then re-makeCurrent works (viewer frame() calls both).
 TEST_F(OSGGLTest, ReleaseThenRemakeCurrent) {
     auto gc = CreateEGLHeadlessContext(16, 16);
     ASSERT_TRUE(gc->realizeImplementation());

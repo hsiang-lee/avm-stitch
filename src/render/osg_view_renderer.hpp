@@ -1,13 +1,6 @@
 #pragma once
 
-// Offscreen / windowed multi-view rendering with OpenSceneGraph:
-//   - Construction: creates a viewer with either a headless EGL context
-//     (Offscreen) or a real X11 window (Windowed), plus one FBO camera per
-//     view pose (children of root).
-//   - RenderAllViews: renders every view into its FBO and reads back RGBA
-//     pixels as BGR cv::Mat (960x640 default).
 //
-// Default AVM view poses (pure math, header-only).
 
 #include "render/stitch_scene.hpp"
 
@@ -26,33 +19,20 @@
 
 namespace avm_stitch {
 
-/// Rendering mode for OSGViewRenderer.
-/// - Offscreen (default): headless EGL surfaceless GL context, no window.
-/// - Windowed: real X11 window with trackball controls (requires DISPLAY).
 enum class RenderMode { Offscreen, Windowed };
 
 struct ViewPose {
     std::string name;
-    cv::Vec3d position;   // VCS, metres
-    cv::Vec3d target;
+    cv::Vec3d position;       cv::Vec3d target;
     cv::Vec3d up;
     double fovy_deg = 60.0;
 };
 
-// Default AVM view poses (pure math, header-only): the 4 side-view frame.
-// Dimensions are the historically calibrated
-// car-scale values; the scale factor multiplies every car-relative offset
-// AND the absolute camera/target height so the frame covers vehicles of
-// any size (callers pass r_outter/12.6 == the DeriveBowlParams scale s).
-// scale=1.0 reproduces the exact hardcoded car frame.
-// (The former topdown / straight-overhead view was removed: the stitch page
-// uses only the four 3D side views.)
 inline std::vector<ViewPose> DefaultViewPoses(const cv::Vec2d& car_center = cv::Vec2d(0.0, 0.0),
                                               double scale = 1.0) {
     const double cx = car_center[0];
     const double cy = car_center[1];
-    const double z_ground = 0.2 * scale;   // look-at target height over the flat bowl centre
-    return {
+    const double z_ground = 0.2 * scale;       return {
         {"3d_front", {cx + 5.8 * scale, cy, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
         {"3d_rear",  {cx - 5.8 * scale, cy, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
         {"3d_left",  {cx, cy + 5.8 * scale, 2.0 * scale},  {cx, cy, z_ground}, {0, 0, 1}, 60.0},
@@ -65,22 +45,6 @@ struct ClipPlanes {
     double far;
 };
 
-/// Derive depth clip planes from scene extent so the bowl is never clipped
-/// at any vehicle scale. scene_radius = bowl r_outter (metres);
-/// max_eye_to_target = the farthest view-pose camera-to-target distance.
-/// Constants are GLOBAL and scale-free (not per-vehicle presets):
-///   - kFarMargin: far = kFarMargin·(eye→target + r_outter). Calibrated so
-///     the car anchor (r_outter=12.6, 4-view max eye→target≈6.0729 — side
-///     poses at z=2.0 targeting z=0.2, the topdown 6.0788 outlier removed)
-///     reproduces the historical far=100 exactly; at ship scale (r_outter≈476,
-///     max eye≈229.6) far≈3778 — ≈6× the farthest bowl vertex from any eye,
-///     so the bowl is never clipped at any vehicle scale.
-///   - kNearRel: near floor = scene_radius·1% (car ≈0.13 m, ship ≈4.8 m) so
-///     the near wall of the bowl is never clipped from any view pose, yet
-///     far/1000 caps it to the historical 1:1000 depth-resolution ratio
-///     (the old hardcoded pair 0.1/100 is exactly 1:1000).
-/// Invariants: near < far; near ≥ far/1000 (depth resolution never worse
-/// than the car's historical ratio).
 inline ClipPlanes ComputeClipPlanes(double scene_radius, double max_eye_to_target) {
     constexpr double kFarMargin = 5.3553572528096565;
     constexpr double kNearRel = 0.01;
@@ -91,20 +55,7 @@ inline ClipPlanes ComputeClipPlanes(double scene_radius, double max_eye_to_targe
 
 class OSGViewRenderer {
 public:
-    /// Build the renderer: creates an osgViewer::Viewer with either a headless
-    /// EGL context (Offscreen) or a real X11 window (Windowed), plus one FBO
-    /// camera per view pose (children of the scene root). Construction performs
-    /// no GL rendering — viewer realize() stays lazy until first render.
-    /// @param scene         scene graph owner (root + bowl drawable/stateset)
-    /// @param scene_radius  bowl r_outter (metres) — depth clip planes are
-    ///                      derived from this so the bowl is never clipped at
-    ///                      any vehicle scale (car 12.6, ship ~476).
-    /// @param view_poses    view poses to render (one FBO camera each)
-    /// @param output_width  output image width
-    /// @param output_height output image height
-    /// @param mode          Offscreen (default) or Windowed
-    /// @param car_center    VCS offset of the bowl centre (0 = data origin)
-    OSGViewRenderer(const StitchScene& scene,
+                                                        OSGViewRenderer(const StitchScene& scene,
                     double scene_radius,
                     const std::vector<ViewPose>& view_poses,
                     int output_width, int output_height,
@@ -114,13 +65,9 @@ public:
     OSGViewRenderer(const OSGViewRenderer&) = delete;
     OSGViewRenderer& operator=(const OSGViewRenderer&) = delete;
 
-    /// Render all views, one cv::Mat (BGR888) per view name.
-    /// Realizes the GL context on first call.
-    std::map<std::string, cv::Mat> RenderAllViews();
+            std::map<std::string, cv::Mat> RenderAllViews();
 
-    /// Block until the viewer's window is closed (Windowed mode only).
-    /// Returns immediately in Offscreen mode.
-    void WaitForWindowClose();
+            void WaitForWindowClose();
 
 private:
     void SetupWindowed(osg::ref_ptr<osg::Group> root);
@@ -140,4 +87,4 @@ private:
     cv::Vec2d car_center_{0.0, 0.0};
 };
 
-} // namespace avm_stitch
+}

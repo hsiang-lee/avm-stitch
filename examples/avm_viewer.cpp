@@ -1,9 +1,6 @@
-// avm_viewer — Textured bowl-model viewer.
-// Loads real fish-eye camera data from calibration.json and renders a textured bowl.
-// Defaults to ../../examples/data_8 (8 cameras); pass another data dir to override,
-// e.g. ./avm_viewer ../../examples/data_4 (4 cameras).
 
-#include "geometry/bowl_model.hpp"
+#include "bowl_model/bowl_model.hpp"
+#include "camera_model/kb_camera_model.hpp"
 #include "render/osg_view_renderer.hpp"
 #include "render/stitch_scene.hpp"
 
@@ -12,6 +9,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -69,10 +67,7 @@ std::vector<CameraData> LoadCameraConfig(const std::string& json_path) {
         cam.k3 = static_cast<double>(intr["k3"]);
         cam.k4 = static_cast<double>(intr["k4"]);
 
-        // cv::read(FileNode, Mat) only understands OpenCV's named
-        // {dt,rows,cols,data} matrix layout, not plain nested JSON arrays,
-        // so walk the sequences directly (still fully scoped parsing).
-        int row = 0;
+                                int row = 0;
         cv::FileNode rnode = node["extrinsics"]["r"];
         for (auto rit = rnode.begin(); rit != rnode.end() && row < 3; ++rit) {
             int col = 0;
@@ -91,8 +86,7 @@ std::vector<CameraData> LoadCameraConfig(const std::string& json_path) {
     return cameras;
 }
 
-} // namespace
-
+}
 int main(int argc, char** argv) {
     std::string data_dir = "../../examples/data_8";
     if (argc > 1) data_dir = argv[1];
@@ -107,27 +101,16 @@ int main(int argc, char** argv) {
     int N = static_cast<int>(cameras.size());
     std::cout << "Loaded " << N << " cameras from " << json_path << "\n";
 
-    std::vector<CameraIntrinsics> intrs;
+    std::vector<KbParams> intrs;
     std::vector<CameraExtrinsics> extrs;
     std::vector<cv::Mat> images;
 
     for (auto& cam : cameras) {
-        CameraIntrinsics intr;
-        intr.width = cam.width;
-        intr.height = cam.height;
-        intr.fx = cam.fx;
-        intr.fy = cam.fy;
-        intr.cx = cam.cx;
-        intr.cy = cam.cy;
-        intr.k1 = cam.k1;
-        intr.k2 = cam.k2;
-        intr.k3 = cam.k3;
-        intr.k4 = cam.k4;
-        intrs.push_back(intr);
+                        intrs.push_back(KbParams{
+            cam.width, cam.height, cam.fx, cam.fy, cam.cx, cam.cy,
+            cam.k1, cam.k2, cam.k3, cam.k4});
 
-        // calibration.json already stores T_wc (camera→world) — same format as
-        // avm-worker's OSG backend. Pass directly.
-        extrs.push_back({cam.R, cam.t});
+                        extrs.push_back({cam.R, cam.t});
 
         std::string img_path = data_dir + "/" + cam.image_path;
         cv::Mat img = cv::imread(img_path, cv::IMREAD_COLOR);
@@ -140,17 +123,11 @@ int main(int argc, char** argv) {
         images.push_back(img);
     }
 
-    // Read the mandatory "car" block from calibration.json. Fields: length (m),
-    // width (m), axis_x (m, rear-axle distance from origin), origin_convention
-    // (descriptive string). Bowl parameters are derived from these — there is
-    // no default vehicle, so a missing car block is a hard error.
-    cv::Vec2d car_center(0.0, 0.0);
+                    cv::Vec2d car_center(0.0, 0.0);
     double car_length = 0.0;
     double car_width = 0.0;
     bool car_ok = false;
-    // Re-parse the JSON content to read the "car" block (FileStorage is
-    // single-pass; we need a second parse from the original content).
-    std::ifstream ifs2(json_path);
+            std::ifstream ifs2(json_path);
     if (ifs2.is_open()) {
         std::ostringstream ss2;
         ss2 << ifs2.rdbuf();
@@ -182,20 +159,25 @@ int main(int argc, char** argv) {
     }
 
     BowlParams bp = DeriveBowlParams(car_length, car_width, car_center[0] * 2.0);
-    std::cout << "Derived bowl params: r_outter=" << bp.r_outter
-              << " round_l=" << bp.round_l << " step=" << bp.step
-              << " k_slop=" << bp.k_slop << " z_exp=" << bp.z_exp
-              << " max_z=" << bp.max_z << "\n";
-    BowlModel bowl(bp, intrs, extrs);
+    std::cout << "Derived bowl params: r_outter=" << bp.r_outter()
+              << " round_l=" << bp.round_l() << " step=" << bp.step()
+              << " k_slop=" << bp.k_slop() << " z_exp=" << bp.z_exp()
+              << " max_z=" << bp.max_z() << "\n";
+            std::vector<Camera> cams;
+    cams.reserve(intrs.size());
+    for (size_t i = 0; i < intrs.size(); ++i) {
+        cams.emplace_back(extrs[i], std::make_unique<KbCameraModel>(intrs[i]));
+    }
+    BowlModel bowl(bp, cams);
     std::cout << "Bowl model: " << bowl.vertex_count() << " vertices, "
               << bowl.triangle_count() << " triangles\n";
 
     StitchScene scene(bowl, intrs[0].width, intrs[0].height);
     scene.UploadCameraImages(images);
 
-    OSGViewRenderer renderer(scene, bp.r_outter,
-                             DefaultViewPoses(bp.car_center, bp.r_outter / kCalibratedAnchorRoutter),
-                             960, 640, RenderMode::Windowed, bp.car_center);
+    OSGViewRenderer renderer(scene, bp.r_outter(),
+                             DefaultViewPoses(bp.car_center(), bp.r_outter() / kCalibratedAnchorRoutter),
+                             960, 640, RenderMode::Windowed, bp.car_center());
 
     std::cout << "Controls:  LMB=rotate  RMB=zoom  MMB=pan\n";
     renderer.WaitForWindowClose();
