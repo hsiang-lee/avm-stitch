@@ -63,7 +63,7 @@ TEST(BowlParamsTest, GridSegments) {
 }
 
 TEST(BowlParamsTest, FullCtorOverrideKeepsOriginalIntact) {
-    const BowlParams original = DeriveBowlParams(5.6, 2.2, 2.9);
+    const BowlParams original = BowlParams::ForCarSize(5.6, 2.2, 2.9);
     const BowlParams modified(5.6, 2.2, original.FlatPlatformRadius(), 0.0,
                               original.OuterRadius(), original.SlopeCoefficient(),
                               original.HeightExponent(), original.MaxHeight(),
@@ -80,9 +80,9 @@ TEST(BowlParamsTest, FullCtorOverrideKeepsOriginalIntact) {
     EXPECT_DOUBLE_EQ(0.0, original.CarCenter()[1]);
 }
 
-TEST(BowlParamsTest, DeriveBowlParamsScaling) {
-    const BowlParams p1 = DeriveBowlParams(5.6, 2.2, 2.9);
-    const BowlParams p2 = DeriveBowlParams(11.2, 2.2, 2.9);
+TEST(BowlParamsTest, ForCarSizeScaling) {
+    const BowlParams p1 = BowlParams::ForCarSize(5.6, 2.2, 2.9);
+    const BowlParams p2 = BowlParams::ForCarSize(11.2, 2.2, 2.9);
     EXPECT_NEAR(2.0, p2.OuterRadius() / p1.OuterRadius(), 1e-12);
     EXPECT_NEAR(2.0, p2.GridStep() / p1.GridStep(), 1e-12);
     EXPECT_NEAR(2.0, p2.FlatPlatformRadius() / p1.FlatPlatformRadius(), 1e-12);
@@ -93,7 +93,7 @@ TEST(BowlParamsTest, DeriveBowlParamsScaling) {
 namespace {
 
 BowlParams MeshParams() {
-    const BowlParams derived = DeriveBowlParams(5.6, 2.2, 2.9);
+    const BowlParams derived = BowlParams::ForCarSize(5.6, 2.2, 2.9);
     return BowlParams(5.6, 2.2, derived.FlatPlatformRadius(), derived.GridStep(),
                       derived.OuterRadius(), derived.SlopeCoefficient(),
                       derived.HeightExponent(), derived.MaxHeight(), cv::Vec2d(0.0, 0.0));
@@ -169,8 +169,8 @@ TEST(BowlParamsTest, GenerateBlockBoatMesh_MatchesBowlModelConstructorPath) {
     }
 }
 
-TEST(DeriveBowlParamsTest, CarScale_MatchesCalibratedValues) {
-    const BowlParams p = DeriveBowlParams(5.6, 2.2, 2.9);
+TEST(ForCarSizeTest, CarScale_MatchesCalibratedValues) {
+    const BowlParams p = BowlParams::ForCarSize(5.6, 2.2, 2.9);
     EXPECT_NEAR(12.6, p.OuterRadius(), 12.6 * 0.20);
     EXPECT_NEAR(2.0, p.FlatPlatformRadius(), 2.0 * 0.20);
     EXPECT_NEAR(0.2, p.GridStep(), 0.2 * 0.20);
@@ -181,8 +181,8 @@ TEST(DeriveBowlParamsTest, CarScale_MatchesCalibratedValues) {
     EXPECT_DOUBLE_EQ(0.0, p.CarCenter()[1]);
 }
 
-TEST(DeriveBowlParamsTest, CarAnchor_ExactRegressionToOldDefault) {
-    const BowlParams p = DeriveBowlParams(5.6, 2.2, 2.9);
+TEST(ForCarSizeTest, CarAnchor_ExactRegressionToOldDefault) {
+    const BowlParams p = BowlParams::ForCarSize(5.6, 2.2, 2.9);
     EXPECT_DOUBLE_EQ(12.6, p.OuterRadius());
     EXPECT_DOUBLE_EQ(2.0, p.FlatPlatformRadius());
     EXPECT_DOUBLE_EQ(0.2, p.GridStep());
@@ -197,9 +197,9 @@ TEST(DeriveBowlParamsTest, CarAnchor_ExactRegressionToOldDefault) {
     EXPECT_DOUBLE_EQ(0.0, p.CarCenter()[1]);
 }
 
-TEST(DeriveBowlParamsTest, LinearSimilarity_DoublingLengthDoublesAllLengths) {
-    const BowlParams p1 = DeriveBowlParams(5.6, 2.2, 2.9);
-    const BowlParams p2 = DeriveBowlParams(11.2, 2.2, 2.9);
+TEST(ForCarSizeTest, LinearSimilarity_DoublingLengthDoublesAllLengths) {
+    const BowlParams p1 = BowlParams::ForCarSize(5.6, 2.2, 2.9);
+    const BowlParams p2 = BowlParams::ForCarSize(11.2, 2.2, 2.9);
     ASSERT_GT(p1.SlopeCoefficient(), 0.0);
     ASSERT_GT(p1.MaxHeight(), 0.0);
     ASSERT_GT(p1.GridStep(), 0.0);
@@ -214,11 +214,11 @@ TEST(DeriveBowlParamsTest, LinearSimilarity_DoublingLengthDoublesAllLengths) {
     EXPECT_NEAR(std::pow(2.0, -1.2), p2.SlopeCoefficient() / p1.SlopeCoefficient(), 1e-9);
 }
 
-TEST(DeriveBowlParamsTest, SelfSimilarity_OpeningRatioConstantAcrossScales) {
+TEST(ForCarSizeTest, SelfSimilarity_OpeningRatioConstantAcrossScales) {
     const std::vector<double> scales = {5.6, 11.2, 44.8, 211.583};
     double ref_ratio = 0.0;
     for (double L : scales) {
-        const BowlParams p = DeriveBowlParams(L, 2.2, L / 2.0);
+        const BowlParams p = BowlParams::ForCarSize(L, 2.2, L / 2.0);
         const double rd_star = std::pow(p.MaxHeight() / p.SlopeCoefficient(), 1.0 / p.HeightExponent());
         const double opening = rd_star / p.OuterRadius();
         if (ref_ratio == 0.0) {
@@ -231,7 +231,7 @@ TEST(DeriveBowlParamsTest, SelfSimilarity_OpeningRatioConstantAcrossScales) {
     }
 }
 
-TEST(DeriveBowlParamsTest, IsotropicRimHeight_LongitudinalVsLateral) {
+TEST(ForCarSizeTest, IsotropicRimHeight_LongitudinalVsLateral) {
     struct Car {
         double length, width, axis_x;
     };
@@ -241,7 +241,7 @@ TEST(DeriveBowlParamsTest, IsotropicRimHeight_LongitudinalVsLateral) {
         {211.583, 53.453, 116.371},
     };
     for (const auto& c : kCars) {
-        const BowlParams p = DeriveBowlParams(c.length, c.width, c.axis_x);
+        const BowlParams p = BowlParams::ForCarSize(c.length, c.width, c.axis_x);
         auto rim_z = [&p](double rd) {
             const double z = p.SlopeCoefficient() * std::pow(rd, p.HeightExponent());
             return std::min(z, p.MaxHeight());
@@ -259,8 +259,8 @@ TEST(DeriveBowlParamsTest, IsotropicRimHeight_LongitudinalVsLateral) {
     }
 }
 
-TEST(DeriveBowlParamsTest, ShipScale_CoversCameras) {
-    const BowlParams p = DeriveBowlParams(211.583, 53.453, 116.371);
+TEST(ForCarSizeTest, ShipScale_CoversCameras) {
+    const BowlParams p = BowlParams::ForCarSize(211.583, 53.453, 116.371);
     EXPECT_GE(p.OuterRadius(), 150.0);
     const double rd_star = std::pow(p.MaxHeight() / p.SlopeCoefficient(), 1.0 / p.HeightExponent());
     EXPECT_GE(rd_star, 155.0);
@@ -273,8 +273,8 @@ TEST(DeriveBowlParamsTest, ShipScale_CoversCameras) {
     EXPECT_DOUBLE_EQ(2.2, p.HeightExponent());
 }
 
-TEST(DeriveBowlParamsTest, ShipScale_All8CamerasSeeBowlWithWeight) {
-    const BowlParams p = DeriveBowlParams(211.583, 53.453, 116.371);
+TEST(ForCarSizeTest, ShipScale_All8CamerasSeeBowlWithWeight) {
+    const BowlParams p = BowlParams::ForCarSize(211.583, 53.453, 116.371);
     ASSERT_GE(p.OuterRadius(), 150.0);
     const double kCamXY[8][2] = {
         {96.71248, 0.0},
@@ -307,9 +307,9 @@ TEST(DeriveBowlParamsTest, ShipScale_All8CamerasSeeBowlWithWeight) {
     }
 }
 
-TEST(DeriveBowlParamsTest, GridTopology_Constant126x126AcrossScales) {
+TEST(ForCarSizeTest, GridTopology_Constant126x126AcrossScales) {
     for (double L : {5.6, 18.0, 211.583, 423.166}) {
-        const BowlParams p = DeriveBowlParams(L, 2.2, L / 2.0);
+        const BowlParams p = BowlParams::ForCarSize(L, 2.2, L / 2.0);
         const double ratio = p.OuterRadius() / p.GridStep();
         EXPECT_NEAR(63.0, ratio, 1.0) << "L=" << L;
         const long rows = static_cast<long>(std::lround(ratio)) * 2;

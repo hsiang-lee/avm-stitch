@@ -205,6 +205,11 @@ gtest_discover_tests(test_ocam_camera_model)
 add_executable(test_blend_weights
     tests/bowl_model/test_blend_weights.cpp
     src/bowl_model/blend_weights.cpp
+    src/camera_model/camera_model.cpp
+    src/camera_model/camera.cpp
+    src/camera_model/kb_camera_model.cpp
+    src/camera_model/lut_camera_model.cpp
+    src/camera_model/ocam_camera_model.cpp
 )
 target_include_directories(test_blend_weights PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(test_blend_weights PRIVATE

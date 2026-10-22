@@ -160,8 +160,8 @@ TEST(ViewPoseTest, HomeViewPose_CarCenterOffsetsPositionAndTarget) {
 
 TEST(ViewPoseTest, DefaultViewPoses_BowlParamsAgreesWithHandBuiltScale) {
     const std::vector<BowlParams> shapes = {
-        DeriveBowlParams(5.6, 2.2, 2.9),
-        DeriveBowlParams(12.6, 5.0, 6.3),
+        BowlParams::ForCarSize(5.6, 2.2, 2.9),
+        BowlParams::ForCarSize(12.6, 5.0, 6.3),
     };
     for (const auto& bp : shapes) {
         SCOPED_TRACE(bp.OuterRadius());
@@ -259,7 +259,7 @@ TEST_F(OSGGLTest, OSGViewRenderer_ConstructionDoesNotCrash) {
 }
 
 TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_ShipScale_NotAllBackground) {
-    const BowlParams bp = DeriveBowlParams(211.6, 50.0, 50.0);
+    const BowlParams bp = BowlParams::ForCarSize(211.6, 50.0, 50.0);
     ASSERT_GT(bp.OuterRadius(), 450.0);
     std::vector<KbParams> intrs(8, test::MakeIntrinsics());
     std::vector<CameraExtrinsics> extrs;

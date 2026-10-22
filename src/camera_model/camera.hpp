@@ -51,9 +51,10 @@ class Camera {
         model_->ProjectPoints(cam_points, out_uv, out_valid);
     }
 
-    CameraExtrinsics extrinsics; // pose value data stays public (no ownership hazard)
+    const CameraExtrinsics& Extrinsics() const { return extrinsics; }
 
   private:
+    CameraExtrinsics extrinsics;
     std::unique_ptr<CameraModel> model_;
 };
 

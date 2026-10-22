@@ -163,7 +163,7 @@ double BowlParams::HomeViewDistance() const {
     return 12.0 * outer_radius_ / kCalibratedAnchorOuterRadius;
 }
 
-BowlParams DeriveBowlParams(double car_length, double car_width, double axis_x) {
+BowlParams BowlParams::ForCarSize(double car_length, double car_width, double axis_x) {
     constexpr double kReferenceCarLength = 5.6;
     const double scale = car_length / kReferenceCarLength;
 

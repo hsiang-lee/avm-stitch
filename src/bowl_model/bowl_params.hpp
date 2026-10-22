@@ -30,6 +30,9 @@ class BowlParams {
                double height_exponent, double max_height,
                cv::Vec2d car_center = cv::Vec2d(0.0, 0.0));
 
+    static BowlParams ForCarSize(double car_length, double car_width,
+                                 double axis_x);
+
     double GridStep() const { return grid_step_; }
     double OuterRadius() const { return outer_radius_; }
     double FlatPlatformRadius() const { return flat_platform_radius_; }
@@ -62,7 +65,5 @@ class BowlParams {
 };
 
 inline constexpr double kCalibratedAnchorOuterRadius = 12.6;
-
-BowlParams DeriveBowlParams(double car_length, double car_width, double axis_x);
 
 }

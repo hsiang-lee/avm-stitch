@@ -24,11 +24,11 @@ inline KbParams MakeIntrinsics() {
 }
 
 inline BowlParams MakeCarBowl() {
-    return DeriveBowlParams(5.6, 2.2, 2.9);
+    return BowlParams::ForCarSize(5.6, 2.2, 2.9);
 }
 
 inline BowlParams MakeCoarseBowlParams(double outer_radius) {
-    const BowlParams derived = DeriveBowlParams(5.6, 2.2, 2.9);
+    const BowlParams derived = BowlParams::ForCarSize(5.6, 2.2, 2.9);
     return BowlParams(5.6, 2.2, derived.FlatPlatformRadius(), 1.0, outer_radius,
                       derived.SlopeCoefficient(), derived.HeightExponent(), derived.MaxHeight(),
                       cv::Vec2d(0.0, 0.0));

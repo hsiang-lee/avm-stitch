@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    BowlParams bp = DeriveBowlParams(car_length, car_width, car_center[0] * 2.0);
+    BowlParams bp = BowlParams::ForCarSize(car_length, car_width, car_center[0] * 2.0);
     std::cout << "Derived bowl params: OuterRadius=" << bp.OuterRadius()
               << " FlatPlatformRadius=" << bp.FlatPlatformRadius()
               << " GridStep=" << bp.GridStep()

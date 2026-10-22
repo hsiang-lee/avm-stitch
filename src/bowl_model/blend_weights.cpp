@@ -4,35 +4,37 @@
 
 #include <algorithm>
 #include <cmath>
+#include <span>
 #include <utility>
 
 namespace avm_stitch {
 
 namespace {
 
-double ShortestArcDeg(double a, double b) {
-    double dist = std::abs(NormalizeAngleDeg(a - b));
-    if (dist > 180.0)
-        dist = 360.0 - dist;
-    return dist;
+double ShortestArcDeg(double angle_a_deg, double angle_b_deg) {
+    double distance_deg = std::abs(NormalizeAngleDeg(angle_a_deg - angle_b_deg));
+    if (distance_deg > 180.0)
+        distance_deg = 360.0 - distance_deg;
+    return distance_deg;
 }
 
-double SectorBoundaryDeg(double az1, double az2) {
-    if (az2 < az1)
-        az2 += 360.0;
-    return NormalizeAngleDeg((az1 + az2) / 2.0);
+double SectorBoundaryDeg(double azimuth_a_deg, double azimuth_b_deg) {
+    if (azimuth_b_deg < azimuth_a_deg)
+        azimuth_b_deg += 360.0;
+    return NormalizeAngleDeg((azimuth_a_deg + azimuth_b_deg) / 2.0);
 }
 
 } // namespace
 
 BlendWeightsCalculator::BlendWeightsCalculator(
-    const std::vector<CameraExtrinsics>& extrinsics, cv::Vec2d pole)
+    const std::vector<Camera>& cameras, cv::Vec2d pole)
     : pole_(pole) {
-    num_cameras_ = static_cast<int>(extrinsics.size());
-    sorted_.reserve(num_cameras_);
-    for (int i = 0; i < num_cameras_; ++i)
-        sorted_.emplace_back(extrinsics[i].AzimuthDeg(), i);
-    std::sort(sorted_.begin(), sorted_.end());
+    num_cameras_ = static_cast<int>(cameras.size());
+    cameras_by_azimuth_.reserve(num_cameras_);
+    for (size_t i = 0; i < cameras.size(); ++i)
+        cameras_by_azimuth_.emplace_back(cameras[i].Extrinsics().AzimuthDeg(),
+                                         static_cast<int>(i));
+    std::sort(cameras_by_azimuth_.begin(), cameras_by_azimuth_.end());
 }
 
 double BlendWeightsCalculator::ComputeBlendHalfAngle(int num_cameras) {
@@ -42,64 +44,103 @@ double BlendWeightsCalculator::ComputeBlendHalfAngle(int num_cameras) {
 }
 
 int BlendWeightsCalculator::NearestCameraIndex(double theta_deg) const {
-    int best = 0;
+    int nearest_index = 0;
     double best_dist = 360.0;
-    for (int j = 0; j < num_cameras_; ++j) {
-        const double d = ShortestArcDeg(theta_deg, sorted_[j].first);
-        if (d < best_dist) {
-            best_dist = d;
-            best = j;
+    for (int camera_index = 0; camera_index < num_cameras_; ++camera_index) {
+        const double distance_deg =
+            ShortestArcDeg(theta_deg, cameras_by_azimuth_[camera_index].first);
+        if (distance_deg < best_dist) {
+            best_dist = distance_deg;
+            nearest_index = camera_index;
         }
     }
-    return best;
+    return nearest_index;
 }
 
 bool BlendWeightsCalculator::TryBlend(
     int near_index, double theta_deg, double blend_half_deg,
-    int best_index, std::vector<double>& weights) const {
-    const int b = (near_index + 1) % num_cameras_;
-    const double boundary =
-        SectorBoundaryDeg(sorted_[near_index].first, sorted_[b].first);
+    int nearest_index, std::vector<double>& weights) const {
+    const int next_index = (near_index + 1) % num_cameras_;
+    const double boundary = SectorBoundaryDeg(
+        cameras_by_azimuth_[near_index].first,
+        cameras_by_azimuth_[next_index].first);
     const double dist = ShortestArcDeg(theta_deg, boundary);
     if (dist > blend_half_deg)
         return false;
-    const double t = 0.5 + dist / (2.0 * blend_half_deg);
-    const double w_near = 0.5 * (1.0 - std::cos(t * kPi));
-    const double w_far = 1.0 - w_near;
-    if (best_index == near_index) {
-        weights[sorted_[near_index].second] = w_near;
-        weights[sorted_[b].second] = w_far;
+    const double blend_ratio = 0.5 + dist / (2.0 * blend_half_deg);
+    const double weight_near = 0.5 * (1.0 - std::cos(blend_ratio * kPi));
+    const double weight_far = 1.0 - weight_near;
+    if (nearest_index == near_index) {
+        weights[cameras_by_azimuth_[near_index].second] = weight_near;
+        weights[cameras_by_azimuth_[next_index].second] = weight_far;
     } else {
-        weights[sorted_[b].second] = w_near;
-        weights[sorted_[near_index].second] = w_far;
+        weights[cameras_by_azimuth_[next_index].second] = weight_near;
+        weights[cameras_by_azimuth_[near_index].second] = weight_far;
     }
     return true;
 }
 
 std::vector<double>
-BlendWeightsCalculator::WeightsFor(const cv::Vec3d& P_world) const {
+BlendWeightsCalculator::WeightsFor(const cv::Vec3d& world_position) const {
     if (num_cameras_ == 0)
         return {};
     std::vector<double> weights(num_cameras_, 0.0);
 
-    const double theta = NormalizeAngleDeg(
-        std::atan2(P_world[1] - pole_[1], P_world[0] - pole_[0]) * kRadToDeg);
+    const double azimuth_deg = NormalizeAngleDeg(
+        std::atan2(world_position[1] - pole_[1],
+                   world_position[0] - pole_[0]) *
+        kRadToDeg);
     if (num_cameras_ == 1) {
-        weights[sorted_[0].second] = 1.0;
+        weights[cameras_by_azimuth_[0].second] = 1.0;
         return weights;
     }
 
-    const double blend_half = ComputeBlendHalfAngle(num_cameras_);
+    const double blend_half_deg = ComputeBlendHalfAngle(num_cameras_);
 
-    const int best = NearestCameraIndex(theta);
+    const int nearest_index = NearestCameraIndex(azimuth_deg);
 
-    if (TryBlend((best - 1 + num_cameras_) % num_cameras_, theta, blend_half, best, weights))
+    if (TryBlend((nearest_index - 1 + num_cameras_) % num_cameras_, azimuth_deg,
+                 blend_half_deg, nearest_index, weights))
         return weights;
-    if (TryBlend(best, theta, blend_half, best, weights))
+    if (TryBlend(nearest_index, azimuth_deg, blend_half_deg, nearest_index, weights))
         return weights;
 
-    weights[sorted_[best].second] = 1.0;
+    weights[cameras_by_azimuth_[nearest_index].second] = 1.0;
     return weights;
+}
+
+void BlendWeightsCalculator::NormalizeWeights(
+    std::span<const double> blend_weights, std::span<const double> edge_factors,
+    std::span<float> normalized_weights) const {
+    double visible_contrib_sum = 0.0;
+    double edge_only_sum = 0.0;
+    for (int camera_index = 0; camera_index < num_cameras_; ++camera_index) {
+        const size_t index = static_cast<size_t>(camera_index);
+        if (edge_factors[index] > 0.0) {
+            if (blend_weights[index] > 1e-9)
+                visible_contrib_sum += blend_weights[index] * edge_factors[index];
+            edge_only_sum += edge_factors[index];
+        }
+    }
+
+    if (visible_contrib_sum > 1e-9) {
+        for (int camera_index = 0; camera_index < num_cameras_; ++camera_index) {
+            const size_t index = static_cast<size_t>(camera_index);
+            if (edge_factors[index] > 0.0 && blend_weights[index] > 1e-9) {
+                normalized_weights[index] =
+                    static_cast<float>(blend_weights[index] * edge_factors[index] /
+                                       visible_contrib_sum);
+            }
+        }
+    } else if (edge_only_sum > 1e-9) {
+        for (int camera_index = 0; camera_index < num_cameras_; ++camera_index) {
+            const size_t index = static_cast<size_t>(camera_index);
+            if (edge_factors[index] > 0.0) {
+                normalized_weights[index] =
+                    static_cast<float>(edge_factors[index] / edge_only_sum);
+            }
+        }
+    }
 }
 
 } // namespace avm_stitch

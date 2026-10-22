@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
     }
     cv::FileNode car = fs["car"];
     double len=(double)car["length"], wid=(double)car["width"], ax=(double)car["axis_x"];
-    BowlParams bp = DeriveBowlParams(len, wid, ax);
+    BowlParams bp = BowlParams::ForCarSize(len, wid, ax);
     std::cout << "CarCenter=(" << bp.CarCenter()[0] << "," << bp.CarCenter()[1] << ") OuterRadius=" << bp.OuterRadius() << "\n";
 
         StitchEngine engine;

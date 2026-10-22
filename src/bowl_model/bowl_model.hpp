@@ -41,8 +41,9 @@ class BowlModel {
         return triangles_[static_cast<size_t>(i)];
     }
     int baked_num_cameras() const {
-        assert(baked_num_cameras_ > 0);
-        return baked_num_cameras_;
+        return baked_vertices_.empty()
+                   ? 0
+                   : static_cast<int>(baked_vertices_[0].weight.size());
     }
     const BakedVertex& baked_vertex(int i) const {
         assert(i >= 0 && i < static_cast<int>(baked_vertices_.size()));
@@ -54,15 +55,11 @@ class BowlModel {
     std::vector<BakedVertex> BakeVertices(const std::vector<Camera>& cameras,
                                           const cv::Vec2d& car_center);
 
-    static std::vector<CameraExtrinsics>
-    ExtractExtrinsics(const std::vector<Camera>& cameras);
-
     std::vector<cv::Vec3d> vertices_;
     std::vector<cv::Vec3d> normals_;
     std::vector<std::array<int, 3>> triangles_;
 
     std::vector<BakedVertex> baked_vertices_;
-    int baked_num_cameras_ = 0;
 };
 
-}
+} // namespace avm_stitch

@@ -86,7 +86,7 @@ TEST(StitchEngineTest, ConfigureN9Throws) {
 
 TEST(StitchEngineTest, ConfigureMismatchedImageSizesThrows) {
     auto cams = test::WrapKbSideCameras({0, 90, 180, 270});
-    cams[1] = Camera(cams[1].extrinsics,
+    cams[1] = Camera(cams[1].Extrinsics(),
                      MakeCameraModel("kb",
                                      KbParams{320, 480, 300.0, 300.0, 320.0, 240.0,
                                               0, 0, 0, 0}));
@@ -102,7 +102,7 @@ TEST(StitchEngineTest, ConfigureNullCameraModelThrows) {
     // otherwise valid (N and image-size checks pass), so execution must reach
     // the per-camera Valid() gate.
     auto cams = test::WrapKbSideCameras({0, 90, 180, 270});
-    cams[2] = Camera(cams[2].extrinsics, nullptr); // null model (Valid() false)
+    cams[2] = Camera(cams[2].Extrinsics(), nullptr); // null model (Valid() false)
     StitchEngine engine;
     EXPECT_THROW(
         {
@@ -317,7 +317,7 @@ TEST_F(OSGGLTest, StitchEngineGL_FrontViewNotVerticallyFlipped) {
 }
 
 TEST(RegressionTest, PublicApiHeadersAreSelfContained) {
-    const BowlParams bowl = DeriveBowlParams(5.6, 2.2, 2.9);
+    const BowlParams bowl = BowlParams::ForCarSize(5.6, 2.2, 2.9);
     EXPECT_DOUBLE_EQ(12.6, bowl.OuterRadius());
 
     auto poses = bowl.DefaultViewPoses();

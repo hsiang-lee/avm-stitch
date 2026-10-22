@@ -8,14 +8,15 @@
 #include "test_support/stitch_test_helpers.hpp"
 
 #include <cmath>
+#include <span>
 #include <vector>
 
 using namespace avm_stitch;
-using avm_stitch::test::DefaultBakeCameras;
-using avm_stitch::test::MakeSideCameras;
+using avm_stitch::test::MakeDefaultKbCameras;
+using avm_stitch::test::WrapKbSideCameras;
 
 TEST(BlendWeightsTest, DefaultPole_BehaviorUnchanged) {
-    auto cams = DefaultBakeCameras();
+    auto cams = MakeDefaultKbCameras();
     const BlendWeightsCalculator calc_default(cams);
     const BlendWeightsCalculator calc_explicit(cams, cv::Vec2d(0.0, 0.0));
     auto weights_default = calc_default.WeightsFor(cv::Vec3d(5, 0, 0));
@@ -27,7 +28,7 @@ TEST(BlendWeightsTest, DefaultPole_BehaviorUnchanged) {
 }
 
 TEST(BlendWeightsTest, NonDefaultPole_ShiftsOrigin) {
-    auto cams = DefaultBakeCameras();
+    auto cams = MakeDefaultKbCameras();
     const BlendWeightsCalculator calc(cams, cv::Vec2d(2.0, 0.0));
     auto weights = calc.WeightsFor(cv::Vec3d(2, 1, 0));
     ASSERT_EQ(4u, weights.size());
@@ -36,7 +37,7 @@ TEST(BlendWeightsTest, NonDefaultPole_ShiftsOrigin) {
 }
 
 TEST(BlendWeightsTest, N4Standard_Front) {
-    auto cams = DefaultBakeCameras();
+    auto cams = MakeDefaultKbCameras();
     const BlendWeightsCalculator calc(cams);
     auto weights = calc.WeightsFor(cv::Vec3d(5, 0, 0));
     ASSERT_EQ(4u, weights.size());
@@ -45,7 +46,7 @@ TEST(BlendWeightsTest, N4Standard_Front) {
 }
 
 TEST(BlendWeightsTest, N4Standard_Rear) {
-    auto cams = DefaultBakeCameras();
+    auto cams = MakeDefaultKbCameras();
     const BlendWeightsCalculator calc(cams);
     auto weights = calc.WeightsFor(cv::Vec3d(-5, 0, 0));
     EXPECT_GT(weights[1], 0.9);
@@ -58,7 +59,7 @@ TEST(BlendWeightsTest, N4Standard_BlendBandWidth) {
 }
 
 TEST(BlendWeightsTest, N4_BlendZone) {
-    auto cams = DefaultBakeCameras();
+    auto cams = MakeDefaultKbCameras();
     const BlendWeightsCalculator calc(cams);
     auto weights = calc.WeightsFor(cv::Vec3d(5, 5, 0));
     int positive = 0;
@@ -73,7 +74,7 @@ TEST(BlendWeightsTest, N4_BlendZone) {
 }
 
 TEST(BlendWeightsTest, N4_CosSmoothAtBoundary) {
-    auto cams = DefaultBakeCameras();
+    auto cams = MakeDefaultKbCameras();
     const BlendWeightsCalculator calc(cams);
     auto weights = calc.WeightsFor(cv::Vec3d(5, 5, 0));
     EXPECT_NEAR(0.5, weights[0], 1e-6);
@@ -83,7 +84,7 @@ TEST(BlendWeightsTest, N4_CosSmoothAtBoundary) {
 }
 
 TEST(BlendWeightsTest, N4_OutsideBlendBand) {
-    auto cams = DefaultBakeCameras();
+    auto cams = MakeDefaultKbCameras();
     const BlendWeightsCalculator calc(cams);
     auto weights = calc.WeightsFor(cv::Vec3d(std::cos(65.0 * M_PI / 180.0),
                                              std::sin(65.0 * M_PI / 180.0),
@@ -102,7 +103,7 @@ TEST(BlendWeightsTest, N8_BlendHalfAngle) {
 }
 
 TEST(BlendWeightsTest, N8_WeightsSumToOne) {
-    auto cams = MakeSideCameras({0, 45, 90, 135, 180, 225, 270, 315});
+    auto cams = WrapKbSideCameras({0, 45, 90, 135, 180, 225, 270, 315});
     const BlendWeightsCalculator calc(cams);
     std::vector<cv::Vec3d> points = {
         {5, 0, 0}, {0, 5, 0}, {-5, 0, 0}, {0, -5, 0}, {5, 5, 0}, {-5, 5, 0}, {-5, -5, 0}, {5, -5, 0}, {1, 0, 0}, {0, 1, 0}, {1, 1, 0}, {-1, 1, 0}};
@@ -116,7 +117,7 @@ TEST(BlendWeightsTest, N8_WeightsSumToOne) {
 }
 
 TEST(BlendWeightsTest, N3_ArbitrarySpacing) {
-    auto cams = MakeSideCameras({0, 120, 240});
+    auto cams = WrapKbSideCameras({0, 120, 240});
     const BlendWeightsCalculator calc(cams);
 
     std::vector<cv::Vec3d> points = {
@@ -131,7 +132,7 @@ TEST(BlendWeightsTest, N3_ArbitrarySpacing) {
 }
 
 TEST(BlendWeightsTest, AllWeightsNonNegative) {
-    auto cams = DefaultBakeCameras();
+    auto cams = MakeDefaultKbCameras();
     const BlendWeightsCalculator calc(cams);
     std::vector<cv::Vec3d> points = {
         {5, 0, 0}, {0, 5, 0}, {-5, 0, 0}, {0, -5, 0}, {5, 5, 0}, {-5, 5, 0}, {-5, -5, 0}, {5, -5, 0}};
@@ -143,7 +144,7 @@ TEST(BlendWeightsTest, AllWeightsNonNegative) {
 }
 
 TEST(BlendWeightsTest, N1_SingleCamera) {
-    auto cams = MakeSideCameras({0});
+    auto cams = WrapKbSideCameras({0});
     const BlendWeightsCalculator calc(cams);
     auto weights = calc.WeightsFor(cv::Vec3d(5, 0, 0));
     ASSERT_EQ(1u, weights.size());
@@ -154,4 +155,48 @@ TEST(BlendWeightsTest, EmptyCameras_ReturnsEmpty) {
     BlendWeightsCalculator calc({});
     auto w = calc.WeightsFor(cv::Vec3d(0.0, 0.0, 0.0));
     EXPECT_TRUE(w.empty());
+}
+
+TEST(BlendWeightsTest, NormalizeWeights_ScalesBlendWeightsByEdgeFactor) {
+    auto cams = WrapKbSideCameras({0, 180});
+    const BlendWeightsCalculator calc(cams);
+    std::vector<double> blend = {0.6, 0.4};
+    std::vector<double> edge = {1.0, 0.5};
+    std::vector<float> normalized(2, 0.0f);
+    calc.NormalizeWeights(blend, edge, normalized);
+    EXPECT_NEAR(0.75f, normalized[0], 1e-6f);
+    EXPECT_NEAR(0.25f, normalized[1], 1e-6f);
+}
+
+TEST(BlendWeightsTest, NormalizeWeights_ZeroBlendWeightsFallBackToEdgeFactors) {
+    auto cams = WrapKbSideCameras({0, 180});
+    const BlendWeightsCalculator calc(cams);
+    std::vector<double> blend = {0.0, 0.0};
+    std::vector<double> edge = {0.25, 0.75};
+    std::vector<float> normalized(2, 0.0f);
+    calc.NormalizeWeights(blend, edge, normalized);
+    EXPECT_NEAR(0.25f, normalized[0], 1e-6f);
+    EXPECT_NEAR(0.75f, normalized[1], 1e-6f);
+}
+
+TEST(BlendWeightsTest, NormalizeWeights_GatedCamera_DropsItsShare) {
+    auto cams = WrapKbSideCameras({0, 180});
+    const BlendWeightsCalculator calc(cams);
+    std::vector<double> blend = {0.5, 0.5};
+    std::vector<double> edge = {0.0, 1.0};
+    std::vector<float> normalized(2, 0.0f);
+    calc.NormalizeWeights(blend, edge, normalized);
+    EXPECT_EQ(0.0f, normalized[0]);
+    EXPECT_EQ(1.0f, normalized[1]);
+}
+
+TEST(BlendWeightsTest, NormalizeWeights_NoVisibleCamera_LeavesWeightsUntouched) {
+    auto cams = WrapKbSideCameras({0, 180});
+    const BlendWeightsCalculator calc(cams);
+    std::vector<double> blend = {0.0, 0.0};
+    std::vector<double> edge = {0.0, 0.0};
+    std::vector<float> normalized(2, 0.0f);
+    calc.NormalizeWeights(blend, edge, normalized);
+    EXPECT_EQ(0.0f, normalized[0]);
+    EXPECT_EQ(0.0f, normalized[1]);
 }
