@@ -132,6 +132,31 @@ TEST(CameraExtrinsicsTest, RelativeRotationFrom_MatchesHandComputedRbTRa) {
             EXPECT_DOUBLE_EQ(expected(r, c2), got(r, c2));
 }
 
+TEST(CameraExtrinsicsTest, AzimuthDeg_IdentityAxisIsZero) {
+    CameraExtrinsics extr;
+    EXPECT_DOUBLE_EQ(0.0, extr.AzimuthDeg());
+}
+
+TEST(CameraExtrinsicsTest, AzimuthDeg_ForwardAlongWorldYIs90) {
+    // Columns are world axes of the camera basis:
+    //   right = (1,0,0), down = (0,0,-1), forward = (0,1,0).
+    const cv::Matx33d R(1, 0, 0,
+                        0, 0, 1,
+                        0, -1, 0);
+    CameraExtrinsics extr{R, cv::Vec3d(0, 0, 0)};
+    EXPECT_NEAR(90.0, extr.AzimuthDeg(), 1e-12);
+}
+
+TEST(CameraExtrinsicsTest, AzimuthDeg_ForwardAlongWorld45Deg) {
+    const double s = std::sqrt(2.0) / 2.0;
+    // right = down × forward = (s,-s,0), down = (0,0,-1), forward = (s,s,0).
+    const cv::Matx33d R(s, 0, s,
+                        -s, 0, s,
+                        0, -1, 0);
+    CameraExtrinsics extr{R, cv::Vec3d(0, 0, 0)};
+    EXPECT_NEAR(45.0, extr.AzimuthDeg(), 1e-12);
+}
+
 TEST(CameraExtrinsicsTest, ToCamera_OfOtherPosition_MatchesHandComputedTAb) {
     const double sa = 0.5, ca = std::sqrt(3.0) / 2.0;
     const double sb = -0.3, cb = std::sqrt(0.91);

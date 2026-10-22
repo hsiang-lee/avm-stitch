@@ -10,6 +10,9 @@
 // EdgeFeather) into the CameraModel base (camera_model.cpp); kEps moved to
 // camera_model.hpp. This file now holds extrinsics only.
 
+#include "common/angle_utils.hpp"
+
+#include <cmath>
 #include <opencv2/core.hpp>
 
 namespace avm_stitch {
@@ -37,6 +40,11 @@ class CameraExtrinsics {
     }
 
     const cv::Vec3d& position() const { return t_; }
+
+    double AzimuthDeg() const {
+        const cv::Vec3d axis = RotateCameraToWorld(cv::Vec3d(0, 0, 1));
+        return NormalizeAngleDeg(std::atan2(axis[1], axis[0]) * kRadToDeg);
+    }
 
     cv::Matx33d RelativeRotationFrom(const CameraExtrinsics& other) const {
         return R_.t() * other.R_;

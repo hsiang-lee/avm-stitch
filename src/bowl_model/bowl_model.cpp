@@ -92,9 +92,10 @@ BowlModel::BakeVertices(const std::vector<Camera>& cameras,
     }
 
     const auto extrinsics = ExtractExtrinsics(cameras);
+    const BlendWeightsCalculator blender(extrinsics, car_center);
     for (int i = 0; i < vertex_count; ++i) {
         const cv::Vec3d& P = vertices_[i];
-        const auto raw_weights = ComputeBlendWeights(P, extrinsics, car_center);
+        const auto raw_weights = blender.WeightsFor(P);
 
         std::vector<char> edge_ok(N, 0);
         std::vector<double> edge_factor(N, 0.0);

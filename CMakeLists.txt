@@ -304,6 +304,16 @@ target_link_libraries(test_egl_headless_context PRIVATE
 target_osg_whole_archive(test_egl_headless_context)
 gtest_discover_tests(test_egl_headless_context)
 
+# -- test_angle_utils (angle_utils.hpp: degree normalization + conversion) --
+add_executable(test_angle_utils
+    tests/common/test_angle_utils.cpp
+)
+target_include_directories(test_angle_utils PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(test_angle_utils PRIVATE
+    GTest::gtest_main
+)
+gtest_discover_tests(test_angle_utils)
+
 # -- test_depth (spherical rectification + analytic ground depth; pure math) --
 add_executable(test_depth
     tests/depth/test_spherical_rectification.cpp

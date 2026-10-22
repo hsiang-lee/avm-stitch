@@ -26,8 +26,6 @@ using namespace avm_stitch;
 
 namespace {
 
-constexpr double kPi = 3.14159265358979323846;
-
 using avm_stitch::test::MakeIdentityExtrinsics;
 using avm_stitch::test::MakeKbIntrinsics;
 
