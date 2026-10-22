@@ -1,10 +1,10 @@
 #pragma once
 
-//     extrinsics into Camera objects, then runs the full pipeline inline —
-//     OSG scene graph + offscreen renderer. GL-free.
+// Configures N calibrated cameras and runs the full pipeline inline —
+// OSG scene graph + offscreen renderer. GL-free.
 
 #include "bowl_model/bowl_model.hpp"
-#include "camera_model/camera_model.hpp"
+#include "camera_model/camera.hpp"
 
 #include <opencv2/core.hpp>
 
@@ -25,10 +25,10 @@ public:
     StitchEngine(const StitchEngine&) = delete;
     StitchEngine& operator=(const StitchEngine&) = delete;
 
-        /// ownership of N camera models (moved in) and runs the full pipeline
-            ///                     transferred into the engine
-                                void Configure(std::vector<std::unique_ptr<CameraModel>> models,
-                   const std::vector<CameraExtrinsics>& extrinsics,
+    // N calibrated Camera objects (moved in); each Camera carries its model
+    // and extrinsics as one unit. Ownership of every model transfers to the
+    // engine for the lifetime of the pipeline.
+    void Configure(std::vector<Camera> cameras,
                    const BowlParams& bowl_params,
                    int output_width = 960,
                    int output_height = 640);

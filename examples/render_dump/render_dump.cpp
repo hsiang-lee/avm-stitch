@@ -57,12 +57,12 @@ int main(int argc, char** argv) {
     std::cout << "car_center=(" << bp.car_center()[0] << "," << bp.car_center()[1] << ") r_outter=" << bp.r_outter() << "\n";
 
         StitchEngine engine;
-    std::vector<std::unique_ptr<CameraModel>> models;
-    models.reserve(intrs.size());
-    for (const auto& intr : intrs) {
-        models.push_back(MakeCameraModel("kb", intr));
+    std::vector<Camera> cameras;
+    cameras.reserve(intrs.size());
+    for (size_t i = 0; i < intrs.size(); ++i) {
+        cameras.emplace_back(extrs[i], MakeCameraModel("kb", intrs[i]));
     }
-    engine.Configure(std::move(models), extrs, bp, 960, 640);
+    engine.Configure(std::move(cameras), bp, 960, 640);
     auto views = engine.RenderFrame(imgs);
     for (auto& kv : views) {
         cv::imwrite(out_dir+"/view_"+kv.first+".png", kv.second);

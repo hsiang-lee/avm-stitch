@@ -64,20 +64,9 @@ StitchEngine::StitchEngine() = default;
 
 StitchEngine::~StitchEngine() = default;
 
-void StitchEngine::Configure(std::vector<std::unique_ptr<CameraModel>> models,
-                             const std::vector<CameraExtrinsics>& extrinsics,
+void StitchEngine::Configure(std::vector<Camera> cameras,
                              const BowlParams& bowl_params,
                              int output_width, int output_height) {
-            if (models.size() != extrinsics.size()) {
-        throw std::invalid_argument(
-            "StitchEngine::Configure: intrinsics and extrinsics size mismatch");
-    }
-        // Camera value object and run the full pipeline inline.
-    std::vector<Camera> cameras;
-    cameras.reserve(models.size());
-    for (size_t i = 0; i < models.size(); ++i) {
-        cameras.emplace_back(extrinsics[i], std::move(models[i]));
-    }
     ValidateConfigureArgs(cameras, bowl_params);
 
     const BowlModel model(bowl_params, cameras);

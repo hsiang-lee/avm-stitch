@@ -137,7 +137,7 @@ void OSGViewRenderer::SetupWindowed(osg::ref_ptr<osg::Group> root) {
     double aspect =
         static_cast<double>(traits->width) / traits->height;
 
-                            const double cx = car_center_[0];
+    const double cx = car_center_[0];
     const double cy = car_center_[1];
     const double scale = scene_radius_ / kCalibratedAnchorRoutter;
     const osg::Vec3d home_eye(10.0 * scale + cx, -6.0 * scale, 6.0 * scale - cy);

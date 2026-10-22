@@ -23,18 +23,6 @@ inline KbParams MakeIntrinsics() {
                         return MakeKbParams();
 }
 
-// N kb CameraModels (distinct heap objects — Configure transfers ownership of
-// each model, so N distinct models are required even when geometry matches).
-inline std::vector<std::unique_ptr<CameraModel>> MakeKbModels(
-    int num_cameras, const KbParams& params = MakeKbParams()) {
-    std::vector<std::unique_ptr<CameraModel>> models;
-    models.reserve(static_cast<size_t>(num_cameras));
-    for (int i = 0; i < num_cameras; ++i) {
-        models.push_back(MakeCameraModel("kb", params));
-    }
-    return models;
-}
-
 inline BowlParams MakeCarBowl() {
     return DeriveBowlParams(5.6, 2.2, 2.9);
 }

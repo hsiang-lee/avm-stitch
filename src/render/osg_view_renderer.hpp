@@ -23,7 +23,8 @@ enum class RenderMode { Offscreen, Windowed };
 
 struct ViewPose {
     std::string name;
-    cv::Vec3d position;       cv::Vec3d target;
+    cv::Vec3d position;
+    cv::Vec3d target;
     cv::Vec3d up;
     double fovy_deg = 60.0;
 };
@@ -55,7 +56,7 @@ inline ClipPlanes ComputeClipPlanes(double scene_radius, double max_eye_to_targe
 
 class OSGViewRenderer {
 public:
-                                                        OSGViewRenderer(const StitchScene& scene,
+    OSGViewRenderer(const StitchScene& scene,
                     double scene_radius,
                     const std::vector<ViewPose>& view_poses,
                     int output_width, int output_height,
