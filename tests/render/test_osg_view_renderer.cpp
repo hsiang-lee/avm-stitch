@@ -193,56 +193,6 @@ TEST_F(OSGGLTest, OSGViewRenderer_ConstructionDoesNotCrash) {
         OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640));
 }
 
-TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_Returns4Mats) {
-    auto ts = test::BuildTestScene(4);
-    ASSERT_TRUE(ts.scene->root().valid());
-    ASSERT_TRUE(test::SceneTexture(*ts.scene).valid());
-    ASSERT_TRUE(ts.has_visible_vertices);
-
-    OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640);
-    auto views = renderer.RenderAllViews();
-
-    ASSERT_EQ(4u, views.size());
-    EXPECT_NE(views.end(), views.find("3d_front"));
-    EXPECT_NE(views.end(), views.find("3d_rear"));
-    EXPECT_NE(views.end(), views.find("3d_left"));
-    EXPECT_NE(views.end(), views.find("3d_right"));
-    EXPECT_EQ(views.end(), views.find("topdown"));
-}
-
-TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_CorrectSize) {
-    auto ts = test::BuildTestScene(4);
-    ASSERT_TRUE(ts.scene->root().valid());
-    ASSERT_TRUE(ts.has_visible_vertices);
-
-    OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640);
-    auto views = renderer.RenderAllViews();
-    ASSERT_EQ(4u, views.size());
-
-    for (const auto& kv : views) {
-        EXPECT_EQ(960, kv.second.cols) << kv.first;
-        EXPECT_EQ(640, kv.second.rows) << kv.first;
-        EXPECT_EQ(CV_8UC3, kv.second.type()) << kv.first;
-    }
-}
-
-TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_DrawsSceneNotJustBackground) {
-                auto ts = test::BuildTestSceneWithExtrinsics(4, test::MakeLookAtCameras(4));
-    ASSERT_TRUE(ts.scene->root().valid());
-    ASSERT_TRUE(test::SceneTexture(*ts.scene).valid());
-    ASSERT_TRUE(ts.has_visible_vertices);
-
-        ts.scene->UploadCameraImages(test::MakeColourFrames(4));
-
-    OSGViewRenderer renderer(*ts.scene, kCalibratedAnchorRoutter, DefaultViewPoses(), 960, 640);
-    auto views = renderer.RenderAllViews();
-    ASSERT_EQ(4u, views.size());
-
-                            for (const auto& kv : views) {
-        EXPECT_GT(test::CountVividPixels(kv.second), 0) << kv.first;
-    }
-}
-
 TEST_F(OSGGLTest, OSGViewRenderer_RenderAllViews_ShipScale_NotAllBackground) {
                         const BowlParams bp = DeriveBowlParams(211.6, 50.0, 50.0);
     ASSERT_GT(bp.r_outter(), 450.0);

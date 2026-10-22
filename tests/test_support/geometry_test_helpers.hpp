@@ -18,6 +18,35 @@ inline KbParams MakeKbParams() {
     return {640, 480, 300.0, 300.0, 320.0, 240.0, 0, 0, 0, 0};
 }
 
+inline constexpr int kRealImageWidth = 1920;
+inline constexpr int kRealImageHeight = 1536;
+
+inline KbParams MakeRealIntrinsics() {
+    return {kRealImageWidth, kRealImageHeight, 441.45, 441.45, 952.14, 758.27,
+            0, 0, 0, 0};
+}
+
+inline CameraExtrinsics MakeIdentityExtrinsics() {
+    return {cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
+}
+
+inline KbParams MakeKbIntrinsics(double k1 = 0, double k2 = 0,
+                                 double k3 = 0, double k4 = 0,
+                                 double fx = 300.0, double fy = 300.0) {
+    KbParams p;
+    p.width = 640;
+    p.height = 480;
+    p.fx = fx;
+    p.fy = fy;
+    p.cx = 320.0;
+    p.cy = 240.0;
+    p.k1 = k1;
+    p.k2 = k2;
+    p.k3 = k3;
+    p.k4 = k4;
+    return p;
+}
+
 inline std::vector<CameraExtrinsics> MakeSideCameras(
     const std::vector<double>& azimuths_deg) {
     std::vector<CameraExtrinsics> cams;

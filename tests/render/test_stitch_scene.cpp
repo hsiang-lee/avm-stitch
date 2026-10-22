@@ -22,7 +22,7 @@ using namespace avm_stitch;
 namespace {
 
 BowlModel MakeBaked(int num_cameras, double r_outter = 12.6) {
-    KbParams intr = {1920, 1536, 441.45, 441.45, 952.14, 758.27, 0, 0, 0, 0};
+    KbParams intr = test::MakeRealIntrinsics();
     std::vector<double> azimuths;
     for (int i = 0; i < num_cameras; ++i) azimuths.push_back(i * 360.0 / num_cameras);
     return test::MakeCoarseBowl(r_outter, std::vector<KbParams>(num_cameras, intr),
@@ -32,7 +32,7 @@ BowlModel MakeBaked(int num_cameras, double r_outter = 12.6) {
 }
 TEST(StitchSceneTest, BowlGeometryPositionAttributeCorrect) {
     auto bowl = MakeBaked(4, 5.0);
-    StitchScene scene(bowl, 1920, 1536);
+    StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     auto* geom = dynamic_cast<osg::Geometry*>(scene.bowl_drawable().get());
     ASSERT_NE(nullptr, geom);
 
@@ -50,7 +50,7 @@ TEST(StitchSceneTest, BowlGeometryPositionAttributeCorrect) {
 
 TEST(StitchSceneTest, BowlGeometryUVArraysExist) {
     auto bowl = MakeBaked(4, 5.0);
-    StitchScene scene(bowl, 1920, 1536);
+    StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     auto* geom = dynamic_cast<osg::Geometry*>(scene.bowl_drawable().get());
     ASSERT_NE(nullptr, geom);
     for (int loc = 2; loc <= 5; ++loc) {
@@ -60,7 +60,7 @@ TEST(StitchSceneTest, BowlGeometryUVArraysExist) {
 
 TEST(StitchSceneTest, BowlGeometryWeightArraysExist) {
     auto bowl = MakeBaked(4, 5.0);
-    StitchScene scene(bowl, 1920, 1536);
+    StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     auto* geom = dynamic_cast<osg::Geometry*>(scene.bowl_drawable().get());
     ASSERT_NE(nullptr, geom);
     for (int loc = 6; loc <= 7; ++loc) {
@@ -70,7 +70,7 @@ TEST(StitchSceneTest, BowlGeometryWeightArraysExist) {
 
 TEST(StitchSceneTest, BowlGeometryIndexCount) {
     auto bowl = MakeBaked(4, 5.0);
-    StitchScene scene(bowl, 1920, 1536);
+    StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     auto* geom = dynamic_cast<osg::Geometry*>(scene.bowl_drawable().get());
     ASSERT_NE(nullptr, geom);
 
@@ -85,7 +85,7 @@ TEST(StitchSceneTest, BowlGeometryIndexCount) {
 
 TEST(StitchSceneTest, BowlGeometryNormalBinding) {
     auto bowl = MakeBaked(4, 5.0);
-    StitchScene scene(bowl, 1920, 1536);
+    StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     auto* geom = dynamic_cast<osg::Geometry*>(scene.bowl_drawable().get());
     ASSERT_NE(nullptr, geom);
     EXPECT_EQ(osg::Geometry::BIND_PER_VERTEX, geom->getNormalBinding());
@@ -144,7 +144,7 @@ void ExpectZeroPaddedBeyondBakedCameras(const BowlModel& bowl, osg::Geometry& ge
 }
 TEST(StitchSceneTest, EmptySlotsZeroPaddedWhenBakingFourCameras) {
         auto bowl = MakeBaked(4, 5.0);
-    StitchScene scene(bowl, 1920, 1536);
+    StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     auto* geom = dynamic_cast<osg::Geometry*>(scene.bowl_drawable().get());
     ASSERT_NE(nullptr, geom);
     ExpectZeroPaddedBeyondBakedCameras(bowl, *geom);
@@ -152,7 +152,7 @@ TEST(StitchSceneTest, EmptySlotsZeroPaddedWhenBakingFourCameras) {
 
 TEST(StitchSceneTest, EmptySlotsZeroPaddedWhenBakingTwoCameras) {
         auto bowl = MakeBaked(2);
-    StitchScene scene(bowl, 1920, 1536);
+    StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     auto* geom = dynamic_cast<osg::Geometry*>(scene.bowl_drawable().get());
     ASSERT_NE(nullptr, geom);
     ExpectZeroPaddedBeyondBakedCameras(bowl, *geom);
@@ -174,7 +174,7 @@ const osg::Shader* FindShader(const StitchScene& scene, osg::Shader::Type type) 
 }
 TEST(StitchSceneTest, ShaderSources_VertexCompilesSyntactically) {
     auto bowl = MakeBaked(4, 5.0);
-    StitchScene scene(bowl, 1920, 1536);
+    StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     const osg::Shader* vs = FindShader(scene, osg::Shader::VERTEX);
     ASSERT_NE(nullptr, vs);
     const std::string s(vs->getShaderSource());
@@ -186,7 +186,7 @@ TEST(StitchSceneTest, ShaderSources_VertexCompilesSyntactically) {
 
 TEST(StitchSceneTest, ShaderSources_FragmentCompilesSyntactically) {
     auto bowl = MakeBaked(4, 5.0);
-    StitchScene scene(bowl, 1920, 1536);
+    StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     const osg::Shader* fs = FindShader(scene, osg::Shader::FRAGMENT);
     ASSERT_NE(nullptr, fs);
     const std::string s(fs->getShaderSource());
@@ -199,7 +199,7 @@ TEST(StitchSceneTest, ShaderSources_FragmentCompilesSyntactically) {
 
 TEST(StitchSceneTest, ShaderSources_All8CamerasUnrolled) {
     auto bowl = MakeBaked(4, 5.0);
-    StitchScene scene(bowl, 1920, 1536);
+    StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     const osg::Shader* fs = FindShader(scene, osg::Shader::FRAGMENT);
     ASSERT_NE(nullptr, fs);
     const std::string s(fs->getShaderSource());
@@ -211,7 +211,7 @@ TEST(StitchSceneTest, ShaderSources_All8CamerasUnrolled) {
 
 TEST(StitchSceneTest, CameraTextureArraySetsCorrectSize) {
     auto bowl = MakeBaked(4);
-    StitchScene scene(bowl, 1920, 1536);
+    StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     auto ss = scene.bowl_stateset();
     ASSERT_TRUE(ss.valid());
     auto* tex = dynamic_cast<osg::Texture2DArray*>(
@@ -224,13 +224,13 @@ TEST(StitchSceneTest, CameraTextureArraySetsCorrectSize) {
 
 TEST(StitchSceneTest, NumCamerasComesFromBakedBowl) {
             auto bowl = MakeBaked(4);
-    StitchScene scene(bowl, 1920, 1536);
+    StitchScene scene(bowl, test::kRealImageWidth, test::kRealImageHeight);
     EXPECT_EQ(4, scene.num_cameras());
 }
 
 TEST(StitchSceneTest, RootNonNullGroup) {
     auto baked = MakeBaked(4);
-    StitchScene scene(baked, 1920, 1536);
+    StitchScene scene(baked, test::kRealImageWidth, test::kRealImageHeight);
     auto root = scene.root();
     ASSERT_TRUE(root.valid());
     EXPECT_GE(root->getNumChildren(), 1u);
@@ -238,7 +238,7 @@ TEST(StitchSceneTest, RootNonNullGroup) {
 
 TEST(StitchSceneTest, ProgramAttached) {
     auto baked = MakeBaked(4);
-    StitchScene scene(baked, 1920, 1536);
+    StitchScene scene(baked, test::kRealImageWidth, test::kRealImageHeight);
     auto root = scene.root();
     ASSERT_TRUE(root.valid());
     ASSERT_GE(root->getNumChildren(), 1u);

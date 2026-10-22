@@ -19,6 +19,7 @@ using namespace avm_stitch;
 using avm_stitch::test::MakeCarBowl;
 using avm_stitch::test::MakeCoarseBowl;
 using avm_stitch::test::MakeCoarseBowlParams;
+using avm_stitch::test::MakeRealIntrinsics;
 using avm_stitch::test::MakeSideCameras;
 using avm_stitch::test::WrapKbCameras;
 
@@ -35,10 +36,6 @@ size_t CountFlatVertices(const BowlModel& model, double x_half, double y_half) {
     return count;
 }
 
-
-KbParams MakeIntrinsics() {
-    return {1920, 1536, 441.45, 441.45, 952.14, 758.27, 0, 0, 0, 0};
-}
 
 bool IsVertexVisibleToCamera(const cv::Vec3d& P, const KbParams& intr,
                              const CameraExtrinsics& extr) {
@@ -62,7 +59,7 @@ bool IsVertexBakedVisible(const cv::Vec3d& P, const KbParams& intr,
 }
 
 std::vector<KbParams> DefaultIntrinsics() {
-    return std::vector<KbParams>(4, MakeIntrinsics());
+    return std::vector<KbParams>(4, MakeRealIntrinsics());
 }
 
 std::vector<CameraExtrinsics> DefaultBakeCameras() {
@@ -184,7 +181,7 @@ TEST(DeriveBowlParamsTest, ShipScale_All8CamerasSeeBowlWithWeight) {
     };
     const double kCamZ[8] = {19.00911, 30.88980, 30.88980, 30.88980,
                              30.88980, 30.88980, 30.88980, 28.51366};
-    std::vector<KbParams> intrs(8, MakeIntrinsics());
+    std::vector<KbParams> intrs(8, MakeRealIntrinsics());
     std::vector<CameraExtrinsics> extrs;
     for (int j = 0; j < 8; ++j) {
         const double r = std::hypot(kCamXY[j][0], kCamXY[j][1]);
@@ -488,7 +485,7 @@ TEST(BowlModelTest, MinimalParams_OneCellMesh) {
 
 
 TEST(BowlModelTest, BakeVertices_OneBakedPerMeshVertex) {
-                        auto intrs = std::vector<KbParams>(1, MakeIntrinsics());
+                        auto intrs = std::vector<KbParams>(1, MakeRealIntrinsics());
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
     auto model = MakeCoarseBowl(5.0, intrs, {extr});
     ASSERT_GT(model.vertex_count(), 0);
@@ -508,7 +505,7 @@ TEST(BowlModelTest, BakeVertices_OneBakedPerMeshVertex) {
 
 
 TEST(BowlModelBakeTest, SingleCamera_UVMatchesProjection) {
-    KbParams intr = MakeIntrinsics();
+    KbParams intr = MakeRealIntrinsics();
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 0)};
     auto model = MakeCoarseBowl(5.0, {intr}, {extr});
     ASSERT_GT(model.vertex_count(), 0);
@@ -528,14 +525,14 @@ TEST(BowlModelBakeTest, SingleCamera_UVMatchesProjection) {
     EXPECT_GT(checked, 0);   }
 
 TEST(BowlModelBakeTest, N4_NumCameras) {
-    auto intrs = std::vector<KbParams>(4, MakeIntrinsics());
+    auto intrs = std::vector<KbParams>(4, MakeRealIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
     auto model = MakeCoarseBowl(12.6, intrs, extrs);
     EXPECT_EQ(4, model.baked_num_cameras());
 }
 
 TEST(BowlModelBakeTest, BakedVertex_SizedByCameraCount) {
-                auto intrs4 = std::vector<KbParams>(4, MakeIntrinsics());
+                auto intrs4 = std::vector<KbParams>(4, MakeRealIntrinsics());
     auto extrs4 = MakeSideCameras({0, 180, 90, -90});
     const BowlModel model4 = MakeCoarseBowl(12.6, intrs4, extrs4);
     ASSERT_EQ(4, model4.baked_num_cameras());
@@ -546,7 +543,7 @@ TEST(BowlModelBakeTest, BakedVertex_SizedByCameraCount) {
         EXPECT_EQ(4u, bv.weight.size());
     }
 
-    auto intrs1 = std::vector<KbParams>(1, MakeIntrinsics());
+    auto intrs1 = std::vector<KbParams>(1, MakeRealIntrinsics());
     CameraExtrinsics extr{cv::Matx33d::eye(), cv::Vec3d(0, 0, 5)};
     const BowlModel model1 = MakeCoarseBowl(5.0, intrs1, {extr});
     ASSERT_EQ(1, model1.baked_num_cameras());
@@ -557,7 +554,7 @@ TEST(BowlModelBakeTest, BakedVertex_SizedByCameraCount) {
 }
 
 TEST(BowlModelBakeTest, N4_WeightsSumToOne_WhenVisible) {
-    auto intrs = std::vector<KbParams>(4, MakeIntrinsics());
+    auto intrs = std::vector<KbParams>(4, MakeRealIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
     auto model = MakeCoarseBowl(12.6, intrs, extrs);
 
@@ -574,7 +571,7 @@ TEST(BowlModelBakeTest, N4_WeightsSumToOne_WhenVisible) {
     EXPECT_GT(visible_vertices, 0);   }
 
 TEST(BowlModelBakeTest, N4_UVInNormalizedRange) {
-    auto intrs = std::vector<KbParams>(4, MakeIntrinsics());
+    auto intrs = std::vector<KbParams>(4, MakeRealIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
     auto model = MakeCoarseBowl(12.6, intrs, extrs);
 
@@ -590,7 +587,7 @@ TEST(BowlModelBakeTest, N4_UVInNormalizedRange) {
 }
 
 TEST(BowlModelBakeTest, N4_InvisibleCameraHasZeroWeight) {
-    auto intrs = std::vector<KbParams>(4, MakeIntrinsics());
+    auto intrs = std::vector<KbParams>(4, MakeRealIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
     auto model = MakeCoarseBowl(12.6, intrs, extrs);
 
@@ -599,13 +596,7 @@ TEST(BowlModelBakeTest, N4_InvisibleCameraHasZeroWeight) {
     for (int i = 0; i < model.vertex_count(); ++i) {
         if (model.vertex(i)[2] == 0.0) found_flat_vertex = true;
         for (int j = 0; j < 4; ++j) {
-            const KbCameraModel rep{intrs[j]};
-            const cv::Vec2d uv = rep.ProjectCameraPoint(
-                extrs[j].ToCamera(model.vertex(i)));
-            bool visible_in_bake = uv[0] >= 0.0 && uv[0] < rep.width()
-                                   && uv[1] >= 0.0 && uv[1] < rep.height()
-                                   && rep.InsideFisheyeCircle(uv[0], uv[1]);
-            if (!visible_in_bake) {
+            if (!IsVertexVisibleToCamera(model.vertex(i), intrs[j], extrs[j])) {
                 found_invisible_pair = true;
                 EXPECT_FLOAT_EQ(0.0f, model.baked_vertex(i).weight[j]);
             }
@@ -616,7 +607,7 @@ TEST(BowlModelBakeTest, N4_InvisibleCameraHasZeroWeight) {
 }
 
 TEST(BowlModelBakeTest, N4_AllVerticesHaveAtLeastOneVisible) {
-    auto intrs = std::vector<KbParams>(4, MakeIntrinsics());
+    auto intrs = std::vector<KbParams>(4, MakeRealIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
     auto model = MakeCoarseBowl(12.6, intrs, extrs);
 
@@ -634,7 +625,7 @@ TEST(BowlModelBakeTest, N4_AllVerticesHaveAtLeastOneVisible) {
 }
 
 TEST(BowlModelBakeTest, N8_AllSlotsFilledCorrectly) {
-    auto intrs = std::vector<KbParams>(8, MakeIntrinsics());
+    auto intrs = std::vector<KbParams>(8, MakeRealIntrinsics());
     auto extrs = MakeSideCameras({0, 45, 90, 135, 180, 225, 270, 315});
     auto model = MakeCoarseBowl(12.6, intrs, extrs);
     ASSERT_EQ(8, model.baked_num_cameras());
@@ -653,7 +644,7 @@ TEST(BowlModelBakeTest, N8_AllSlotsFilledCorrectly) {
     EXPECT_TRUE(slot7_used);   }
 
 TEST(BowlModelBakeTest, N6_SlotsExactlyCameraCount) {
-                    auto intrs = std::vector<KbParams>(6, MakeIntrinsics());
+                    auto intrs = std::vector<KbParams>(6, MakeRealIntrinsics());
     auto extrs = MakeSideCameras({0, 60, 120, 180, 240, 300});
     auto model = MakeCoarseBowl(12.6, intrs, extrs);
     ASSERT_EQ(6, model.baked_num_cameras());
@@ -786,7 +777,7 @@ TEST(BowlModelBakeTest, EdgeGate_UnsafeCameraZero_SafeCameraGetsFullWeight) {
 }
 
 TEST(BowlModelBakeTest, CarCenter_ShiftsBlendWeightDistribution) {
-    auto intrs = std::vector<KbParams>(4, MakeIntrinsics());
+    auto intrs = std::vector<KbParams>(4, MakeRealIntrinsics());
     auto extrs = MakeSideCameras({0, 90, 180, -90});
     auto cams = WrapKbCameras(intrs, extrs);
 
@@ -828,7 +819,7 @@ TEST(BowlModelBakeTest, CarCenter_ShiftsBlendWeightDistribution) {
 }
 
 TEST(BowlModelBakeTest, HasVisibleVertices_TrueWhenRimVisible) {
-        auto intrs = std::vector<KbParams>(4, MakeIntrinsics());
+        auto intrs = std::vector<KbParams>(4, MakeRealIntrinsics());
     auto extrs = MakeSideCameras({0, 180, 90, -90});
     auto model = MakeCoarseBowl(12.6, intrs, extrs);
     EXPECT_TRUE(model.HasVisibleVertices());

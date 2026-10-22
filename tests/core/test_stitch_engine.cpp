@@ -3,6 +3,7 @@
 
 #include "bowl_model/bowl_model.hpp"
 #include "core/stitch_engine.hpp"
+#include "render/osg_view_renderer.hpp"
 
 #include "test_support/gl_fixture.hpp"
 #include "test_support/stitch_test_helpers.hpp"
@@ -299,4 +300,12 @@ TEST_F(OSGGLTest, StitchEngineGL_FrontViewNotVerticallyFlipped) {
         << "3d_front output upper rows must sample camera image band 1 (was band 0 before 40-px hard gate)";
     EXPECT_EQ(4, DominantBand(front, 400, 600))
         << "3d_front output bottom rows must sample camera image band 4 (was band 5 before 40-px hard gate)";
+}
+
+TEST(RegressionTest, PublicApiHeadersAreSelfContained) {
+            const BowlParams bowl = DeriveBowlParams(5.6, 2.2, 2.9);
+    EXPECT_DOUBLE_EQ(12.6, bowl.r_outter());
+
+    auto poses = DefaultViewPoses();
+    EXPECT_EQ(4u, poses.size());
 }
