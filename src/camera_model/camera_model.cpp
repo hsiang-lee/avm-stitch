@@ -31,7 +31,9 @@ cv::Vec2d CameraModel::ProjectCameraPoint(const cv::Vec3d& P_cam) const {
 
 uint8_t CameraModel::RectContains(double u, double v) const {
     return (u >= 0.0 && u < static_cast<double>(width_) &&
-            v >= 0.0 && v < static_cast<double>(height_)) ? 1 : 0;
+            v >= 0.0 && v < static_cast<double>(height_))
+               ? 1
+               : 0;
 }
 
 void CameraModel::RequireEqualLengths(std::span<const cv::Vec3d> cam_points,
@@ -49,7 +51,8 @@ void CameraModel::RequireEqualLengths(std::span<const cv::Vec3d> cam_points,
 // circle centred at (cx,cy) (distance to the nearest image edge). Moved
 // verbatim from the retired hand-written FisheyeCircleRadius.
 double CameraModel::FisheyeCircleRadius() const {
-    if (gate_radius_raw_ > 0.0) return gate_radius_raw_;
+    if (gate_radius_raw_ > 0.0)
+        return gate_radius_raw_;
     double r = std::min({cx_, cy_,
                          static_cast<double>(width_) - cx_,
                          static_cast<double>(height_) - cy_});
@@ -74,15 +77,17 @@ bool CameraModel::InsideFisheyeCircle(double u_px, double v_px) const {
 // from the retired hand-written EdgeFeather.
 double CameraModel::EdgeFeather(double u_px, double v_px,
                                 double feather_px) const {
-    if (feather_px <= 0.0) return 1.0;
+    if (feather_px <= 0.0)
+        return 1.0;
     const double r_px = std::hypot(u_px - cx_, v_px - cy_);
     const double radius = FisheyeCircleRadius();
-    const double margin = radius - r_px;          // >0 guaranteed inside circle
+    const double margin = radius - r_px; // >0 guaranteed inside circle
     // Hard gate: exclude everything within feather_px of the circle edge
     // (was a linear fade before the 2026-09-11 fix — changed to a step
     // because the D3 fallback normalizes weight and amplifies even a
     // fractionally-safe sample to full weight, rendering the dark rim).
-    if (margin >= feather_px) return 1.0;
+    if (margin >= feather_px)
+        return 1.0;
     return 0.0;
 }
 
@@ -101,7 +106,7 @@ std::unique_ptr<CameraModel> MakeCameraModel(const std::string& model,
         }
         return std::make_unique<KbCameraModel>(kb);
     }
-        if (model == "table") {
+    if (model == "table") {
         if (!std::holds_alternative<LutParams>(params)) {
             throw std::invalid_argument(
                 "MakeCameraModel: params for model 'table' must be LutParams");
@@ -116,7 +121,8 @@ std::unique_ptr<CameraModel> MakeCameraModel(const std::string& model,
             if (!(lut.points[i - 1][0] < lut.points[i][0])) {
                 throw std::invalid_argument(
                     "MakeCameraModel: table LUT angle_deg column must be "
-                    "strictly ascending (row " + std::to_string(i) + ")");
+                    "strictly ascending (row " +
+                    std::to_string(i) + ")");
             }
         }
         if (!(lut.pixel_size_mm > 0.0)) {

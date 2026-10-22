@@ -25,7 +25,7 @@ double AngularDistance(double p, double q) {
 
 }
 TEST(SphericalRectificationTest, DetIsRightHanded) {
-            auto [a, b] = MakeStereoPair();
+    auto [a, b] = MakeStereoPair();
     auto basis = MakeRectificationBasis(a, b);
     EXPECT_NEAR(1.0, cv::determinant(basis.m1), 1e-9);
     EXPECT_NEAR(1.0, cv::determinant(basis.m2), 1e-9);
@@ -48,7 +48,7 @@ TEST(SphericalRectificationTest, BasisIsOrthonormal) {
 }
 
 TEST(SphericalRectificationTest, BaselinePointsFromAToB) {
-            auto [a, b] = MakeStereoPair();
+    auto [a, b] = MakeStereoPair();
     auto basis = MakeRectificationBasis(a, b);
     cv::Vec3d v = a.RotateWorldToCamera(b.position() - a.position());
     v /= cv::norm(v);
@@ -56,7 +56,7 @@ TEST(SphericalRectificationTest, BaselinePointsFromAToB) {
 }
 
 TEST(SphericalRectificationTest, RowAlignmentHoldsForRandomPoints) {
-                auto [a, b] = MakeStereoPair();
+    auto [a, b] = MakeStereoPair();
     auto basis = MakeRectificationBasis(a, b);
 
     std::mt19937 rng(12345);
@@ -81,7 +81,8 @@ TEST(SphericalRectificationTest, RowAlignmentHoldsForRandomPoints) {
 }
 
 TEST(SphericalRectificationTest, GridDirectionIsUnit) {
-    SphericalGrid g;      EXPECT_NEAR(0.0, g.PsiDeg(0), 1e-12);
+    SphericalGrid g;
+    EXPECT_NEAR(0.0, g.PsiDeg(0), 1e-12);
     EXPECT_NEAR(180.0, g.PsiDeg(g.width - 1), 1e-12);
     EXPECT_NEAR(-180.0, g.PhiDeg(0), 1e-12);
     EXPECT_NEAR(180.0, g.PhiDeg(g.height - 1), 1e-12);
@@ -92,7 +93,7 @@ TEST(SphericalRectificationTest, GridDirectionIsUnit) {
 }
 
 TEST(SphericalRectificationTest, MirrorKeepsBasisRightHanded) {
-            auto [a, b] = MakeStereoPair();
+    auto [a, b] = MakeStereoPair();
     auto basis = MakeRectificationBasis(a, b);
     EXPECT_NEAR(1.0, cv::determinant(basis.m1), 1e-9);
 
@@ -103,13 +104,13 @@ TEST(SphericalRectificationTest, MirrorKeepsBasisRightHanded) {
     for (int r = 0; r < g.height; ++r) {
         EXPECT_NEAR(-g.PhiDeg(r), gm.PhiDeg(r), 1e-9);
     }
-        for (int r : {0, g.height / 2, g.height - 1})
+    for (int r : {0, g.height / 2, g.height - 1})
         for (int c : {0, g.width / 2, g.width - 1})
             EXPECT_NEAR(1.0, cv::norm(gm.DirectionC(r, c)), 1e-12);
 }
 
 TEST(SphericalRectificationTest, SkyUpNeedsMirrorDetectsFlippedRowOrder) {
-                auto [a, b] = MakeStereoPair();
+    auto [a, b] = MakeStereoPair();
     auto basis = MakeRectificationBasis(a, b);
     const int H = 720;
     const double step = 360.0 / (H - 1);
@@ -120,8 +121,12 @@ TEST(SphericalRectificationTest, SkyUpNeedsMirrorDetectsFlippedRowOrder) {
     double row_unmir = (phi_sky + 180.0) / step;
 
     if (need_mirror) {
-        EXPECT_GE(row_unmir, H * 0.5);                         double row_mir = (-phi_sky + 180.0) / step;            EXPECT_GE(row_mir, 0.0);
-        EXPECT_LT(row_mir, H * 0.5);                       } else {
+        EXPECT_GE(row_unmir, H * 0.5);
+        double row_mir = (-phi_sky + 180.0) / step;
+        EXPECT_GE(row_mir, 0.0);
+        EXPECT_LT(row_mir, H * 0.5);
+    } else {
         EXPECT_GE(row_unmir, 0.0);
-        EXPECT_LT(row_unmir, H * 0.5);                     }
+        EXPECT_LT(row_unmir, H * 0.5);
+    }
 }

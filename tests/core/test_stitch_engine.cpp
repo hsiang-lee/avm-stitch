@@ -3,6 +3,7 @@
 
 #include "bowl_model/bowl_model.hpp"
 #include "core/stitch_engine.hpp"
+#include "render/osg_view_renderer.hpp"
 
 #include "test_support/gl_fixture.hpp"
 #include "test_support/stitch_test_helpers.hpp"
@@ -16,10 +17,14 @@ using avm_stitch::test::OSGGLTest;
 
 namespace {
 
-
-
 const std::vector<cv::Scalar> kBandColours = {
-    cv::Scalar(0, 0, 255),         cv::Scalar(0, 255, 0),         cv::Scalar(255, 0, 0),         cv::Scalar(0, 255, 255),       cv::Scalar(255, 0, 255),       cv::Scalar(255, 255, 0),   };
+    cv::Scalar(0, 0, 255),
+    cv::Scalar(0, 255, 0),
+    cv::Scalar(255, 0, 0),
+    cv::Scalar(0, 255, 255),
+    cv::Scalar(255, 0, 255),
+    cv::Scalar(255, 255, 0),
+};
 
 cv::Mat MakeBandFrame() {
     KbParams intr = test::MakeIntrinsics();
@@ -58,7 +63,8 @@ int DominantBand(const cv::Mat& img, int y0, int y1) {
             }
         }
     }
-    if (matched == 0) return -1;
+    if (matched == 0)
+        return -1;
     return static_cast<int>(std::max_element(counts.begin(), counts.end()) -
                             counts.begin());
 }
@@ -66,57 +72,48 @@ int DominantBand(const cv::Mat& img, int y0, int y1) {
 }
 TEST(StitchEngineTest, ConfigureN0Throws) {
     StitchEngine engine;
-    EXPECT_THROW(engine.Configure({}, {}, test::MakeCarBowl()),
+    EXPECT_THROW(engine.Configure({}, test::MakeCarBowl()),
                  std::invalid_argument);
 }
 
 TEST(StitchEngineTest, ConfigureN9Throws) {
-    auto models = test::MakeKbModels(9);
-    auto extrs = test::MakeSideCameras({0, 40, 80, 120, 160, 200, 240, 280, 320});
     StitchEngine engine;
-    EXPECT_THROW(engine.Configure(std::move(models), extrs, test::MakeCarBowl()),
-                 std::invalid_argument);
-}
-
-TEST(StitchEngineTest, ConfigureMismatchedSizes) {
-    auto models = test::MakeKbModels(4);
-    auto extrs = test::MakeSideCameras({0, 90, 180, 270});
-    extrs.pop_back();       StitchEngine engine;
-    EXPECT_THROW(engine.Configure(std::move(models), extrs, test::MakeCarBowl()),
+    EXPECT_THROW(engine.Configure(test::WrapKbSideCameras({0, 40, 80, 120, 160,
+                                                           200, 240, 280, 320}),
+                                  test::MakeCarBowl()),
                  std::invalid_argument);
 }
 
 TEST(StitchEngineTest, ConfigureMismatchedImageSizesThrows) {
-            auto models = test::MakeKbModels(4);
-        models[1] = MakeCameraModel("kb",
-                                KbParams{320, 480, 300.0, 300.0, 320.0, 240.0,
-                                         0, 0, 0, 0});
-    auto extrs = test::MakeSideCameras({0, 90, 180, 270});
+    auto cams = test::WrapKbSideCameras({0, 90, 180, 270});
+    cams[1] = Camera(cams[1].Extrinsics(),
+                     MakeCameraModel("kb",
+                                     KbParams{320, 480, 300.0, 300.0, 320.0, 240.0,
+                                              0, 0, 0, 0}));
     StitchEngine engine;
-    EXPECT_THROW(engine.Configure(std::move(models), extrs, test::MakeCarBowl()),
+    EXPECT_THROW(engine.Configure(std::move(cams), test::MakeCarBowl()),
                  std::invalid_argument);
 }
 
 TEST(StitchEngineTest, ConfigureNullCameraModelThrows) {
-    // A nullptr may hide inside the caller's vector<unique_ptr<CameraModel>>;
-    // Configure owns the models, so it must reject a null entry with a clear
-    // null-model message instead of dereferencing it during the bake. Other
-    // models/extrinsics are valid (size and N checks pass), so execution must
-    // reach the per-camera Valid() gate.
-    auto models = test::MakeKbModels(4);
-    auto extrs = test::MakeSideCameras({0, 90, 180, 270});
-    models[2] = nullptr;   // null model at a non-first index
+    // A null model may hide inside the caller's vector<Camera>; Configure owns
+    // the models, so it must reject a null entry with a clear null-model
+    // message instead of dereferencing it during the bake. All cameras are
+    // otherwise valid (N and image-size checks pass), so execution must reach
+    // the per-camera Valid() gate.
+    auto cams = test::WrapKbSideCameras({0, 90, 180, 270});
+    cams[2] = Camera(cams[2].Extrinsics(), nullptr); // null model (Valid() false)
     StitchEngine engine;
     EXPECT_THROW(
         {
             try {
-                engine.Configure(std::move(models), extrs, test::MakeCarBowl());
+                engine.Configure(std::move(cams), test::MakeCarBowl());
             } catch (const std::invalid_argument& e) {
                 EXPECT_NE(std::string(e.what())
                               .find(" has no model (Camera.model is null)"),
                           std::string::npos)
                     << "what() should mention the null model, got: " << e.what();
-                throw;   // rethrow so EXPECT_THROW sees the exception
+                throw; // rethrow so EXPECT_THROW sees the exception
             }
         },
         std::invalid_argument);
@@ -124,12 +121,12 @@ TEST(StitchEngineTest, ConfigureNullCameraModelThrows) {
 
 TEST(StitchEngineTest, ConfigureN1_N8_Success) {
     for (int n = 1; n <= 8; ++n) {
-        auto models = test::MakeKbModels(n);
         std::vector<double> azimuths;
-        for (int i = 0; i < n; ++i) azimuths.push_back(i * 360.0 / n);
-        auto extrs = test::MakeSideCameras(azimuths);
+        for (int i = 0; i < n; ++i)
+            azimuths.push_back(i * 360.0 / n);
         StitchEngine engine;
-        EXPECT_NO_THROW(engine.Configure(std::move(models), extrs, test::MakeCarBowl()))
+        EXPECT_NO_THROW(engine.Configure(test::WrapKbSideCameras(azimuths),
+                                         test::MakeCarBowl()))
             << "Configure failed for N=" << n;
     }
 }
@@ -140,18 +137,16 @@ TEST(StitchEngineTest, IsConfiguredFalseBefore) {
 }
 
 TEST(StitchEngineTest, IsConfiguredTrueAfter) {
-    auto models = test::MakeKbModels(4);
-    auto extrs = test::MakeSideCameras({0, 90, 180, 270});
     StitchEngine engine;
-    engine.Configure(std::move(models), extrs, test::MakeCarBowl());
+    engine.Configure(test::WrapKbSideCameras({0, 90, 180, 270}),
+                     test::MakeCarBowl());
     EXPECT_TRUE(engine.IsConfigured());
 }
 
 TEST(StitchEngineTest, GetNumCameras) {
-    auto models = test::MakeKbModels(4);
-    auto extrs = test::MakeSideCameras({0, 90, 180, 270});
     StitchEngine engine;
-    engine.Configure(std::move(models), extrs, test::MakeCarBowl());
+    engine.Configure(test::WrapKbSideCameras({0, 90, 180, 270}),
+                     test::MakeCarBowl());
     EXPECT_EQ(4, engine.GetNumCameras());
 }
 
@@ -161,64 +156,75 @@ TEST(StitchEngineTest, RenderFrameBeforeConfigureThrows) {
 }
 
 TEST(StitchEngineTest, RenderFrameWrongImageCount) {
-    auto models = test::MakeKbModels(4);
-    auto extrs = test::MakeSideCameras({0, 90, 180, 270});
     StitchEngine engine;
-    engine.Configure(std::move(models), extrs, test::MakeCarBowl());
+    engine.Configure(test::WrapKbSideCameras({0, 90, 180, 270}),
+                     test::MakeCarBowl());
 
-    auto frames = test::MakeColourFrames(3);       EXPECT_THROW(engine.RenderFrame(frames), std::invalid_argument);
+    auto frames = test::MakeColourFrames(3);
+    EXPECT_THROW(engine.RenderFrame(frames), std::invalid_argument);
 }
 
 TEST(StitchEngineTest, Configure_BowlParamsCarLengthWidth) {
-        BowlParams bowl = test::MakeCarBowl()
-        .with_car_length(18.0)
-        .with_car_width(2.5)
-        .with_r_outter(25.0)
-        .with_step(1.0);
-    auto models = test::MakeKbModels(4);
-    auto extrs = test::MakeSideCameras({0, 90, 180, 270});
+    const BowlParams derived = test::MakeCarBowl();
+    BowlParams bowl(18.0, 2.5, derived.FlatPlatformRadius(), 1.0, 25.0,
+                    derived.SlopeCoefficient(), derived.HeightExponent(), derived.MaxHeight(),
+                    derived.CarCenter());
     StitchEngine engine;
-    EXPECT_NO_THROW(engine.Configure(std::move(models), extrs, bowl));
+    EXPECT_NO_THROW(engine.Configure(test::WrapKbSideCameras({0, 90, 180, 270}),
+                                     bowl));
     EXPECT_TRUE(engine.IsConfigured());
 }
 
 TEST(StitchEngineTest, ConfigureStepZeroThrows) {
-            auto models = test::MakeKbModels(4);
-    auto extrs = test::MakeSideCameras({0, 90, 180, 270});
-    BowlParams bowl = test::MakeCarBowl().with_step(0.0);
+    const BowlParams derived = test::MakeCarBowl();
+    BowlParams bowl(5.6, 2.2, derived.FlatPlatformRadius(), 0.0,
+                    derived.OuterRadius(), derived.SlopeCoefficient(),
+                    derived.HeightExponent(), derived.MaxHeight(), derived.CarCenter());
     StitchEngine engine;
-    EXPECT_THROW(engine.Configure(std::move(models), extrs, bowl), std::invalid_argument);
+    EXPECT_THROW(engine.Configure(test::WrapKbSideCameras({0, 90, 180, 270}),
+                                  bowl),
+                 std::invalid_argument);
 }
 
-TEST(StitchEngineTest, ConfigureNonPositiveRoutterThrows) {
-        auto models = test::MakeKbModels(4);
-    auto extrs = test::MakeSideCameras({0, 90, 180, 270});
-    BowlParams bowl = test::MakeCarBowl().with_r_outter(0.0);
+TEST(StitchEngineTest, ConfigureNonPositiveOuterRadiusThrows) {
+    const BowlParams derived = test::MakeCarBowl();
+    BowlParams bowl(5.6, 2.2, derived.FlatPlatformRadius(), derived.GridStep(), 0.0,
+                    derived.SlopeCoefficient(), derived.HeightExponent(), derived.MaxHeight(),
+                    derived.CarCenter());
     StitchEngine engine;
-    EXPECT_THROW(engine.Configure(std::move(models), extrs, bowl), std::invalid_argument);
+    EXPECT_THROW(engine.Configure(test::WrapKbSideCameras({0, 90, 180, 270}),
+                                  bowl),
+                 std::invalid_argument);
 }
 
 TEST(StitchEngineTest, ConfigureNegativeKSlopThrows) {
-    auto models = test::MakeKbModels(4);
-    auto extrs = test::MakeSideCameras({0, 90, 180, 270});
-    BowlParams bowl = test::MakeCarBowl().with_k_slop(-0.1);
+    const BowlParams derived = test::MakeCarBowl();
+    BowlParams bowl(5.6, 2.2, derived.FlatPlatformRadius(), derived.GridStep(),
+                    derived.OuterRadius(), -0.1,
+                    derived.HeightExponent(), derived.MaxHeight(), derived.CarCenter());
     StitchEngine engine;
-    EXPECT_THROW(engine.Configure(std::move(models), extrs, bowl), std::invalid_argument);
+    EXPECT_THROW(engine.Configure(test::WrapKbSideCameras({0, 90, 180, 270}),
+                                  bowl),
+                 std::invalid_argument);
 }
 
 TEST(StitchEngineTest, ConfigureNegativeZExpThrows) {
-                auto models = test::MakeKbModels(4);
-    auto extrs = test::MakeSideCameras({0, 90, 180, 270});
-    BowlParams bowl = test::MakeCarBowl().with_z_exp(-1.0);
+    const BowlParams derived = test::MakeCarBowl();
+    BowlParams bowl(5.6, 2.2, derived.FlatPlatformRadius(), derived.GridStep(),
+                    derived.OuterRadius(), derived.SlopeCoefficient(), -1.0,
+                    derived.MaxHeight(), derived.CarCenter());
     StitchEngine engine;
-    EXPECT_THROW(engine.Configure(std::move(models), extrs, bowl), std::invalid_argument);
+    EXPECT_THROW(engine.Configure(test::WrapKbSideCameras({0, 90, 180, 270}),
+                                  bowl),
+                 std::invalid_argument);
 }
 
 TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_Returns4Views) {
-    auto models = test::MakeKbModels(4);
-    auto extrs = test::MakeLookAtCameras(4);
     StitchEngine engine;
-    engine.Configure(std::move(models), extrs, test::MakeCarBowl());
+    engine.Configure(
+        test::WrapKbCameras(std::vector<KbParams>(4, test::MakeIntrinsics()),
+                            test::MakeLookAtCameras(4)),
+        test::MakeCarBowl());
 
     auto views = engine.RenderFrame(test::MakeColourFrames(4));
     ASSERT_EQ(4u, views.size());
@@ -230,22 +236,24 @@ TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_Returns4Views) {
 }
 
 TEST_F(OSGGLTest, ConfigureKbPath_Configures_AndRenders4Views) {
-                    StitchEngine engine;
-    auto models = test::MakeKbModels(4);
-    auto extrs = test::MakeLookAtCameras(4);
-    engine.Configure(std::move(models), extrs, test::MakeCarBowl());
+    StitchEngine engine;
+    engine.Configure(
+        test::WrapKbCameras(std::vector<KbParams>(4, test::MakeIntrinsics()),
+                            test::MakeLookAtCameras(4)),
+        test::MakeCarBowl());
     ASSERT_TRUE(engine.IsConfigured());
 
     auto frames = test::MakeColourFrames(4);
     auto views = engine.RenderFrame(frames);
-        EXPECT_EQ(4, views.size());
+    EXPECT_EQ(4, views.size());
 }
 
 TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_OutputSize) {
-    auto models = test::MakeKbModels(4);
-    auto extrs = test::MakeLookAtCameras(4);
     StitchEngine engine;
-    engine.Configure(std::move(models), extrs, test::MakeCarBowl());
+    engine.Configure(
+        test::WrapKbCameras(std::vector<KbParams>(4, test::MakeIntrinsics()),
+                            test::MakeLookAtCameras(4)),
+        test::MakeCarBowl());
 
     auto views = engine.RenderFrame(test::MakeColourFrames(4));
     ASSERT_EQ(4u, views.size());
@@ -257,46 +265,61 @@ TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_OutputSize) {
 }
 
 TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_NonBlackOutput) {
-    auto models = test::MakeKbModels(4);
-    auto extrs = test::MakeLookAtCameras(4);
     StitchEngine engine;
-    engine.Configure(std::move(models), extrs, test::MakeCarBowl());
+    engine.Configure(
+        test::WrapKbCameras(std::vector<KbParams>(4, test::MakeIntrinsics()),
+                            test::MakeLookAtCameras(4)),
+        test::MakeCarBowl());
 
     auto views = engine.RenderFrame(test::MakeColourFrames(4));
     ASSERT_EQ(4u, views.size());
-                    for (const auto& kv : views) {
+    for (const auto& kv : views) {
         EXPECT_GT(test::CountVividPixels(kv.second), 0) << kv.first;
     }
 }
 
 TEST_F(OSGGLTest, StitchEngineGL_RenderFrame_N8Cameras) {
-    auto models = test::MakeKbModels(8);
-    auto extrs = test::MakeLookAtCameras(8);
     StitchEngine engine;
-    engine.Configure(std::move(models), extrs, test::MakeCarBowl());
+    engine.Configure(
+        test::WrapKbCameras(std::vector<KbParams>(8, test::MakeIntrinsics()),
+                            test::MakeLookAtCameras(8)),
+        test::MakeCarBowl());
 
     auto views = engine.RenderFrame(test::MakeColourFrames(8));
     ASSERT_EQ(4u, views.size());
     int total_vivid = 0;
-    for (const auto& kv : views) total_vivid += test::CountVividPixels(kv.second);
+    for (const auto& kv : views)
+        total_vivid += test::CountVividPixels(kv.second);
     EXPECT_GT(total_vivid, 0);
 }
 
 TEST_F(OSGGLTest, StitchEngineGL_FrontViewNotVerticallyFlipped) {
-    auto models = test::MakeKbModels(1);
-    auto extrs =
-        std::vector<CameraExtrinsics>{test::MakeLookAtCamera(0.0, 4.0, 2.0, 0.0)};
+    const BowlParams derived = test::MakeCarBowl();
+    BowlParams bowl(5.6, 2.2, derived.FlatPlatformRadius(), derived.GridStep(),
+                    derived.OuterRadius(), derived.SlopeCoefficient(),
+                    derived.HeightExponent(), derived.MaxHeight(), cv::Vec2d(0.0, 0.0));
     StitchEngine engine;
-        BowlParams bowl = test::MakeCarBowl().with_car_center(cv::Vec2d(0.0, 0.0));
-    engine.Configure(std::move(models), extrs, bowl);
+    engine.Configure(
+        test::WrapKbCameras(std::vector<KbParams>(1, test::MakeIntrinsics()),
+                            std::vector<CameraExtrinsics>{
+                                test::MakeLookAtCamera(0.0, 4.0, 2.0, 0.0)}),
+        bowl);
 
     auto views = engine.RenderFrame({MakeBandFrame()});
     auto it = views.find("3d_front");
     ASSERT_NE(views.end(), it);
     const cv::Mat& front = it->second;
 
-                            EXPECT_EQ(1, DominantBand(front, 60, 240))
+    EXPECT_EQ(1, DominantBand(front, 60, 240))
         << "3d_front output upper rows must sample camera image band 1 (was band 0 before 40-px hard gate)";
     EXPECT_EQ(4, DominantBand(front, 400, 600))
         << "3d_front output bottom rows must sample camera image band 4 (was band 5 before 40-px hard gate)";
+}
+
+TEST(RegressionTest, PublicApiHeadersAreSelfContained) {
+    const BowlParams bowl = BowlParams::ForCarSize(5.6, 2.2, 2.9);
+    EXPECT_DOUBLE_EQ(12.6, bowl.OuterRadius());
+
+    auto poses = bowl.DefaultViewPoses();
+    EXPECT_EQ(4u, poses.size());
 }

@@ -1,6 +1,5 @@
 #pragma once
 
-
 #include "camera_model/camera_extrinsics.hpp"
 
 #include <opencv2/core.hpp>
@@ -21,7 +20,8 @@ inline cv::Matx33d MakeLookAtRotation(const cv::Vec3d& pos,
     f /= cv::norm(f);
     cv::Vec3d world_up(0.0, 0.0, 1.0);
     cv::Vec3d r = world_up.cross(f);
-    if (cv::norm(r) < 1e-9) r = cv::Vec3d(1.0, 0.0, 0.0);
+    if (cv::norm(r) < 1e-9)
+        r = cv::Vec3d(1.0, 0.0, 0.0);
     r /= cv::norm(r);
     cv::Vec3d u = f.cross(r);
     return cv::Matx33d(r[0], u[0], f[0],

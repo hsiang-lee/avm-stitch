@@ -7,11 +7,11 @@
 namespace avm_stitch {
 
 class KbCameraModel final : public CameraModel {
-public:
+  public:
     // Flat KbParams (width/height/fx/fy/cx/cy/k1..k4/fisheye_radius).
     explicit KbCameraModel(const KbParams& p);
 
-            void ProjectPoints(std::span<const cv::Vec3d> cam_points,
+    void ProjectPoints(std::span<const cv::Vec3d> cam_points,
                        std::span<cv::Vec2d> out_uv,
                        std::span<uint8_t> out_valid) const override;
 
@@ -19,7 +19,7 @@ public:
     // returns (cx, cy).
     cv::Vec2d ProjectCameraPoint(const cv::Vec3d& P_cam) const override;
 
-private:
+  private:
     double fx_, fy_;
     double k1_, k2_, k3_, k4_;
 };

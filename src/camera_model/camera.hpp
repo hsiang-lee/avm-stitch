@@ -4,7 +4,7 @@
 // so the base abstraction (CameraModel + factory params) and the pose/model
 // bundle (Camera) stay individually includable.
 
-#include "camera_model/camera_model.hpp"   // CameraModel + params/factory
+#include "camera_model/camera_model.hpp" // CameraModel + params/factory
 
 #include <memory>
 #include <span>
@@ -19,8 +19,8 @@ namespace avm_stitch {
 // The model pointer is private: null-model checks go through Valid(),
 // projection/dimensions through the delegating accessors below.
 class Camera {
-public:
-    Camera() = default;                                        // no model: Valid() == false
+  public:
+    Camera() = default; // no model: Valid() == false
     Camera(CameraExtrinsics ext, std::unique_ptr<CameraModel> model)
         : extrinsics(std::move(ext)), model_(std::move(model)) {}
 
@@ -51,10 +51,11 @@ public:
         model_->ProjectPoints(cam_points, out_uv, out_valid);
     }
 
-    CameraExtrinsics extrinsics;   // pose value data stays public (no ownership hazard)
+    const CameraExtrinsics& Extrinsics() const { return extrinsics; }
 
-private:
+  private:
+    CameraExtrinsics extrinsics;
     std::unique_ptr<CameraModel> model_;
 };
 
-} // namespace avm_stitch
+}

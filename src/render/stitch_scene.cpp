@@ -37,7 +37,7 @@ osg::ref_ptr<osg::Vec4Array> BuildPackedVec4(const BowlModel& bowl,
 osg::ref_ptr<osg::Geometry> BuildBowlGeometry(const BowlModel& bowl) {
     auto geom = new osg::Geometry;
 
-        auto pos_array = new osg::Vec3Array;
+    auto pos_array = new osg::Vec3Array;
     pos_array->reserve(bowl.vertex_count());
     for (int i = 0; i < bowl.vertex_count(); ++i) {
         const cv::Vec3d& v = bowl.vertex(i);
@@ -45,7 +45,7 @@ osg::ref_ptr<osg::Geometry> BuildBowlGeometry(const BowlModel& bowl) {
     }
     geom->setVertexArray(pos_array);
 
-        auto normal_array = new osg::Vec3Array;
+    auto normal_array = new osg::Vec3Array;
     normal_array->reserve(bowl.normal_count());
     for (int i = 0; i < bowl.normal_count(); ++i) {
         const cv::Vec3d& n = bowl.normal(i);
@@ -54,12 +54,12 @@ osg::ref_ptr<osg::Geometry> BuildBowlGeometry(const BowlModel& bowl) {
     geom->setNormalArray(normal_array);
     geom->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
 
-        const int n = bowl.baked_num_cameras();
+    const int n = bowl.baked_num_cameras();
     for (int slot = 0; slot < kNumUvSlots; ++slot) {
         int c0 = slot * 2;
         int c1 = c0 + 1;
         auto uv_array = BuildPackedVec4(bowl, [n, c0, c1](const BowlModel::BakedVertex& bv) {
-                                                const std::array<float, 2>& u0 =
+            const std::array<float, 2>& u0 =
                 (c0 < n) ? bv.uv[static_cast<size_t>(c0)] : kZeroUv;
             const std::array<float, 2>& u1 =
                 (c1 < n) ? bv.uv[static_cast<size_t>(c1)] : kZeroUv;
@@ -70,7 +70,7 @@ osg::ref_ptr<osg::Geometry> BuildBowlGeometry(const BowlModel& bowl) {
                                      osg::Geometry::BIND_PER_VERTEX);
     }
 
-        for (int slot = 0; slot < kNumWeightSlots; ++slot) {
+    for (int slot = 0; slot < kNumWeightSlots; ++slot) {
         int c0 = slot * 4;
         auto w_array = BuildPackedVec4(bowl, [n, c0](const BowlModel::BakedVertex& bv) {
             auto w = [n, &bv](int c) -> float {
@@ -83,7 +83,7 @@ osg::ref_ptr<osg::Geometry> BuildBowlGeometry(const BowlModel& bowl) {
                                      osg::Geometry::BIND_PER_VERTEX);
     }
 
-        auto indices = new osg::DrawElementsUInt(GL_TRIANGLES);
+    auto indices = new osg::DrawElementsUInt(GL_TRIANGLES);
     indices->reserve(bowl.triangle_count() * 3);
     for (int t = 0; t < bowl.triangle_count(); ++t) {
         const std::array<int, 3> tri = bowl.triangle(t);
@@ -97,7 +97,7 @@ osg::ref_ptr<osg::Geometry> BuildBowlGeometry(const BowlModel& bowl) {
 }
 
 const char* VertexShaderSource() {
-                return R"(#version 330 core
+    return R"(#version 330 core
 
 layout(location = 0) in vec3 vertexPosition;
 layout(location = 1) in vec3 vertexNormal;
@@ -125,7 +125,7 @@ void main()
 }
 
 const char* FragmentShaderSource() {
-        return R"(#version 330 core
+    return R"(#version 330 core
 
 uniform sampler2DArray uCameraTextures;
 uniform int uNumCameras;
@@ -187,8 +187,9 @@ osg::ref_ptr<osg::Texture2DArray> CreateCameraTextures(
     auto tex = new osg::Texture2DArray;
     tex->setTextureSize(w, h, num_layers);
     tex->setInternalFormat(GL_RGBA8);
-    tex->setSourceFormat(GL_BGRA);         tex->setSourceType(GL_UNSIGNED_BYTE);
-                tex->setResizeNonPowerOfTwoHint(false);
+    tex->setSourceFormat(GL_BGRA);
+    tex->setSourceType(GL_UNSIGNED_BYTE);
+    tex->setResizeNonPowerOfTwoHint(false);
     tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
     tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
     tex->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
@@ -211,7 +212,7 @@ StitchScene::StitchScene(const BowlModel& bowl, int image_w, int image_h) {
     auto program = new osg::Program;
     program->addShader(new osg::Shader(osg::Shader::VERTEX, VertexShaderSource()));
     program->addShader(new osg::Shader(osg::Shader::FRAGMENT, FragmentShaderSource()));
-        program->addBindAttribLocation("uvCoord0", 2);
+    program->addBindAttribLocation("uvCoord0", 2);
     program->addBindAttribLocation("uvCoord1", 3);
     program->addBindAttribLocation("uvCoord2", 4);
     program->addBindAttribLocation("uvCoord3", 5);
@@ -220,9 +221,10 @@ StitchScene::StitchScene(const BowlModel& bowl, int image_w, int image_h) {
 
     auto state_set = bowl_geode_->getOrCreateStateSet();
     state_set->setAttributeAndModes(program, osg::StateAttribute::ON);
-            state_set->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    state_set->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
     state_set->addUniform(new osg::Uniform("uNumCameras", num_cameras_));
-    state_set->addUniform(new osg::Uniform("uCameraTextures", 0));      state_set->setTextureAttributeAndModes(0, texture_, osg::StateAttribute::ON);
+    state_set->addUniform(new osg::Uniform("uCameraTextures", 0));
+    state_set->setTextureAttributeAndModes(0, texture_, osg::StateAttribute::ON);
 
     root_->addChild(bowl_geode_);
 }
@@ -245,9 +247,9 @@ void StitchScene::UploadCameraImages(const std::vector<cv::Mat>& images) {
         cv::Mat bgra;
         cv::cvtColor(images[i], bgra, cv::COLOR_BGR2BGRA);
 
-                                auto img = new osg::Image;
+        auto img = new osg::Image;
         img->allocateImage(bgra.cols, bgra.rows, 1, GL_BGRA, GL_UNSIGNED_BYTE);
-                img->setInternalTextureFormat(GL_RGBA8);
+        img->setInternalTextureFormat(GL_RGBA8);
         std::memcpy(img->data(), bgra.data, bgra.total() * bgra.elemSize());
         texture_->setImage(i, img);
     }

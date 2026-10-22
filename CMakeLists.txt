@@ -67,7 +67,7 @@ include(GoogleTest)
 
 # -- test_bowl_model (bowl_model.hpp + bowl_model.cpp, incl. Bake)
 add_executable(test_bowl_model
-    tests/geometry/test_bowl_model.cpp
+    tests/bowl_model/test_bowl_model.cpp
     src/camera_model/camera_model.cpp
     src/camera_model/camera.cpp
     src/camera_model/kb_camera_model.cpp
@@ -88,7 +88,7 @@ gtest_discover_tests(test_bowl_model)
 # Links the bowl_model sources too: GenerateBlockBoatMesh's bit-parity guard
 # constructs a BowlModel to prove the constructor path is the same generator.
 add_executable(test_bowl_params
-    tests/geometry/test_bowl_params.cpp
+    tests/bowl_model/test_bowl_params.cpp
     src/camera_model/camera_model.cpp
     src/camera_model/camera.cpp
     src/camera_model/kb_camera_model.cpp
@@ -105,28 +105,57 @@ target_link_libraries(test_bowl_params PRIVATE
 )
 gtest_discover_tests(test_bowl_params)
 
-# -- test_projection (CameraExtrinsics + KbCameraModel projection/gating) --
-# No longer header-only: instantiates KbCameraModel + the out-of-line base
-# CameraModel surface, so it compiles the camera_model sources like the other
-# model suites.
-add_executable(test_projection
-    tests/geometry/test_projection.cpp
+# -- test_kb_camera_model (KbCameraModel projection + member gating + batch) --
+add_executable(test_kb_camera_model
+    tests/camera_model/test_kb_camera_model.cpp
     src/camera_model/camera_model.cpp
     src/camera_model/camera.cpp
     src/camera_model/kb_camera_model.cpp
     src/camera_model/lut_camera_model.cpp
     src/camera_model/ocam_camera_model.cpp
 )
-target_include_directories(test_projection PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(test_projection PRIVATE
+target_include_directories(test_kb_camera_model PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(test_kb_camera_model PRIVATE
     GTest::gtest_main
     ${OpenCV_LIBS}
 )
-gtest_discover_tests(test_projection)
+gtest_discover_tests(test_kb_camera_model)
 
-# -- test_camera_model (CameraModel abstraction + factory + kb implementation) --
+# -- test_camera_extrinsics (CameraExtrinsics: ToCamera/ToWorld/relative) --
+add_executable(test_camera_extrinsics
+    tests/camera_model/test_camera_extrinsics.cpp
+    src/camera_model/camera_model.cpp
+    src/camera_model/camera.cpp
+    src/camera_model/kb_camera_model.cpp
+    src/camera_model/lut_camera_model.cpp
+    src/camera_model/ocam_camera_model.cpp
+)
+target_include_directories(test_camera_extrinsics PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(test_camera_extrinsics PRIVATE
+    GTest::gtest_main
+    ${OpenCV_LIBS}
+)
+gtest_discover_tests(test_camera_extrinsics)
+
+# -- test_camera (Camera: default/construct/move validity delegation) --
+add_executable(test_camera
+    tests/camera_model/test_camera.cpp
+    src/camera_model/camera_model.cpp
+    src/camera_model/camera.cpp
+    src/camera_model/kb_camera_model.cpp
+    src/camera_model/lut_camera_model.cpp
+    src/camera_model/ocam_camera_model.cpp
+)
+target_include_directories(test_camera PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(test_camera PRIVATE
+    GTest::gtest_main
+    ${OpenCV_LIBS}
+)
+gtest_discover_tests(test_camera)
+
+# -- test_camera_model (CameraModel abstraction + factory) --
 add_executable(test_camera_model
-    tests/geometry/test_camera_model.cpp
+    tests/camera_model/test_camera_model.cpp
     src/camera_model/camera_model.cpp
     src/camera_model/camera.cpp
     src/camera_model/kb_camera_model.cpp
@@ -142,7 +171,7 @@ gtest_discover_tests(test_camera_model)
 
 # -- test_lut_camera_model (LutCameraModel: OQ-1 direction pin + LUT projection) --
 add_executable(test_lut_camera_model
-    tests/geometry/test_lut_camera_model.cpp
+    tests/camera_model/test_lut_camera_model.cpp
     src/camera_model/camera_model.cpp
     src/camera_model/camera.cpp
     src/camera_model/kb_camera_model.cpp
@@ -158,7 +187,7 @@ gtest_discover_tests(test_lut_camera_model)
 
 # -- test_ocam_camera_model (OcamCameraModel: forward projection + round trip) --
 add_executable(test_ocam_camera_model
-    tests/geometry/test_ocam_camera_model.cpp
+    tests/camera_model/test_ocam_camera_model.cpp
     src/camera_model/camera_model.cpp
     src/camera_model/camera.cpp
     src/camera_model/kb_camera_model.cpp
@@ -174,8 +203,13 @@ gtest_discover_tests(test_ocam_camera_model)
 
 # -- test_blend_weights
 add_executable(test_blend_weights
-    tests/geometry/test_blend_weights.cpp
+    tests/bowl_model/test_blend_weights.cpp
     src/bowl_model/blend_weights.cpp
+    src/camera_model/camera_model.cpp
+    src/camera_model/camera.cpp
+    src/camera_model/kb_camera_model.cpp
+    src/camera_model/lut_camera_model.cpp
+    src/camera_model/ocam_camera_model.cpp
 )
 target_include_directories(test_blend_weights PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(test_blend_weights PRIVATE
@@ -275,16 +309,15 @@ target_link_libraries(test_egl_headless_context PRIVATE
 target_osg_whole_archive(test_egl_headless_context)
 gtest_discover_tests(test_egl_headless_context)
 
-# -- test_stitch_engine_regression (public-API smoke tests, links avm_stitch) --
-add_executable(test_stitch_engine_regression
-    tests/core/test_stitch_engine_regression.cpp
+# -- test_angle_utils (angle_utils.hpp: degree normalization + conversion) --
+add_executable(test_angle_utils
+    tests/common/test_angle_utils.cpp
 )
-target_include_directories(test_stitch_engine_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-target_link_libraries(test_stitch_engine_regression PRIVATE
+target_include_directories(test_angle_utils PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(test_angle_utils PRIVATE
     GTest::gtest_main
-    avm_stitch
 )
-gtest_discover_tests(test_stitch_engine_regression)
+gtest_discover_tests(test_angle_utils)
 
 # -- test_depth (spherical rectification + analytic ground depth; pure math) --
 add_executable(test_depth

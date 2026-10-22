@@ -23,12 +23,9 @@ cv::Vec2d KbCameraModel::ProjectCameraPoint(const cv::Vec3d& P_cam) const {
         return cv::Vec2d(cx_, cy_);
     }
 
-    double theta = std::atan2(r_xy, z);        // ∈ [0, π]
+    double theta = std::atan2(r_xy, z); // ∈ [0, π]
     double theta2 = theta * theta;
-    double theta_d = theta * (1.0 + k1_ * theta2
-                                   + k2_ * theta2 * theta2
-                                   + k3_ * theta2 * theta2 * theta2
-                                   + k4_ * theta2 * theta2 * theta2 * theta2);
+    double theta_d = theta * (1.0 + k1_ * theta2 + k2_ * theta2 * theta2 + k3_ * theta2 * theta2 * theta2 + k4_ * theta2 * theta2 * theta2 * theta2);
     double factor = theta_d / r_xy;
     return cv::Vec2d(cx_ + fx_ * factor * x,
                      cy_ + fy_ * factor * y);

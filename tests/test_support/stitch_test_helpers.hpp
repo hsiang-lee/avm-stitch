@@ -20,29 +20,18 @@
 namespace avm_stitch::test {
 
 inline KbParams MakeIntrinsics() {
-                        return MakeKbParams();
-}
-
-// N kb CameraModels (distinct heap objects — Configure transfers ownership of
-// each model, so N distinct models are required even when geometry matches).
-inline std::vector<std::unique_ptr<CameraModel>> MakeKbModels(
-    int num_cameras, const KbParams& params = MakeKbParams()) {
-    std::vector<std::unique_ptr<CameraModel>> models;
-    models.reserve(static_cast<size_t>(num_cameras));
-    for (int i = 0; i < num_cameras; ++i) {
-        models.push_back(MakeCameraModel("kb", params));
-    }
-    return models;
+    return MakeKbParams();
 }
 
 inline BowlParams MakeCarBowl() {
-    return DeriveBowlParams(5.6, 2.2, 2.9);
+    return BowlParams::ForCarSize(5.6, 2.2, 2.9);
 }
 
-inline BowlParams MakeCoarseBowlParams(double r_outter) {
-    return MakeCarBowl()
-        .with_car_center(cv::Vec2d(0.0, 0.0))
-        .with_step(1.0)                  .with_r_outter(r_outter);
+inline BowlParams MakeCoarseBowlParams(double outer_radius) {
+    const BowlParams derived = BowlParams::ForCarSize(5.6, 2.2, 2.9);
+    return BowlParams(5.6, 2.2, derived.FlatPlatformRadius(), 1.0, outer_radius,
+                      derived.SlopeCoefficient(), derived.HeightExponent(), derived.MaxHeight(),
+                      cv::Vec2d(0.0, 0.0));
 }
 
 inline std::vector<Camera> WrapKbCameras(const std::vector<KbParams>& intrs,
@@ -55,10 +44,22 @@ inline std::vector<Camera> WrapKbCameras(const std::vector<KbParams>& intrs,
     return cams;
 }
 
-inline BowlModel MakeCoarseBowl(double r_outter,
+inline BowlModel MakeCoarseBowl(double outer_radius,
                                 const std::vector<KbParams>& intrs,
                                 const std::vector<CameraExtrinsics>& extrs) {
-    return BowlModel(MakeCoarseBowlParams(r_outter), WrapKbCameras(intrs, extrs));
+    return BowlModel(MakeCoarseBowlParams(outer_radius), WrapKbCameras(intrs, extrs));
+}
+
+inline std::vector<KbParams> DefaultIntrinsics() {
+    return std::vector<KbParams>(4, MakeRealIntrinsics());
+}
+
+inline std::vector<CameraExtrinsics> DefaultBakeCameras() {
+    return MakeSideCameras({0, 180, 90, -90});
+}
+
+inline std::vector<Camera> MakeDefaultKbCameras() {
+    return WrapKbCameras(DefaultIntrinsics(), DefaultBakeCameras());
 }
 
 inline CameraExtrinsics MakeLookAtCamera(double az_deg, double r, double h,
@@ -72,7 +73,8 @@ inline CameraExtrinsics MakeLookAtCamera(double az_deg, double r, double h,
     cv::Vec3d right = f.cross(up);
     right = right / cv::norm(right);
     cv::Vec3d u = right.cross(f);
-    cv::Vec3d down = -u;           cv::Matx33d R(right[0], down[0], f[0],
+    cv::Vec3d down = -u;
+    cv::Matx33d R(right[0], down[0], f[0],
                   right[1], down[1], f[1],
                   right[2], down[2], f[2]);
     return {R, pos};
@@ -114,7 +116,11 @@ inline TestScene BuildTestScene(int num_cameras) {
 
 inline std::vector<cv::Mat> MakeColourFrames(int num_cameras) {
     const cv::Scalar colours[4] = {
-        cv::Scalar(0, 0, 255),             cv::Scalar(0, 255, 0),             cv::Scalar(255, 0, 0),             cv::Scalar(0, 255, 255),       };
+        cv::Scalar(0, 0, 255),
+        cv::Scalar(0, 255, 0),
+        cv::Scalar(255, 0, 0),
+        cv::Scalar(0, 255, 255),
+    };
     KbParams intr = MakeIntrinsics();
     std::vector<cv::Mat> frames;
     for (int i = 0; i < num_cameras; ++i) {
@@ -131,7 +137,8 @@ inline int CountVividPixels(const cv::Mat& img) {
             const uchar* px = row + x * 3;
             int mn = std::min({px[0], px[1], px[2]});
             int mx = std::max({px[0], px[1], px[2]});
-            if (mx - mn > 100) ++vivid;
+            if (mx - mn > 100)
+                ++vivid;
         }
     }
     return vivid;

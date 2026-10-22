@@ -53,16 +53,16 @@ int main(int argc, char** argv) {
     }
     cv::FileNode car = fs["car"];
     double len=(double)car["length"], wid=(double)car["width"], ax=(double)car["axis_x"];
-    BowlParams bp = DeriveBowlParams(len, wid, ax);
-    std::cout << "car_center=(" << bp.car_center()[0] << "," << bp.car_center()[1] << ") r_outter=" << bp.r_outter() << "\n";
+    BowlParams bp = BowlParams::ForCarSize(len, wid, ax);
+    std::cout << "CarCenter=(" << bp.CarCenter()[0] << "," << bp.CarCenter()[1] << ") OuterRadius=" << bp.OuterRadius() << "\n";
 
         StitchEngine engine;
-    std::vector<std::unique_ptr<CameraModel>> models;
-    models.reserve(intrs.size());
-    for (const auto& intr : intrs) {
-        models.push_back(MakeCameraModel("kb", intr));
+    std::vector<Camera> cameras;
+    cameras.reserve(intrs.size());
+    for (size_t i = 0; i < intrs.size(); ++i) {
+        cameras.emplace_back(extrs[i], MakeCameraModel("kb", intrs[i]));
     }
-    engine.Configure(std::move(models), extrs, bp, 960, 640);
+    engine.Configure(std::move(cameras), bp, 960, 640);
     auto views = engine.RenderFrame(imgs);
     for (auto& kv : views) {
         cv::imwrite(out_dir+"/view_"+kv.first+".png", kv.second);
@@ -77,20 +77,10 @@ int main(int argc, char** argv) {
         BowlModel bowl(bp, cams);
         StitchScene scene(bowl, intrs[0].width, intrs[0].height);
         scene.UploadCameraImages(imgs);
-        double r = bp.r_outter();
-        cv::Vec2d cc = bp.car_center();
-                double top_h = r * 1.2;
-        ViewPose top;
-        top.name = "topdown";
-        top.position = cv::Vec3d(cc[0], cc[1], top_h);
-        top.target   = cv::Vec3d(cc[0], cc[1], 0.0);
-        top.up       = cv::Vec3d(0.0, 1.0, 0.0);
-        top.fovy_deg = 80.0;
-        std::vector<ViewPose> poses{top};
-        OSGViewRenderer renderer(scene, r, poses, 1024, 1024, RenderMode::Offscreen, cc);
+        OSGViewRenderer renderer(scene, bp, 1024, 1024, RenderMode::Offscreen);
         auto m = renderer.RenderAllViews();
         for (auto& kv : m) cv::imwrite(out_dir+"/view_"+kv.first+".png", kv.second);
-        std::cout << "render topdown\n";
+        std::cout << "render 4 default views\n";
     }
     return 0;
 }

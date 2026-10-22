@@ -26,17 +26,18 @@ void OcamCameraModel::ProjectPoints(std::span<const cv::Vec3d> cam_points,
 
         const double r_xy = std::sqrt(x * x + y * y);
         if (r_xy < 1e-12) {
-                        out_uv[i] = cv::Vec2d(cx_, cy_);
+            out_uv[i] = cv::Vec2d(cx_, cy_);
             out_valid[i] = (z > 0.0) ? RectContains(cx_, cy_) : 0;
             continue;
         }
         if (z <= 0.0) {
-                        out_uv[i] = cv::Vec2d(cx_, cy_);
+            out_uv[i] = cv::Vec2d(cx_, cy_);
             out_valid[i] = 0;
             continue;
         }
 
-        const double theta = std::atan(-z / r_xy);           double rho = invpol_.empty() ? 0.0 : invpol_[0];
+        const double theta = std::atan(-z / r_xy);
+        double rho = invpol_.empty() ? 0.0 : invpol_[0];
         double t_i = 1.0;
         for (size_t k = 1; k < invpol_.size(); ++k) {
             t_i *= theta;

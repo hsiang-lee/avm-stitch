@@ -7,7 +7,7 @@ namespace avm_stitch {
 
 EGLHeadlessContext::EGLHeadlessContext(osg::GraphicsContext::Traits* traits) {
     _traits = traits;
-                        InitEGL();
+    InitEGL();
     if (valid_) {
         setState(new osg::State);
         getState()->setGraphicsContext(this);
@@ -22,7 +22,8 @@ EGLHeadlessContext::EGLHeadlessContext(osg::GraphicsContext::Traits* traits) {
 }
 
 EGLHeadlessContext::~EGLHeadlessContext() {
-    if (egl_display_ != EGL_NO_DISPLAY) closeImplementation();
+    if (egl_display_ != EGL_NO_DISPLAY)
+        closeImplementation();
 }
 
 bool EGLHeadlessContext::valid() const {
@@ -34,7 +35,7 @@ bool EGLHeadlessContext::isRealizedImplementation() const {
 }
 
 bool EGLHeadlessContext::InitEGL() {
-            PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay =
+    PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay =
         (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
     if (!getPlatformDisplay) {
         OSG_WARN << "EGLHeadlessContext: eglGetPlatformDisplayEXT unavailable"
@@ -46,7 +47,7 @@ bool EGLHeadlessContext::InitEGL() {
     EGLDisplay dpy =
         getPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, nullptr);
     if (dpy == EGL_NO_DISPLAY) {
-                                        OSG_WARN << "EGLHeadlessContext: EGL_PLATFORM_SURFACELESS_MESA unavailable (need Mesa EGL surfaceless platform)"
+        OSG_WARN << "EGLHeadlessContext: EGL_PLATFORM_SURFACELESS_MESA unavailable (need Mesa EGL surfaceless platform)"
                  << std::endl;
         valid_ = false;
         return false;
@@ -68,13 +69,20 @@ bool EGLHeadlessContext::InitEGL() {
     }
 
     const EGLint configAttribs[] = {
-        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
-        EGL_RED_SIZE, 8,
-        EGL_GREEN_SIZE, 8,
-        EGL_BLUE_SIZE, 8,
-        EGL_ALPHA_SIZE, 8,
-        EGL_DEPTH_SIZE, 24,
+        EGL_SURFACE_TYPE,
+        EGL_PBUFFER_BIT,
+        EGL_RENDERABLE_TYPE,
+        EGL_OPENGL_BIT,
+        EGL_RED_SIZE,
+        8,
+        EGL_GREEN_SIZE,
+        8,
+        EGL_BLUE_SIZE,
+        8,
+        EGL_ALPHA_SIZE,
+        8,
+        EGL_DEPTH_SIZE,
+        24,
         EGL_NONE,
     };
     EGLConfig config = nullptr;
@@ -86,7 +94,7 @@ bool EGLHeadlessContext::InitEGL() {
         return false;
     }
 
-        const EGLint pbAttribs[] = {EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE};
+    const EGLint pbAttribs[] = {EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE};
     EGLSurface surf = eglCreatePbufferSurface(dpy, config, pbAttribs);
     if (surf == EGL_NO_SURFACE) {
         OSG_WARN << "EGLHeadlessContext: eglCreatePbufferSurface failed"
@@ -96,9 +104,11 @@ bool EGLHeadlessContext::InitEGL() {
     }
     egl_surface_ = surf;
 
-                const EGLint ctxAttribs[] = {
-        EGL_CONTEXT_MAJOR_VERSION_KHR, 3,
-        EGL_CONTEXT_MINOR_VERSION_KHR, 3,
+    const EGLint ctxAttribs[] = {
+        EGL_CONTEXT_MAJOR_VERSION_KHR,
+        3,
+        EGL_CONTEXT_MINOR_VERSION_KHR,
+        3,
         EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR,
         EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR,
         EGL_NONE,
@@ -122,14 +132,15 @@ bool EGLHeadlessContext::InitEGL() {
 }
 
 bool EGLHeadlessContext::realizeImplementation() {
-    if (realized_) return true;
-            realized_ = valid_;
+    if (realized_)
+        return true;
+    realized_ = valid_;
     return realized_;
 }
 
 void EGLHeadlessContext::closeImplementation() {
     if (egl_display_ != EGL_NO_DISPLAY) {
-                                        if (egl_initialized_) {
+        if (egl_initialized_) {
             eglMakeCurrent(egl_display_, EGL_NO_SURFACE, EGL_NO_SURFACE,
                            EGL_NO_CONTEXT);
             if (egl_context_ != EGL_NO_CONTEXT) {
@@ -157,7 +168,7 @@ bool EGLHeadlessContext::makeCurrentImplementation() {
 
 bool EGLHeadlessContext::makeContextCurrentImplementation(
     osg::GraphicsContext* readContext) {
-            (void)readContext;
+    (void)readContext;
     return makeCurrentImplementation();
 }
 
@@ -168,7 +179,7 @@ bool EGLHeadlessContext::releaseContextImplementation() {
 }
 
 void EGLHeadlessContext::swapBuffersImplementation() {
-        }
+}
 
 void EGLHeadlessContext::grabFocus() {}
 
@@ -195,7 +206,7 @@ osg::ref_ptr<EGLHeadlessContext> CreateEGLHeadlessContext(int width, int height)
     traits->doubleBuffer = true;
     traits->vsync = false;
     traits->glContextVersion = "3.3";
-                traits->glContextProfileMask = 0;
+    traits->glContextProfileMask = 0;
     return new EGLHeadlessContext(traits.get());
 }
 
