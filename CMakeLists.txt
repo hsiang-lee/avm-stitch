@@ -8,6 +8,7 @@ find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs calib3d)
 find_package(unofficial-osg CONFIG REQUIRED)
 find_package(OpenGL REQUIRED COMPONENTS EGL)
 find_package(GTest CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 # -- OSG static libs need --whole-archive (X11 WSI static registration) --
 function(target_osg_whole_archive target)
