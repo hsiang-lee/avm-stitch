@@ -37,8 +37,6 @@ class Camera {
 
     // Precondition: Valid(). Delegation to the underlying CameraModel
     // (bake-layer gating surface).
-    double Cx() const { return model_->Cx(); }
-    double Cy() const { return model_->Cy(); }
     bool InsideFisheyeCircle(double u, double v) const {
         return model_->InsideFisheyeCircle(u, v);
     }
