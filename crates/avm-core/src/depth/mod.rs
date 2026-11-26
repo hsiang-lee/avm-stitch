@@ -1,5 +1,4 @@
-//! Port of `src/depth/`: spherical rectification and the analytic ground-depth
-//! map. Pure geometry over `CameraExtrinsics`; no image access and no OpenCV.
+//! Spherical rectification and the analytic ground-depth map. Pure geometry over `CameraExtrinsics`; no image access and no OpenCV.
 
 mod ground_depth;
 mod rectification;

@@ -1,17 +1,16 @@
-//! winit + wgpu window that draws the same scene as the offscreen renderer.
-
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use avm_core::bowl::BowlModel;
 use avm_core::calibration::Calibration;
 use avm_render::{
-    create_depth_view, create_instance, load_camera_image, request_device, GpuSceneRenderer,
-    RenderError, RenderSize, RenderTarget, SceneData,
+    create_depth_view, create_instance, load_camera_image, request_device, ReadbackError,
+    GpuSceneRenderer, RenderError, RenderSize, RenderTarget, SceneData, TextureReadback,
+    BACKGROUND_CLEAR,
 };
 use thiserror::Error;
 use winit::application::ApplicationHandler;
-use winit::dpi::LogicalSize;
+use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
@@ -23,10 +22,10 @@ const WINDOW_HEIGHT: u32 = 720;
 /// A wheel line is treated as this many pixels of vertical drag.
 const WHEEL_LINE_PIXELS: f64 = 50.0;
 const CLEAR: wgpu::Color = wgpu::Color {
-    r: 30.0 / 255.0,
-    g: 36.0 / 255.0,
-    b: 50.0 / 255.0,
-    a: 1.0,
+    r: BACKGROUND_CLEAR[0],
+    g: BACKGROUND_CLEAR[1],
+    b: BACKGROUND_CLEAR[2],
+    a: BACKGROUND_CLEAR[3],
 };
 
 #[derive(Debug, Error)]
@@ -41,16 +40,35 @@ pub enum ViewerError {
     SurfaceUnsupported,
     #[error("the window surface reported a validation error")]
     SurfaceValidation,
+    #[error("the window surface cannot be copied to a screenshot on this adapter")]
+    ScreenshotUnsupported,
+    #[error("failed to write the screenshot: {0}")]
+    Screenshot(String),
     #[error(transparent)]
     Image(#[from] avm_render::ImageError),
     #[error(transparent)]
     Render(#[from] RenderError),
 }
 
+impl From<ReadbackError> for ViewerError {
+    fn from(error: ReadbackError) -> Self {
+        Self::Screenshot(error.to_string())
+    }
+}
+
+/// How the viewer ends: an optional frame budget makes it scriptable, and an
+/// optional screenshot captures the first presented frame.
+#[derive(Clone, Debug, Default)]
+pub struct ViewerOptions {
+    pub frames: Option<u32>,
+    pub screenshot: Option<PathBuf>,
+}
+
 pub fn run_windowed(
     data_dir: &Path,
     calibration: &Calibration,
     model: &BowlModel,
+    options: &ViewerOptions,
 ) -> Result<(), ViewerError> {
     let images = calibration
         .image_files
@@ -70,17 +88,23 @@ pub fn run_windowed(
         last_cursor: None,
         buttons: DragButtons::default(),
         error: None,
+        frames: options.frames,
+        frames_drawn: 0,
+        screenshot: options.screenshot.clone(),
+        screenshot_taken: false,
     };
     event_loop
         .run_app(&mut app)
         .map_err(|error| ViewerError::EventLoop(error.to_string()))?;
+    if app.frames.is_some() {
+        println!("Presented {} frame(s)", app.frames_drawn);
+    }
     match app.error {
         Some(error) => Err(error),
         None => Ok(()),
     }
 }
 
-/// Maps winit's button enum onto the three trackball buttons.
 fn set_button(buttons: &mut DragButtons, button: MouseButton, pressed: bool) {
     match button {
         MouseButton::Left => buttons.left = pressed,
@@ -101,7 +125,11 @@ struct RenderState {
 }
 
 impl RenderState {
-    fn render_frame(&self, controller: &OrbitController) -> Result<(), ViewerError> {
+    fn render_frame(
+        &self,
+        controller: &OrbitController,
+        screenshot: Option<&Path>,
+    ) -> Result<(), ViewerError> {
         match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
@@ -125,6 +153,16 @@ impl RenderState {
                     CLEAR,
                 );
                 self.queue.submit([encoder.finish()]);
+                if let Some(path) = screenshot {
+                    capture_surface(
+                        &self.device,
+                        &self.queue,
+                        &frame.texture,
+                        RenderSize::new(self.config.width, self.config.height),
+                        self.config.format,
+                        path,
+                    )?;
+                }
                 self.queue.present(frame);
                 Ok(())
             }
@@ -140,6 +178,19 @@ impl RenderState {
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => Ok(()),
         }
     }
+
+    /// Applies a new surface size: one place that knows the configuration and
+    /// the depth target must both follow it.
+    fn resize(&mut self, size: PhysicalSize<u32>) {
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
+        self.config.width = size.width;
+        self.config.height = size.height;
+        self.surface.configure(&self.device, &self.config);
+        self.depth = create_depth_view(&self.device, RenderSize::new(size.width, size.height));
+        self.window.request_redraw();
+    }
 }
 
 struct WindowApp {
@@ -149,6 +200,10 @@ struct WindowApp {
     last_cursor: Option<(f64, f64)>,
     buttons: DragButtons,
     error: Option<ViewerError>,
+    frames: Option<u32>,
+    frames_drawn: u32,
+    screenshot: Option<PathBuf>,
+    screenshot_taken: bool,
 }
 
 impl WindowApp {
@@ -156,7 +211,13 @@ impl WindowApp {
         let (window, instance, surface) = create_window_and_surface(event_loop)?;
         let (adapter, device, queue) =
             request_device(&instance, Some(&surface), "avm-window-device")?;
-        let (config, format) = configure_surface(&window, &surface, &adapter, &device)?;
+        let (config, format) = configure_surface(
+            &window,
+            &surface,
+            &adapter,
+            &device,
+            self.screenshot.is_some(),
+        )?;
 
         let renderer = GpuSceneRenderer::new(&device, &queue, &self.scene, format)?;
         let depth = create_depth_view(&device, RenderSize::new(config.width, config.height));
@@ -170,9 +231,67 @@ impl WindowApp {
             depth,
         })
     }
+
+    fn handle_mouse_input(&mut self, button_state: ElementState, button: MouseButton) {
+        set_button(
+            &mut self.buttons,
+            button,
+            button_state == ElementState::Pressed,
+        );
+        if !self.buttons.any() {
+            self.last_cursor = None;
+        }
+    }
+
+    fn handle_cursor_moved(&mut self, state: &mut RenderState, position: PhysicalPosition<f64>) {
+        let now = (position.x, position.y);
+        let delta = self
+            .last_cursor
+            .map(|last| (now.0 - last.0, now.1 - last.1));
+        self.last_cursor = Some(now);
+        let Some((dx, dy)) = delta else {
+            return;
+        };
+        let Some(mode) = self.buttons.mode() else {
+            return;
+        };
+        self.controller.drag(mode, dx, dy, state.config.height);
+        state.window.request_redraw();
+    }
+
+    fn handle_mouse_wheel(&mut self, state: &mut RenderState, delta: MouseScrollDelta) {
+        let dy = match delta {
+            MouseScrollDelta::LineDelta(_, y) => f64::from(y) * WHEEL_LINE_PIXELS,
+            MouseScrollDelta::PixelDelta(position) => position.y,
+        };
+        self.controller.zoom(dy);
+        state.window.request_redraw();
+    }
+
+    fn handle_redraw(&mut self, event_loop: &ActiveEventLoop, state: &mut RenderState) {
+        let screenshot = if self.screenshot_taken {
+            None
+        } else {
+            self.screenshot.as_deref()
+        };
+        match state.render_frame(&self.controller, screenshot) {
+            Ok(()) => {
+                self.screenshot_taken |= screenshot.is_some();
+                self.frames_drawn += 1;
+                match self.frames {
+                    Some(limit) if self.frames_drawn >= limit => event_loop.exit(),
+                    Some(_) => state.window.request_redraw(),
+                    None => {}
+                }
+            }
+            Err(error) => {
+                self.error = Some(error);
+                event_loop.exit();
+            }
+        }
+    }
 }
 
-/// Creates the window, the instance that owns it and its surface.
 fn create_window_and_surface(
     event_loop: &ActiveEventLoop,
 ) -> Result<(Arc<Window>, wgpu::Instance, wgpu::Surface<'static>), ViewerError> {
@@ -201,6 +320,7 @@ fn configure_surface(
     surface: &wgpu::Surface<'static>,
     adapter: &wgpu::Adapter,
     device: &wgpu::Device,
+    want_copy: bool,
 ) -> Result<(wgpu::SurfaceConfiguration, wgpu::TextureFormat), ViewerError> {
     let capabilities = surface.get_capabilities(adapter);
     let format = capabilities
@@ -210,9 +330,16 @@ fn configure_surface(
         .find(|format| !format.is_srgb())
         .or_else(|| capabilities.formats.first().copied())
         .ok_or(ViewerError::SurfaceUnsupported)?;
+    let mut usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
+    if want_copy {
+        if !capabilities.usages.contains(wgpu::TextureUsages::COPY_SRC) {
+            return Err(ViewerError::ScreenshotUnsupported);
+        }
+        usage |= wgpu::TextureUsages::COPY_SRC;
+    }
     let size = window.inner_size();
     let config = wgpu::SurfaceConfiguration {
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        usage,
         format,
         color_space: wgpu::SurfaceColorSpace::Auto,
         width: size.width.max(1),
@@ -253,73 +380,54 @@ impl ApplicationHandler for WindowApp {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        let Some(state) = self.state.as_mut() else {
+        let Some(mut state) = self.state.take() else {
             return;
         };
         if window_id != state.window.id() {
+            self.state = Some(state);
             return;
         }
-        let mut fatal_error = None;
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Resized(size) => {
-                if size.width == 0 || size.height == 0 {
-                    return;
-                }
-                state.config.width = size.width;
-                state.config.height = size.height;
-                state.surface.configure(&state.device, &state.config);
-                state.depth =
-                    create_depth_view(&state.device, RenderSize::new(size.width, size.height));
-                state.window.request_redraw();
-            }
+            WindowEvent::Resized(size) => state.resize(size),
             WindowEvent::MouseInput {
                 state: button_state,
                 button,
                 ..
-            } => {
-                set_button(
-                    &mut self.buttons,
-                    button,
-                    button_state == ElementState::Pressed,
-                );
-                if !self.buttons.any() {
-                    self.last_cursor = None;
-                }
-            }
+            } => self.handle_mouse_input(button_state, button),
             WindowEvent::CursorMoved { position, .. } => {
-                let now = (position.x, position.y);
-                let delta = self
-                    .last_cursor
-                    .map(|last| (now.0 - last.0, now.1 - last.1));
-                self.last_cursor = Some(now);
-                let Some((dx, dy)) = delta else {
-                    return;
-                };
-                let Some(mode) = self.buttons.mode() else {
-                    return;
-                };
-                self.controller.drag(mode, dx, dy, state.config.height);
-                state.window.request_redraw();
+                self.handle_cursor_moved(&mut state, position)
             }
-            WindowEvent::MouseWheel { delta, .. } => {
-                let dy = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => f64::from(y) * WHEEL_LINE_PIXELS,
-                    MouseScrollDelta::PixelDelta(position) => position.y,
-                };
-                self.controller.zoom(dy);
-                state.window.request_redraw();
-            }
-            WindowEvent::RedrawRequested => {
-                if let Err(error) = state.render_frame(&self.controller) {
-                    fatal_error = Some(error);
-                }
-            }
+            WindowEvent::MouseWheel { delta, .. } => self.handle_mouse_wheel(&mut state, delta),
+            WindowEvent::RedrawRequested => self.handle_redraw(event_loop, &mut state),
             _ => {}
         }
-        if let Some(error) = fatal_error {
-            self.error = Some(error);
-            event_loop.exit();
-        }
+        self.state = Some(state);
     }
+}
+
+/// Copies the presented surface texture back and writes it as an RGBA PNG.
+/// Fails loudly when the adapter cannot map the copy instead of skipping.
+fn capture_surface(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    size: RenderSize,
+    format: wgpu::TextureFormat,
+    path: &Path,
+) -> Result<(), ViewerError> {
+    let readback = TextureReadback::new(device, size);
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("avm-screenshot-encoder"),
+    });
+    readback.copy_from_texture(&mut encoder, texture);
+    queue.submit([encoder.finish()]);
+    let rgba = readback.read_opaque(device, format)?;
+
+    let image = image::RgbaImage::from_raw(size.width, size.height, rgba)
+        .ok_or_else(|| ViewerError::Screenshot("frame buffer size does not match".into()))?;
+    image
+        .save(path)
+        .map_err(|error| ViewerError::Screenshot(error.to_string()))?;
+    Ok(())
 }

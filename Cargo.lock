@@ -95,7 +95,6 @@ name = "avm-cli"
 version = "0.1.0"
 dependencies = [
  "avm-core",
- "avm-viewer",
 ]
 
 [[package]]
@@ -138,6 +137,7 @@ version = "0.1.0"
 dependencies = [
  "avm-core",
  "avm-render",
+ "image",
  "thiserror 2.0.21",
  "wgpu",
  "winit",

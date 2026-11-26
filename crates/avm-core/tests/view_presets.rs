@@ -259,9 +259,9 @@ fn clip_planes_are_scale_invariant() {
     assert!((car.far * k - ship.far).abs() < (car.far * k).abs() * 1e-6);
 }
 
-/// Degenerate parameters (the all-zero default) must not panic: C++ `clamp`
-/// with `min > max` is undefined behaviour, so the documented Rust rule is
-/// "no panic, and `near <= far`" — for a zero-radius bowl both are 0.
+/// Degenerate parameters (the all-zero default) must not panic: `clamp` with
+/// `min > max` is undefined behaviour, so the documented rule is "no panic, and
+/// `near <= far`" — for a zero-radius bowl both are 0.
 #[test]
 fn clip_planes_on_degenerate_params_do_not_panic() {
     let default = BowlParams::default();
@@ -274,9 +274,9 @@ fn clip_planes_on_degenerate_params_do_not_panic() {
     assert!(with_distance.near <= with_distance.far);
 }
 
-/// `min(max(v, lo), hi)` keeps a NaN radius NaN, like the C++ release build
-/// (verified with a throw-away probe: `std::min(std::max(nan, 1e-3), nan)` is
-/// NaN). Rust's `f64::max`/`min` would substitute the non-NaN operand instead.
+/// `min(max(v, lo), hi)` keeps a NaN radius NaN (verified with a throw-away
+/// probe: `min(max(nan, 1e-3), nan)` is NaN). Rust's `f64::max`/`min` would
+/// substitute the non-NaN operand instead.
 #[test]
 fn clip_planes_propagate_a_nan_radius() {
     let nan = BowlParams::new(

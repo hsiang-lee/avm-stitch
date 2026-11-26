@@ -12,6 +12,5 @@ path = "src/main.rs"
 
 [dependencies]
 avm-core = { path = "../avm-core" }
-avm-viewer = { path = "../avm-viewer" }
 
 [dev-dependencies]

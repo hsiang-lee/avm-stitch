@@ -1,5 +1,5 @@
-//! Port of `tests/core/test_stitch_engine.cpp`: configure-time validation runs
-//! everywhere, the render cases skip when the machine has no adapter.
+//! Configure-time validation runs everywhere; the render cases skip when the
+//! machine has no adapter.
 
 use std::sync::Mutex;
 
@@ -613,3 +613,4 @@ fn front_view_is_not_vertically_flipped() {
         "bottom rows must sample camera image band 4"
     );
 }
+

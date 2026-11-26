@@ -1,6 +1,3 @@
-//! Port of `tests/depth/test_spherical_rectification.cpp` and
-//! `tests/depth/test_ground_depth.cpp`.
-
 use avm_core::camera::CameraExtrinsics;
 use avm_core::depth::{
     compute_ground_depth_map, make_rectification_basis, phi_deg, rectified_direction,
@@ -12,7 +9,6 @@ fn vec3(x: f64, y: f64, z: f64) -> Vector3<f64> {
     Vector3::new(x, y, z)
 }
 
-/// Mirrors `tests/test_support/depth_test_helpers.hpp`.
 fn make_look_at_rotation(position: Vector3<f64>, target: Vector3<f64>) -> Matrix3<f64> {
     let forward = (target - position).normalize();
     let world_up = vec3(0.0, 0.0, 1.0);
@@ -102,8 +98,7 @@ fn make_grid(width: usize, height: usize) -> SphericalGrid {
     }
 }
 
-/// Deterministic SplitMix64; the C++ fixtures used mt19937, so only the
-/// distribution matters here.
+/// Deterministic SplitMix64; only the distribution matters here.
 struct Rng(u64);
 
 impl Rng {

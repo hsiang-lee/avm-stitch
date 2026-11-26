@@ -287,7 +287,7 @@ fn grid_topology_stays_126_by_126_across_scales() {
 #[test]
 fn default_params_bake_a_single_vertex_and_no_triangles() {
     let p = BowlParams::default();
-    // 0/0 -> NaN, which the C++ `lround` cast turns into 0 segments.
+    // 0/0 -> NaN, which the rounding cast turns into 0 segments.
     assert_eq!(0, p.grid_segments_per_axis());
 
     let model = BowlModel::new(

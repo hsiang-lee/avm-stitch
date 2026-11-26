@@ -1,4 +1,4 @@
-//! Pixel parity with the C++ OSG renderer; the fixtures are external ground
+//! Pixel parity with the reference images; the fixtures are external ground
 //! truth described in `fixtures/parity/data_4/METADATA.md`. Without a GPU
 //! adapter the test fails rather than skipping. `AVM_PARITY_DATA_DIR` overrides
 //! only the rendered dataset, never the reference.
@@ -35,7 +35,7 @@ fn fixture_dir() -> PathBuf {
     workspace_path("crates/avm-render/tests/fixtures/parity/data_4")
 }
 
-/// VCS -> y-up render basis, the same remap the C++ renderer applies.
+/// VCS -> y-up render basis, the same remap the renderer applies.
 fn to_render_basis(p: [f64; 3]) -> [f32; 3] {
     [p[0] as f32, p[2] as f32, -p[1] as f32]
 }

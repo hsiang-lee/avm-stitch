@@ -8,22 +8,22 @@ const DEFAULT_DATA_DIR: &str = "examples/data_8";
 
 fn main() -> ExitCode {
     let mut data_dir = None;
-    let mut windowed = false;
     for argument in std::env::args().skip(1) {
-        if argument == "--windowed" {
-            windowed = true;
-        } else if argument.starts_with("--") {
-            eprintln!("avm-cli: unknown option {argument}");
+        if argument.starts_with("--") {
+            eprintln!(
+                "avm-cli: unknown option {argument} (the interactive viewer is \
+                 `cargo run -p avm-viewer -- <data_dir>`)"
+            );
             return ExitCode::FAILURE;
-        } else if data_dir.is_none() {
-            data_dir = Some(argument);
-        } else {
+        }
+        if data_dir.is_some() {
             eprintln!("avm-cli: unexpected argument {argument}");
             return ExitCode::FAILURE;
         }
+        data_dir = Some(argument);
     }
     let data_dir = data_dir.unwrap_or_else(|| DEFAULT_DATA_DIR.to_string());
-    match run(&data_dir, windowed) {
+    match run(&data_dir) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("avm-cli: {error}");
@@ -32,7 +32,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(data_dir: &str, windowed: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn run(data_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
     let json_path = Path::new(data_dir).join("calibration.json");
     let calibration = Calibration::load_from_path(&json_path)?;
 
@@ -80,11 +80,6 @@ fn run(data_dir: &str, windowed: bool) -> Result<(), Box<dyn std::error::Error>>
         "Weight sums: {min_sum:.6}..{max_sum:.6} (visible vertices: {visible}/{})",
         model.vertex_count()
     );
-
-    if windowed {
-        println!("Controls:  LMB=rotate  RMB=zoom  MMB=pan");
-        avm_viewer::run_windowed(Path::new(data_dir), &calibration, &model)?;
-    }
 
     Ok(())
 }

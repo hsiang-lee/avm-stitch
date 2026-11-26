@@ -34,12 +34,15 @@
 ### B1
 
 - **A1 crate 布局与边界**：workspace 含 `avm-core`（lib）、`avm-render`（lib）、
-  `avm-cli`（bin）三个 crate。`avm-core` 零 GPU/OpenCV/OSG/OS 依赖——不仅直接依赖，
-  `cargo tree -p avm-core` 的传递闭包也不得出现 `wgpu`/`naga`/`image`/`avm-render`；
-  `avm-cli` 不得链接 GPU 栈。
+  `avm-engine`（lib）、`avm-viewer`（lib + `avm-viewer` bin）、`avm-cli`（bin）五个
+  crate。`avm-core` 零 GPU/OpenCV/OSG/OS 依赖——不仅直接依赖，`cargo tree -p avm-core`
+  的传递闭包也不得出现 `wgpu`/`naga`/`image`/`avm-render`；`avm-cli` 只做统计，不得
+  链接 GPU 栈，`cargo tree -p avm-cli` 闭包不得出现 `wgpu`/`winit`/`naga`/`avm-render`/
+  `avm-viewer`。GPU 代码仅限 `avm-render`（离屏）与 `avm-viewer`（窗口）；`avm-viewer`
+  是唯一链接 `winit` 的 crate，交互入口为 `cargo run -p avm-viewer -- <data_dir>`。
 - **A2 依赖白名单**：只允许 `nalgebra`（数学，二选一，需说明理由）、`serde`/`serde_json`、
-  `thiserror`、`image`（唯一图像 IO）、`wgpu`/`naga`/`bytemuck`/`pollster`（仅 render）。
-  不引入 OpenCV。
+  `thiserror`、`image`（唯一图像 IO）、`wgpu`/`naga`/`bytemuck`/`pollster`（离屏渲染在
+  render，窗口在 render + viewer）、`winit`（仅 viewer）。不引入 OpenCV。
 - **A3 camera 对等**：外参（含 `relative_rotation_from`、`azimuth_deg`）、kb 多项式、
   table LUT、ocam 三类模型；门控保持 C++ 的 0/1 硬门限与 `fisheye_circle_radius`
   自动内切圆；`Camera` 组合 `name`（默认空串）+ 外参 + 模型；模型工厂保持

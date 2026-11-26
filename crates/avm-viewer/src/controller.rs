@@ -3,9 +3,7 @@
 use avm_core::bowl::{BowlParams, ClipPlanes, ViewPose};
 use avm_render::ViewSpec;
 
-/// Degrees of orbit per mouse pixel.
 const ROTATE_DEG_PER_PIXEL: f64 = 0.005 * (180.0 / std::f64::consts::PI);
-/// Dolly factor per mouse pixel of vertical drag.
 const ZOOM_PER_PIXEL: f64 = 0.01;
 /// Keep the view direction off the poles so the up vector stays usable.
 const MAX_PITCH_DEG: f64 = 89.0;
@@ -215,8 +213,7 @@ impl OrbitController {
         self.target = add(self.target, shift);
     }
 
-    /// Applies one drag step with the C++ control mapping: LMB rotates, RMB
-    /// dollies and MMB pans.
+    /// LMB rotates, RMB dollies, MMB pans.
     pub fn drag(&mut self, mode: DragMode, dx: f64, dy: f64, viewport_height: u32) {
         match mode {
             DragMode::Rotate => self.rotate(dx, dy),

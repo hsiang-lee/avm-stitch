@@ -37,11 +37,10 @@ fn look_at_extrinsics(az_deg: f64, radius: f64, height: f64, target_z: f64) -> C
     CameraExtrinsics::new(rotation, pos)
 }
 
-fn bowl_model() -> BowlModel {
-    let params = BowlParams::new(2.0, 1.0, 0.5, 0.4, 4.0, 0.1, 2.2, 4.0, [0.0, 0.0]);
+fn kb_params() -> KbParams {
     // The fisheye radius (240 px) must exceed the 40 px feather band, otherwise
     // every edge factor is 0.
-    let intrinsics = KbParams {
+    KbParams {
         width: 640,
         height: 480,
         fx: 300.0,
@@ -49,7 +48,12 @@ fn bowl_model() -> BowlModel {
         cx: 320.0,
         cy: 240.0,
         ..Default::default()
-    };
+    }
+}
+
+fn bowl_model() -> BowlModel {
+    let params = BowlParams::new(2.0, 1.0, 0.5, 0.4, 4.0, 0.1, 2.2, 4.0, [0.0, 0.0]);
+    let intrinsics = kb_params();
     let cameras: Vec<Camera> = [0.0f64, 90.0, 180.0, 270.0]
         .into_iter()
         .map(|az| {
@@ -138,8 +142,19 @@ fn render_views(
     views: &[ViewSpec],
     clear: [f64; 4],
 ) -> Option<Vec<Vec<u8>>> {
+    render_views_at(scene, views, RenderSize::new(WIDTH, HEIGHT), clear)
+}
+
+/// Renders at an explicit size, or returns `None` when the machine has no
+/// adapter.
+fn render_views_at(
+    scene: &SceneData,
+    views: &[ViewSpec],
+    size: RenderSize,
+    clear: [f64; 4],
+) -> Option<Vec<Vec<u8>>> {
     let _gpu = gpu_lock();
-    match render_all_views_with(scene, views, RenderSize::new(WIDTH, HEIGHT), clear) {
+    match render_all_views_with(scene, views, size, clear) {
         Ok(frames) => Some(frames),
         Err(RenderError::NoAdapter) => {
             eprintln!("skipping offscreen check: no wgpu adapter available");
@@ -477,4 +492,114 @@ fn camera_image_row_zero_is_the_top_of_the_frame() {
         left < 60 && right > 180,
         "column 0 must be on the left: red = {left} then {right}"
     );
+}
+
+const SHIP_WIDTH: u32 = 960;
+const SHIP_HEIGHT: u32 = 640;
+const SHIP_CAMERA_COUNT: usize = 8;
+
+fn ship_bowl() -> BowlParams {
+    BowlParams::for_car_size(211.6, 50.0, 50.0)
+}
+
+fn ship_cameras() -> Vec<Camera> {
+    let intrinsics = kb_params();
+    (0..SHIP_CAMERA_COUNT)
+        .map(|index| {
+            let model = make_camera_model("kb", &CameraModelParams::Kb(intrinsics.clone()))
+                .expect("kb model");
+            let azimuth = index as f64 * 45.0;
+            Camera::new(look_at_extrinsics(azimuth, 220.0, 80.0, 0.0), model)
+        })
+        .collect()
+}
+
+fn ship_scene(bowl: &BowlParams) -> SceneData {
+    const COLOURS: [[u8; 3]; 4] = [
+        [255, 0, 0],
+        [0, 255, 0],
+        [0, 0, 255],
+        [255, 255, 0],
+    ];
+    let model = BowlModel::new(bowl, &ship_cameras());
+    let images = (0..SHIP_CAMERA_COUNT)
+        .map(|index| {
+            let colour = COLOURS[index % 4];
+            image::RgbaImage::from_pixel(
+                640,
+                480,
+                image::Rgba([colour[0], colour[1], colour[2], 255]),
+            )
+        })
+        .collect();
+    SceneData::from_bowl_model(&model).with_camera_images(images)
+}
+
+fn to_render_basis(p: [f64; 3]) -> [f32; 3] {
+    [p[0] as f32, p[2] as f32, -p[1] as f32]
+}
+
+/// The four default views. `clip_bowl` supplies the clip planes, which are
+/// scale-dependent: feeding a car-scale bowl here clips every ship-scale view.
+fn default_view_specs(pose_bowl: &BowlParams, clip_bowl: &BowlParams) -> Vec<ViewSpec> {
+    let clip_poses = clip_bowl.default_view_poses();
+    let max_eye = clip_poses.iter().fold(0.0f64, |max, pose| {
+        let d = [
+            pose.position[0] - pose.target[0],
+            pose.position[1] - pose.target[1],
+            pose.position[2] - pose.target[2],
+        ];
+        max.max((d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt())
+    });
+    let clip = clip_bowl.clip_planes_for(max_eye);
+    pose_bowl
+        .default_view_poses()
+        .iter()
+        .map(|pose| {
+            ViewSpec::look_at(
+                to_render_basis(pose.position),
+                to_render_basis(pose.target),
+                to_render_basis(pose.up),
+                pose.fovy_deg as f32,
+                SHIP_WIDTH as f32 / SHIP_HEIGHT as f32,
+                clip.near as f32,
+                clip.far as f32,
+            )
+        })
+        .collect()
+}
+
+fn vivid_pixels(frame: &[u8]) -> usize {
+    frame
+        .chunks_exact(4)
+        .filter(|pixel| {
+            let min = pixel[0].min(pixel[1]).min(pixel[2]);
+            let max = pixel[0].max(pixel[1]).max(pixel[2]);
+            max - min > 100
+        })
+        .count()
+}
+
+#[test]
+fn ship_scale_views_are_not_background() {
+    let ship = ship_bowl();
+    assert!(ship.outer_radius() > 450.0, "the fixture must be ship scale");
+    let scene = ship_scene(&ship);
+    let views = default_view_specs(&ship, &ship);
+    let Some(frames) = render_views_at(
+        &scene,
+        &views,
+        RenderSize::new(SHIP_WIDTH, SHIP_HEIGHT),
+        [0.0, 0.0, 0.0, 1.0],
+    ) else {
+        return;
+    };
+    assert_eq!(4, frames.len());
+    for (index, frame) in frames.iter().enumerate() {
+        let vivid = vivid_pixels(frame);
+        assert!(
+            vivid > 1000,
+            "ship view {index} has only {vivid} vivid pixels"
+        );
+    }
 }

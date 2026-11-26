@@ -25,7 +25,7 @@ impl CameraExtrinsics {
         }
     }
 
-    /// Row-major rotation, same element order as the C++ matrix literals.
+    /// Row-major rotation.
     pub fn from_rows(rows: [[f64; 3]; 3], translation: [f64; 3]) -> Self {
         let r = [
             rows[0][0], rows[0][1], rows[0][2], //

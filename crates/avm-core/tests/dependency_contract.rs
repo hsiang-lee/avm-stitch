@@ -4,7 +4,6 @@
 
 const CORE_MANIFEST: &str = include_str!("../Cargo.toml");
 const RENDER_MANIFEST: &str = include_str!("../../avm-render/Cargo.toml");
-const CLI_MANIFEST: &str = include_str!("../../avm-cli/Cargo.toml");
 
 fn normalized(manifest: &str) -> String {
     manifest.to_lowercase()
@@ -51,47 +50,56 @@ fn core_manifest_does_not_depend_on_the_render_crate() {
     );
 }
 
-/// Belt and braces: resolve the real dependency closure, so a transitive leak
-/// (`avm-core -> foo -> wgpu`) is caught even when `avm-core/Cargo.toml` looks
-/// clean.
-#[test]
-fn core_dependency_tree_has_no_gpu_or_image_crates() {
+/// Resolves the real dependency closure of `package` and returns the crate
+/// names, so a leak through an intermediate crate is caught even when the
+/// manifest looks clean.
+fn dependency_names(package: &str) -> Vec<String> {
     let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let output = std::process::Command::new(cargo)
-        .args(["tree", "-p", "avm-core", "--prefix", "none", "--offline"])
+        .args(["tree", "-p", package, "--prefix", "none", "--offline"])
         .current_dir(&workspace_root)
         .output()
         .expect("cargo tree must be runnable from the workspace root");
     assert!(
         output.status.success(),
-        "cargo tree -p avm-core failed:\n{}",
+        "cargo tree -p {package} failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-
-    let tree = String::from_utf8_lossy(&output.stdout).to_lowercase();
-    let names: Vec<&str> = tree
+    String::from_utf8_lossy(&output.stdout)
+        .to_lowercase()
         .lines()
-        .filter_map(|line| line.split_whitespace().next())
-        .collect();
+        .filter_map(|line| line.split_whitespace().next().map(str::to_string))
+        .collect()
+}
+
+/// Belt and braces: the CPU core must not reach the GPU stack directly or
+/// transitively (`avm-core -> foo -> wgpu`).
+#[test]
+fn core_dependency_tree_has_no_gpu_or_image_crates() {
+    let names = dependency_names("avm-core");
     for forbidden in ["wgpu", "naga", "image", "opencv", "osg", "avm-render"] {
         assert!(
-            !names.contains(&forbidden),
-            "avm-core dependency tree contains {forbidden} (A1/A2)\n{tree}"
+            !names.iter().any(|name| name == forbidden),
+            "avm-core dependency tree contains {forbidden} (A1/A2): {names:?}"
         );
     }
 }
 
+/// A1: statistics stay CPU-only. The window lives in `avm-viewer`, so neither
+/// the GPU stack nor the viewer may appear in the CLI closure; checking the
+/// closure (not the manifest text) catches an indirect leak.
 #[test]
-fn cli_manifest_stays_cpu_only() {
-    let manifest = normalized(CLI_MANIFEST);
-    assert!(manifest.contains("avm-core"), "avm-cli must use avm-core");
+fn cli_dependency_tree_has_no_gpu_or_viewer_crates() {
+    let names = dependency_names("avm-cli");
+    for forbidden in ["wgpu", "winit", "naga", "avm-render", "avm-viewer"] {
+        assert!(
+            !names.iter().any(|name| name == forbidden),
+            "avm-cli dependency tree contains {forbidden} (A1): {names:?}"
+        );
+    }
     assert!(
-        !manifest.contains("wgpu"),
-        "avm-cli must not link the GPU stack for statistics"
-    );
-    assert!(
-        !manifest.contains("avm-render"),
-        "avm-cli must not depend on avm-render (it would pull in wgpu)"
+        names.iter().any(|name| name == "avm-core"),
+        "avm-cli must depend on avm-core: {names:?}"
     );
 }

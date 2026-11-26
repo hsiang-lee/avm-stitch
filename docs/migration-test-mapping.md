@@ -33,10 +33,10 @@ source count above is the one this document uses.
 | `tests/core/test_stitch_engine.cpp` | 22 | 22 | 0 | 0 |
 | `tests/depth/test_ground_depth.cpp` | 7 | 7 | 0 | 0 |
 | `tests/depth/test_spherical_rectification.cpp` | 7 | 7 | 0 | 0 |
-| `tests/render/test_osg_view_renderer.cpp` | 18 | 14 | 4 | 0 |
+| `tests/render/test_osg_view_renderer.cpp` | 18 | 15 | 3 | 0 |
 | `tests/render/test_stitch_scene.cpp` | 15 | 11 | 4 | 0 |
 | `tests/render/test_egl_headless_context.cpp` | 4 | 0 | 4 | 0 |
-| **total** | **210** | **197** | **13** | **0** |
+| **total** | **210** | **198** | **12** | **0** |
 
 Self-check: `210 == ported + exempt + deferred` and every `ported` counterpart
 name resolves in `cargo test --workspace -- --list` (the check is repeated in
@@ -310,7 +310,7 @@ the commit report).
 | `test_osg_view_renderer.cpp` | `ClipPlanesFor_ShipScale_CoversBowl` | `avm-core/tests/view_presets.rs::clip_planes_ship_scale_cover_the_bowl` | ported |
 | `test_osg_view_renderer.cpp` | `ClipPlanesFor_ScaleInvariant` | `avm-core/tests/view_presets.rs::clip_planes_are_scale_invariant` | ported |
 | `test_osg_view_renderer.cpp` | `OSGViewRenderer_ConstructionDoesNotCrash` | ① EGL/OSG 实现专属：构造 `osgViewer::Viewer` 与 `osg::Camera` 没有 wgpu 对应概念 | exempt |
-| `test_osg_view_renderer.cpp` | `OSGViewRenderer_RenderAllViews_ShipScale_NotAllBackground` | ② 与 `bowl_frame_has_non_black_pixels_in_the_centre_region` / `renders_every_view_or_skips_without_adapter` 等价重复：同一离屏渲染行为，只换了碗的尺度；ship 尺度的几何已由 avm-core 的 `ship_scale_*` 用例覆盖 | exempt |
+| `test_osg_view_renderer.cpp` | `OSGViewRenderer_RenderAllViews_ShipScale_NotAllBackground` | `avm-render/tests/offscreen.rs::ship_scale_views_are_not_background` | ported |
 | `test_osg_view_renderer.cpp` | `OSGViewRenderer_OffscreenMode_Works` | `avm-render/tests/offscreen.rs::renders_every_view_or_skips_without_adapter` | ported |
 | `test_osg_view_renderer.cpp` | `OSGViewRenderer_WindowedMode_Constructs` | ④ 需要可交互显示：`EventLoop`/窗口构造在无显示的 CI 中无法自动化；`--windowed` 入口与 `avm-viewer` 控制器测试覆盖了窗口所用的相机与交互数学 | exempt |
 | `test_osg_view_renderer.cpp` | `OSGViewRenderer_WindowedMode_Constructs_WithCarCenter` | ④ 同上；车心对初始相机的影响由 `avm-viewer/tests/controller.rs::home_camera_matches_the_home_view_pose` 覆盖（fixture 的 car_center 非零） | exempt |

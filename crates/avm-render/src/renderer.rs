@@ -158,7 +158,6 @@ impl GpuSceneRenderer {
     }
 }
 
-/// The two bind group layouts the pipeline and the draw pass share.
 fn create_bind_group_layouts(
     device: &wgpu::Device,
 ) -> (wgpu::BindGroupLayout, wgpu::BindGroupLayout) {

@@ -130,9 +130,11 @@ impl BowlParams {
     }
 
     pub fn grid_segments_per_axis(&self) -> i32 {
-        // 0/0 -> NaN and x/0 -> inf are the degenerate configurations the C++
-        // `lround` cast turns into 0 segments; keep that behaviour instead of
-        // saturating to i32::MAX (which would allocate forever).
+        // `0/0` rounds to NaN and `x/0` to inf; the guard turns either into 0
+        // segments, which keeps an infinite ratio from casting to i32::MAX and
+        // requesting an enormous mesh. It does not bound a finite but huge
+        // ratio (e.g. outer_radius / grid_step = 1e12): that still reaches the
+        // cast below and saturates to i32::MAX with the same huge allocation.
         let ratio = (self.outer_radius / self.grid_step).round();
         if !ratio.is_finite() {
             return 0;
@@ -218,13 +220,13 @@ impl BowlParams {
         const FAR_MARGIN: f64 = 5.3553572528096565;
         const NEAR_REL: f64 = 0.01;
         let far = FAR_MARGIN * (max_eye_to_target + self.outer_radius);
-        // libstdc++ `std::clamp(v, lo, hi)` is `min(max(v, lo), hi)`. Spelled
-        // with plain comparisons, so a NaN radius propagates exactly as in the
-        // C++ release build (Rust's `f64::max`/`min` would silently drop the
-        // NaN), and `lo > hi` cannot panic (Rust's `f64::clamp` would).
-        // Degenerate rule for the all-zero default (`far == 0`): `hi` wins, so
-        // `near == far == 0` and the planes stay ordered. Hardened libstdc++
-        // builds abort on this input, so there is no numeric C++ result to copy.
+        // `clamp(v, lo, hi)` is `min(max(v, lo), hi)`. Spelled with plain
+        // comparisons, so a NaN radius propagates (Rust's `f64::max`/`min`
+        // would silently drop the NaN), and `lo > hi` cannot panic (Rust's
+        // `f64::clamp` would). Degenerate rule for the all-zero default
+        // (`far == 0`): `hi` wins, so `near == far == 0` and the planes stay
+        // ordered. Hardened standard libraries abort on this input, so there is
+        // no numeric reference result to copy.
         let low = self.outer_radius * NEAR_REL;
         let raised = if low < 1.0e-3 { 1.0e-3 } else { low };
         let near = if far / 1000.0 < raised {

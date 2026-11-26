@@ -3,12 +3,11 @@
 
 use avm_core::bowl::{BowlModel, BowlParams};
 use avm_core::camera::Camera;
-use avm_render::{render_all_views_with, RenderError, RenderSize, SceneData, ViewSpec};
+use avm_render::{
+    render_all_views_with, RenderError, RenderSize, SceneData, ViewSpec, BACKGROUND_CLEAR,
+};
 use image::RgbaImage;
 use thiserror::Error;
-
-/// `BackgroundClearColor()` of the C++ renderer.
-const CLEAR_COLOR: [f64; 4] = [30.0 / 255.0, 36.0 / 255.0, 50.0 / 255.0, 1.0];
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -56,8 +55,8 @@ struct Configured {
     output: (u32, u32),
 }
 
-/// Validates in the C++ order: the first failing check wins, so the null-model
-/// gate stays ahead of the image-size comparison.
+/// Validates in order: the first failing check wins, so the null-model gate
+/// stays ahead of the image-size comparison.
 fn validate(cameras: &[Camera], bowl: &BowlParams) -> Result<(), EngineError> {
     let count = cameras.len();
     if count == 0 || count > 8 {
@@ -95,7 +94,7 @@ fn validate(cameras: &[Camera], bowl: &BowlParams) -> Result<(), EngineError> {
     Ok(())
 }
 
-/// VCS -> y-up render basis, matching the C++ `VcsToOgl`.
+/// VCS -> y-up render basis.
 fn to_render_basis(p: [f64; 3]) -> [f32; 3] {
     [p[0] as f32, p[2] as f32, -p[1] as f32]
 }
@@ -176,7 +175,12 @@ impl StitchEngine {
         scene.camera_images = images.to_vec();
         let (width, height) = configured.output;
         let specs: Vec<ViewSpec> = configured.views.iter().map(|view| view.spec).collect();
-        let frames = render_all_views_with(&scene, &specs, RenderSize::new(width, height), CLEAR_COLOR)?;
+        let frames = render_all_views_with(
+            &scene,
+            &specs,
+            RenderSize::new(width, height),
+            BACKGROUND_CLEAR,
+        )?;
 
         Ok(configured
             .views

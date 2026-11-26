@@ -1,12 +1,19 @@
 mod common;
 
 use avm_core::camera::CameraExtrinsics;
+use avm_core::Matrix3;
 use common::{from_rows, vec3};
 
 fn half_angle_rotation() -> [[f64; 3]; 3] {
     let s = 0.5;
     let c = 3.0f64.sqrt() / 2.0;
     [[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]]
+}
+
+/// Expectations use these literals, never the object under test, so a wrong
+/// `rotation()`/`position()` cannot make its own test pass.
+fn matrix(rows: [[f64; 3]; 3]) -> Matrix3<f64> {
+    Matrix3::from_row_slice(&rows.concat())
 }
 
 #[test]
@@ -16,7 +23,7 @@ fn to_camera_matches_hand_computed_rt_p_minus_t() {
     let extr = from_rows(rotation, t);
 
     let p = vec3(4.0, -5.0, 6.0);
-    let expected = extr.rotation().transpose() * (p - vec3(t[0], t[1], t[2]));
+    let expected = matrix(rotation).transpose() * (p - vec3(t[0], t[1], t[2]));
     let got = extr.to_camera(p);
     assert_eq!(expected[0], got[0]);
     assert_eq!(expected[1], got[1]);
@@ -37,7 +44,7 @@ fn to_world_round_trips_to_camera() {
 fn to_world_matches_hand_computed_r_p_plus_t() {
     let extr = from_rows(half_angle_rotation(), [1.0, -2.0, 3.0]);
     let p_cam = vec3(0.3, -0.7, 1.4);
-    let expected = extr.rotation() * p_cam + extr.position();
+    let expected = matrix(half_angle_rotation()) * p_cam + vec3(1.0, -2.0, 3.0);
     let got = extr.to_world(p_cam);
     assert_eq!(expected[0], got[0]);
     assert_eq!(expected[1], got[1]);
@@ -48,7 +55,7 @@ fn to_world_matches_hand_computed_r_p_plus_t() {
 fn rotate_world_to_camera_matches_hand_computed_rt_v() {
     let extr = from_rows(half_angle_rotation(), [0.0, 0.0, 0.0]);
     let v = vec3(0.5, -0.25, 0.75);
-    let expected = extr.rotation().transpose() * v;
+    let expected = matrix(half_angle_rotation()).transpose() * v;
     let got = extr.rotate_world_to_camera(v);
     assert_eq!(expected[0], got[0]);
     assert_eq!(expected[1], got[1]);
@@ -59,7 +66,7 @@ fn rotate_world_to_camera_matches_hand_computed_rt_v() {
 fn rotate_camera_to_world_matches_hand_computed_r_v() {
     let extr = from_rows(half_angle_rotation(), [0.0, 0.0, 0.0]);
     let v = vec3(0.5, -0.25, 0.75);
-    let expected = extr.rotation() * v;
+    let expected = matrix(half_angle_rotation()) * v;
     let got = extr.rotate_camera_to_world(v);
     assert_eq!(expected[0], got[0]);
     assert_eq!(expected[1], got[1]);
@@ -96,7 +103,7 @@ fn relative_rotation_from_matches_hand_computed_rb_t_ra() {
     let a = from_rows(ra, [1.0, 0.0, 0.0]);
     let b = from_rows(rb, [2.0, 1.0, 0.5]);
 
-    let expected = b.rotation().transpose() * a.rotation();
+    let expected = matrix(rb).transpose() * matrix(ra);
     let got = b.relative_rotation_from(&a);
     for r in 0..3 {
         for c in 0..3 {
@@ -135,7 +142,7 @@ fn to_camera_of_other_position_matches_hand_computed_ta_minus_tb() {
     let a = from_rows(ra, [1.0, 0.0, 0.0]);
     let b = from_rows(rb, [2.0, 1.0, 0.5]);
 
-    let expected = b.rotation().transpose() * (a.position() - b.position());
+    let expected = matrix(rb).transpose() * (vec3(1.0, 0.0, 0.0) - vec3(2.0, 1.0, 0.5));
     let got = b.to_camera(a.position());
     assert_eq!(expected[0], got[0]);
     assert_eq!(expected[1], got[1]);
