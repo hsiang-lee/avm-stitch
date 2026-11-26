@@ -539,8 +539,9 @@ fn to_render_basis(p: [f64; 3]) -> [f32; 3] {
     [p[0] as f32, p[2] as f32, -p[1] as f32]
 }
 
-/// The four default views. `clip_bowl` supplies the clip planes, which are
-/// scale-dependent: feeding a car-scale bowl here clips every ship-scale view.
+/// The four default views. `clip_bowl` supplies the clip planes; this case only
+/// asserts the frame is not all background, so clip-plane scaling is covered
+/// separately by `clip_planes_ship_scale_cover_the_bowl`.
 fn default_view_specs(pose_bowl: &BowlParams, clip_bowl: &BowlParams) -> Vec<ViewSpec> {
     let clip_poses = clip_bowl.default_view_poses();
     let max_eye = clip_poses.iter().fold(0.0f64, |max, pose| {

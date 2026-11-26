@@ -5,4 +5,4 @@ pub mod controller;
 pub mod windowed;
 
 pub use controller::OrbitController;
-pub use windowed::{run_windowed, ViewerError, ViewerOptions};
+pub use windowed::{run_windowed, ViewerError, ViewerOptions, WINDOW_HEIGHT, WINDOW_WIDTH};

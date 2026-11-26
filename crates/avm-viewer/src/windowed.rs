@@ -17,8 +17,9 @@ use winit::window::{Window, WindowId};
 
 use crate::controller::{DragButtons, OrbitController};
 
-const WINDOW_WIDTH: u32 = 1280;
-const WINDOW_HEIGHT: u32 = 720;
+/// Logical size of the interactive window before the window manager resizes it.
+pub const WINDOW_WIDTH: u32 = 1280;
+pub const WINDOW_HEIGHT: u32 = 720;
 /// A wheel line is treated as this many pixels of vertical drag.
 const WHEEL_LINE_PIXELS: f64 = 50.0;
 const CLEAR: wgpu::Color = wgpu::Color {
@@ -99,10 +100,50 @@ pub fn run_windowed(
     if app.frames.is_some() {
         println!("Presented {} frame(s)", app.frames_drawn);
     }
-    match app.error {
-        Some(error) => Err(error),
-        None => Ok(()),
+    if let Some(error) = app.error {
+        return Err(error);
     }
+    verify_capture(options.screenshot.as_deref(), app.screenshot_taken)
+}
+
+/// A requested screenshot that was never written is a failure, not a quiet
+/// success: the caller asked for a file and the run did not produce one.
+fn verify_capture(requested: Option<&Path>, captured: bool) -> Result<(), ViewerError> {
+    match (requested, captured) {
+        (Some(path), false) => Err(ViewerError::Screenshot(format!(
+            "no frame was captured to {}",
+            path.display()
+        ))),
+        _ => Ok(()),
+    }
+}
+
+/// What one redraw actually did. A surface that is not acquired has neither
+/// presented nor captured anything, so counting it as a frame would let
+/// `--frames N` exit before the image exists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FrameOutcome {
+    presented: bool,
+    screenshot: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FrameStep {
+    Exit,
+    Redraw,
+    Idle,
+}
+
+/// Folds one redraw into the frame budget: only a presented frame counts, and a
+/// budgeted run keeps asking for redraws until the budget is met.
+fn next_step(outcome: FrameOutcome, frames_drawn: u32, limit: Option<u32>) -> (u32, FrameStep) {
+    let drawn = frames_drawn + u32::from(outcome.presented);
+    let step = match limit {
+        Some(limit) if drawn >= limit => FrameStep::Exit,
+        Some(_) => FrameStep::Redraw,
+        None => FrameStep::Idle,
+    };
+    (drawn, step)
 }
 
 fn set_button(buttons: &mut DragButtons, button: MouseButton, pressed: bool) {
@@ -129,7 +170,7 @@ impl RenderState {
         &self,
         controller: &OrbitController,
         screenshot: Option<&Path>,
-    ) -> Result<(), ViewerError> {
+    ) -> Result<FrameOutcome, ViewerError> {
         match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
@@ -164,18 +205,29 @@ impl RenderState {
                     )?;
                 }
                 self.queue.present(frame);
-                Ok(())
+                Ok(FrameOutcome {
+                    presented: true,
+                    screenshot: screenshot.is_some(),
+                })
             }
             wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                 self.surface.configure(&self.device, &self.config);
                 self.window.request_redraw();
-                Ok(())
+                Ok(FrameOutcome {
+                    presented: false,
+                    screenshot: false,
+                })
             }
             // wgpu does not expose the validation message here and the viewer
             // cannot recover from it, so it ends the run with an error rather
             // than reporting a silent success.
             wgpu::CurrentSurfaceTexture::Validation => Err(ViewerError::SurfaceValidation),
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => Ok(()),
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                Ok(FrameOutcome {
+                    presented: false,
+                    screenshot: false,
+                })
+            }
         }
     }
 
@@ -275,13 +327,14 @@ impl WindowApp {
             self.screenshot.as_deref()
         };
         match state.render_frame(&self.controller, screenshot) {
-            Ok(()) => {
-                self.screenshot_taken |= screenshot.is_some();
-                self.frames_drawn += 1;
-                match self.frames {
-                    Some(limit) if self.frames_drawn >= limit => event_loop.exit(),
-                    Some(_) => state.window.request_redraw(),
-                    None => {}
+            Ok(outcome) => {
+                self.screenshot_taken |= outcome.screenshot;
+                let (drawn, step) = next_step(outcome, self.frames_drawn, self.frames);
+                self.frames_drawn = drawn;
+                match step {
+                    FrameStep::Exit => event_loop.exit(),
+                    FrameStep::Redraw => state.window.request_redraw(),
+                    FrameStep::Idle => {}
                 }
             }
             Err(error) => {
@@ -430,4 +483,47 @@ fn capture_surface(
         .save(path)
         .map_err(|error| ViewerError::Screenshot(error.to_string()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{next_step, verify_capture, FrameOutcome, FrameStep};
+
+    const PRESENTED: FrameOutcome = FrameOutcome {
+        presented: true,
+        screenshot: true,
+    };
+    const SKIPPED: FrameOutcome = FrameOutcome {
+        presented: false,
+        screenshot: false,
+    };
+
+    /// `Lost`/`Outdated`/`Timeout`/`Occluded` return a skipped outcome: they
+    /// must not spend frame budget or claim a screenshot.
+    #[test]
+    fn a_skipped_redraw_does_not_count_as_a_frame() {
+        assert_eq!((0, FrameStep::Redraw), next_step(SKIPPED, 0, Some(2)));
+        assert_eq!((1, FrameStep::Redraw), next_step(SKIPPED, 1, Some(2)));
+    }
+
+    #[test]
+    fn a_presented_frame_spends_the_budget() {
+        assert_eq!((1, FrameStep::Redraw), next_step(PRESENTED, 0, Some(2)));
+        assert_eq!((2, FrameStep::Exit), next_step(PRESENTED, 1, Some(2)));
+        assert_eq!((1, FrameStep::Exit), next_step(PRESENTED, 0, Some(1)));
+    }
+
+    #[test]
+    fn an_interactive_run_never_self_exits() {
+        assert_eq!((1, FrameStep::Idle), next_step(PRESENTED, 0, None));
+        assert_eq!((0, FrameStep::Idle), next_step(SKIPPED, 0, None));
+    }
+
+    #[test]
+    fn a_requested_but_missing_screenshot_fails_the_run() {
+        let path = std::path::Path::new("/tmp/never-written.png");
+        assert!(verify_capture(Some(path), false).is_err());
+        assert!(verify_capture(Some(path), true).is_ok());
+        assert!(verify_capture(None, false).is_ok());
+    }
 }

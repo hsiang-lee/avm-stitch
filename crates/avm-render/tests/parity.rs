@@ -7,17 +7,13 @@ use std::path::{Path, PathBuf};
 
 use avm_core::bowl::BowlModel;
 use avm_core::calibration::Calibration;
-use avm_render::{load_camera_image, render_all_views_with, RenderError, RenderSize, SceneData, ViewSpec};
+use avm_render::{
+    load_camera_image, render_all_views_with, RenderError, RenderSize, SceneData, ViewSpec,
+    BACKGROUND_CLEAR,
+};
 
 const WIDTH: u32 = 960;
 const HEIGHT: u32 = 640;
-/// The reference renderer's background, RGB(30, 36, 50).
-const CLEAR: [f64; 4] = [
-    30.0 / 255.0,
-    36.0 / 255.0,
-    50.0 / 255.0,
-    1.0,
-];
 const PSNR_MIN_DB: f64 = 45.0;
 const MEAN_DIFF_MAX: f64 = 1.0;
 
@@ -83,7 +79,7 @@ fn render_data_dir(data_dir: &Path) -> (Vec<String>, Vec<Vec<u8>>) {
         })
         .collect();
 
-    let frames = render_all_views_with(&scene, &views, RenderSize::new(WIDTH, HEIGHT), CLEAR)
+    let frames = render_all_views_with(&scene, &views, RenderSize::new(WIDTH, HEIGHT), BACKGROUND_CLEAR)
         .unwrap_or_else(|error| match error {
             RenderError::NoAdapter => panic!("parity test requires a GPU adapter"),
             other => panic!("parity render failed: {other}"),

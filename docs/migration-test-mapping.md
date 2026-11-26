@@ -3,7 +3,8 @@
 Every gtest case in the C++ tree at `6baf46a` is listed below once. A case is
 `ported` when a Rust test asserts the same behaviour, `exempt` when the case is
 inherently about the EGL/OSG/wgpu-independent implementation (reasons below),
-and `deferred` is empty: the two windowed cases are exempt because they need a display.
+and `deferred` is empty: the two windowed cases are exempt because they need a display;
+with a display, `avm-viewer/tests/windowed_smoke.rs` covers the entry point partially.
 
 ## Counting method
 
@@ -312,8 +313,8 @@ the commit report).
 | `test_osg_view_renderer.cpp` | `OSGViewRenderer_ConstructionDoesNotCrash` | ① EGL/OSG 实现专属：构造 `osgViewer::Viewer` 与 `osg::Camera` 没有 wgpu 对应概念 | exempt |
 | `test_osg_view_renderer.cpp` | `OSGViewRenderer_RenderAllViews_ShipScale_NotAllBackground` | `avm-render/tests/offscreen.rs::ship_scale_views_are_not_background` | ported |
 | `test_osg_view_renderer.cpp` | `OSGViewRenderer_OffscreenMode_Works` | `avm-render/tests/offscreen.rs::renders_every_view_or_skips_without_adapter` | ported |
-| `test_osg_view_renderer.cpp` | `OSGViewRenderer_WindowedMode_Constructs` | ④ 需要可交互显示：`EventLoop`/窗口构造在无显示的 CI 中无法自动化；`--windowed` 入口与 `avm-viewer` 控制器测试覆盖了窗口所用的相机与交互数学 | exempt |
-| `test_osg_view_renderer.cpp` | `OSGViewRenderer_WindowedMode_Constructs_WithCarCenter` | ④ 同上；车心对初始相机的影响由 `avm-viewer/tests/controller.rs::home_camera_matches_the_home_view_pose` 覆盖（fixture 的 car_center 非零） | exempt |
+| `test_osg_view_renderer.cpp` | `OSGViewRenderer_WindowedMode_Constructs` | ④ 需要可交互显示：`EventLoop`/窗口构造在无显示的 CI 中无法自动化；`cargo run -p avm-viewer -- <data_dir>` 入口与 `avm-viewer` 控制器测试覆盖了窗口所用的相机与交互数学；有显示时由 `windowed_viewer_draws_two_frames_and_exits` 部分覆盖 | exempt |
+| `test_osg_view_renderer.cpp` | `OSGViewRenderer_WindowedMode_Constructs_WithCarCenter` | ④ 同上；车心对初始相机的影响由 `avm-viewer/tests/controller.rs::home_camera_matches_the_home_view_pose` 覆盖（fixture 的 car_center 非零）；有显示时由 `windowed_viewer_draws_two_frames_and_exits` 部分覆盖 | exempt |
 
 ## `tests/render/test_stitch_scene.cpp`
 
