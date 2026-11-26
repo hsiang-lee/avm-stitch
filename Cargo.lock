@@ -71,6 +71,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "avm-engine"
+version = "0.1.0"
+dependencies = [
+ "avm-core",
+ "avm-render",
+ "image",
+ "thiserror",
+]
+
+[[package]]
 name = "avm-render"
 version = "0.1.0"
 dependencies = [

@@ -2,6 +2,7 @@ use avm_core::bowl::BowlModel;
 
 use crate::vertex::PackedVertex;
 
+#[derive(Clone)]
 pub struct SceneData {
     pub vertices: Vec<PackedVertex>,
     pub indices: Vec<u32>,

@@ -1,0 +1,18 @@
+[package]
+name = "avm-engine"
+description = "StitchEngine orchestration for the avm-stitch port: calibration validation, bowl bake and view rendering"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+avm-core = { path = "../avm-core" }
+avm-render = { path = "../avm-render" }
+image.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+avm-core = { path = "../avm-core" }
+avm-render = { path = "../avm-render" }
+image.workspace = true
