@@ -11,7 +11,18 @@ use avm_core::calibration::Calibration;
 use avm_render::{
     load_camera_image, render_all_views_with, RenderSize, SceneData, BACKGROUND_CLEAR,
 };
-use avm_viewer::{OrbitController, WINDOW_HEIGHT, WINDOW_WIDTH};
+use avm_viewer::OrbitController;
+
+/// Extracts the presented surface size from the viewer's report
+/// `Presented N frame(s) at WxH`. A run that presented no frame reports no
+/// size, so `None` here is a test failure, not a reason to fall back.
+fn presented_size(stdout: &str) -> Option<(u32, u32)> {
+    let marker = " frame(s) at ";
+    let rest = stdout.split_once(marker)?.1;
+    let token = rest.split_whitespace().next()?;
+    let (width, height) = token.split_once('x')?;
+    Some((width.parse().ok()?, height.parse().ok()?))
+}
 
 fn display_available() -> bool {
     std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some()
@@ -48,7 +59,7 @@ fn data_dir() -> PathBuf {
 }
 
 /// Renders the same camera the viewer starts with, offscreen, at the same size.
-fn reference_frame(data_dir: &Path) -> Vec<u8> {
+fn reference_frame(data_dir: &Path, size: RenderSize) -> Vec<u8> {
     let calibration = Calibration::load_from_path(data_dir.join("calibration.json"))
         .expect("calibration.json must load");
     let bowl = calibration.bowl_params();
@@ -61,11 +72,11 @@ fn reference_frame(data_dir: &Path) -> Vec<u8> {
         .expect("camera images must load");
     let scene = SceneData::from_bowl_model(&model).with_camera_images(images);
     let controller = OrbitController::from_home(&bowl);
-    let view = controller.view_spec(WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32);
+    let view = controller.view_spec(size.width as f32 / size.height as f32);
     render_all_views_with(
         &scene,
         &[view],
-        RenderSize::new(WINDOW_WIDTH, WINDOW_HEIGHT),
+        RenderSize::new(size.width, size.height),
         BACKGROUND_CLEAR,
     )
     .expect("the viewer just created a device, so the reference render must succeed")
@@ -130,15 +141,19 @@ fn windowed_viewer_draws_two_frames_and_exits() {
         "wgpu reported a validation error:\n{stderr}"
     );
 
+    let (width, height) = presented_size(&stdout).unwrap_or_else(|| {
+        panic!("a presented run must report its surface size as `at WxH`, got:\n{stdout}")
+    });
+
     let image = image::open(&screenshot)
         .expect("the requested screenshot must exist")
         .to_rgba8();
     assert_eq!(
-        (WINDOW_WIDTH, WINDOW_HEIGHT),
+        (width, height),
         image.dimensions(),
         "unexpected screenshot size"
     );
-    let reference = reference_frame(&data_dir);
+    let reference = reference_frame(&data_dir, RenderSize::new(width, height));
     let actual = image.as_raw();
     assert_eq!(
         reference.len(),

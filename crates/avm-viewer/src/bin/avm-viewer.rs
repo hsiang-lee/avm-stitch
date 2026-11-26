@@ -1,3 +1,4 @@
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -41,9 +42,7 @@ fn parse_args() -> Result<Args, String> {
                 let count: u32 = value
                     .parse()
                     .map_err(|_| format!("--frames expects a positive integer, got {value}"))?;
-                if count == 0 {
-                    return Err("--frames must be at least 1".into());
-                }
+                let count = NonZeroU32::new(count).ok_or("--frames must be at least 1")?;
                 frames = Some(count);
             }
             "--screenshot" => {

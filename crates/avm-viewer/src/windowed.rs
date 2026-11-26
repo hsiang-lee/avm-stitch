@@ -1,3 +1,4 @@
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -37,6 +38,8 @@ pub enum ViewerError {
     EventLoop(String),
     #[error("failed to create the window: {0}")]
     Window(String),
+    #[error("failed to create the window surface: {0}")]
+    Surface(String),
     #[error("the window surface is not supported by this adapter")]
     SurfaceUnsupported,
     #[error("the window surface reported a validation error")]
@@ -61,7 +64,7 @@ impl From<ReadbackError> for ViewerError {
 /// optional screenshot captures the first presented frame.
 #[derive(Clone, Debug, Default)]
 pub struct ViewerOptions {
-    pub frames: Option<u32>,
+    pub frames: Option<NonZeroU32>,
     pub screenshot: Option<PathBuf>,
 }
 
@@ -91,6 +94,7 @@ pub fn run_windowed(
         error: None,
         frames: options.frames,
         frames_drawn: 0,
+        presented_size: None,
         screenshot: options.screenshot.clone(),
         screenshot_taken: false,
     };
@@ -98,7 +102,13 @@ pub fn run_windowed(
         .run_app(&mut app)
         .map_err(|error| ViewerError::EventLoop(error.to_string()))?;
     if app.frames.is_some() {
-        println!("Presented {} frame(s)", app.frames_drawn);
+        match app.presented_size {
+            Some(size) => println!(
+                "Presented {} frame(s) at {}x{}",
+                app.frames_drawn, size.width, size.height
+            ),
+            None => println!("Presented {} frame(s)", app.frames_drawn),
+        }
     }
     if let Some(error) = app.error {
         return Err(error);
@@ -127,6 +137,26 @@ struct FrameOutcome {
     screenshot: bool,
 }
 
+impl FrameOutcome {
+    /// A frame reached the surface: it spends budget and reports whether a
+    /// screenshot was captured for it.
+    const fn presented(captured: bool) -> Self {
+        Self {
+            presented: true,
+            screenshot: captured,
+        }
+    }
+
+    /// No frame reached the surface: it must neither spend budget nor claim a
+    /// screenshot.
+    const fn skipped() -> Self {
+        Self {
+            presented: false,
+            screenshot: false,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FrameStep {
     Exit,
@@ -136,10 +166,14 @@ enum FrameStep {
 
 /// Folds one redraw into the frame budget: only a presented frame counts, and a
 /// budgeted run keeps asking for redraws until the budget is met.
-fn next_step(outcome: FrameOutcome, frames_drawn: u32, limit: Option<u32>) -> (u32, FrameStep) {
+fn next_step(
+    outcome: FrameOutcome,
+    frames_drawn: u32,
+    limit: Option<NonZeroU32>,
+) -> (u32, FrameStep) {
     let drawn = frames_drawn + u32::from(outcome.presented);
     let step = match limit {
-        Some(limit) if drawn >= limit => FrameStep::Exit,
+        Some(limit) if drawn >= limit.get() => FrameStep::Exit,
         Some(_) => FrameStep::Redraw,
         None => FrameStep::Idle,
     };
@@ -166,69 +200,67 @@ struct RenderState {
 }
 
 impl RenderState {
-    fn render_frame(
-        &self,
-        controller: &OrbitController,
-        screenshot: Option<&Path>,
-    ) -> Result<FrameOutcome, ViewerError> {
+    /// Acquires the next surface texture, recovering a lost or outdated
+    /// surface in place. `None` means this redraw produced no frame to draw.
+    fn acquire_frame(&self) -> Result<Option<wgpu::SurfaceTexture>, ViewerError> {
         match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
-                let view = frame
-                    .texture
-                    .create_view(&wgpu::TextureViewDescriptor::default());
-                let mut encoder =
-                    self.device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                            label: Some("avm-window-encoder"),
-                        });
-                let aspect = self.config.width as f32 / self.config.height as f32;
-                self.renderer.render(
-                    &self.queue,
-                    &mut encoder,
-                    RenderTarget {
-                        color: &view,
-                        depth: &self.depth,
-                    },
-                    &controller.view_spec(aspect),
-                    CLEAR,
-                );
-                self.queue.submit([encoder.finish()]);
-                if let Some(path) = screenshot {
-                    capture_surface(
-                        &self.device,
-                        &self.queue,
-                        &frame.texture,
-                        RenderSize::new(self.config.width, self.config.height),
-                        self.config.format,
-                        path,
-                    )?;
-                }
-                self.queue.present(frame);
-                Ok(FrameOutcome {
-                    presented: true,
-                    screenshot: screenshot.is_some(),
-                })
-            }
+            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => Ok(Some(frame)),
             wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                 self.surface.configure(&self.device, &self.config);
                 self.window.request_redraw();
-                Ok(FrameOutcome {
-                    presented: false,
-                    screenshot: false,
-                })
+                Ok(None)
             }
             // wgpu does not expose the validation message here and the viewer
             // cannot recover from it, so it ends the run with an error rather
             // than reporting a silent success.
             wgpu::CurrentSurfaceTexture::Validation => Err(ViewerError::SurfaceValidation),
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                Ok(FrameOutcome {
-                    presented: false,
-                    screenshot: false,
-                })
+                Ok(None)
             }
         }
+    }
+
+    fn render_frame(
+        &self,
+        controller: &OrbitController,
+        screenshot: Option<&Path>,
+    ) -> Result<FrameOutcome, ViewerError> {
+        let Some(frame) = self.acquire_frame()? else {
+            return Ok(FrameOutcome::skipped());
+        };
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("avm-window-encoder"),
+            });
+        let aspect = self.config.width as f32 / self.config.height as f32;
+        self.renderer.render(
+            &self.queue,
+            &mut encoder,
+            RenderTarget {
+                color: &view,
+                depth: &self.depth,
+            },
+            &controller.view_spec(aspect),
+            CLEAR,
+        );
+        self.queue.submit([encoder.finish()]);
+        if let Some(path) = screenshot {
+            capture_surface(
+                &self.device,
+                &self.queue,
+                &frame.texture,
+                RenderSize::new(self.config.width, self.config.height),
+                self.config.format,
+                path,
+            )?;
+        }
+        self.queue.present(frame);
+        Ok(FrameOutcome::presented(screenshot.is_some()))
     }
 
     /// Applies a new surface size: one place that knows the configuration and
@@ -252,8 +284,9 @@ struct WindowApp {
     last_cursor: Option<(f64, f64)>,
     buttons: DragButtons,
     error: Option<ViewerError>,
-    frames: Option<u32>,
+    frames: Option<NonZeroU32>,
     frames_drawn: u32,
+    presented_size: Option<RenderSize>,
     screenshot: Option<PathBuf>,
     screenshot_taken: bool,
 }
@@ -329,6 +362,10 @@ impl WindowApp {
         match state.render_frame(&self.controller, screenshot) {
             Ok(outcome) => {
                 self.screenshot_taken |= outcome.screenshot;
+                if outcome.presented {
+                    self.presented_size =
+                        Some(RenderSize::new(state.config.width, state.config.height));
+                }
                 let (drawn, step) = next_step(outcome, self.frames_drawn, self.frames);
                 self.frames_drawn = drawn;
                 match step {
@@ -358,12 +395,12 @@ fn create_window_and_surface(
                         f64::from(WINDOW_HEIGHT),
                     )),
             )
-            .map_err(|error| ViewerError::NoDisplay(format!("create window: {error}")))?,
+            .map_err(|error| ViewerError::Window(error.to_string()))?,
     );
     let instance = create_instance();
     let surface = instance
         .create_surface(window.clone())
-        .map_err(|error| ViewerError::Window(format!("create surface: {error}")))?;
+        .map_err(|error| ViewerError::Surface(error.to_string()))?;
     Ok((window, instance, surface))
 }
 
@@ -480,37 +517,73 @@ fn capture_surface(
     let image = image::RgbaImage::from_raw(size.width, size.height, rgba)
         .ok_or_else(|| ViewerError::Screenshot("frame buffer size does not match".into()))?;
     image
-        .save(path)
+        .save_with_format(path, image::ImageFormat::Png)
         .map_err(|error| ViewerError::Screenshot(error.to_string()))?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU32;
+
     use super::{next_step, verify_capture, FrameOutcome, FrameStep};
 
-    const PRESENTED: FrameOutcome = FrameOutcome {
-        presented: true,
-        screenshot: true,
-    };
-    const SKIPPED: FrameOutcome = FrameOutcome {
-        presented: false,
-        screenshot: false,
-    };
+    const PRESENTED: FrameOutcome = FrameOutcome::presented(true);
+    const SKIPPED: FrameOutcome = FrameOutcome::skipped();
+
+    #[test]
+    fn a_presented_outcome_records_whether_it_captured() {
+        assert_eq!(
+            FrameOutcome::presented(false),
+            FrameOutcome {
+                presented: true,
+                screenshot: false,
+            }
+        );
+        assert_eq!(
+            FrameOutcome::presented(true),
+            FrameOutcome {
+                presented: true,
+                screenshot: true,
+            }
+        );
+    }
+
+    #[test]
+    fn a_skipped_outcome_presents_and_captures_nothing() {
+        let outcome = FrameOutcome::skipped();
+        assert!(!outcome.presented);
+        assert!(!outcome.screenshot);
+    }
 
     /// `Lost`/`Outdated`/`Timeout`/`Occluded` return a skipped outcome: they
     /// must not spend frame budget or claim a screenshot.
     #[test]
     fn a_skipped_redraw_does_not_count_as_a_frame() {
-        assert_eq!((0, FrameStep::Redraw), next_step(SKIPPED, 0, Some(2)));
-        assert_eq!((1, FrameStep::Redraw), next_step(SKIPPED, 1, Some(2)));
+        assert_eq!(
+            (0, FrameStep::Redraw),
+            next_step(SKIPPED, 0, NonZeroU32::new(2))
+        );
+        assert_eq!(
+            (1, FrameStep::Redraw),
+            next_step(SKIPPED, 1, NonZeroU32::new(2))
+        );
     }
 
     #[test]
     fn a_presented_frame_spends_the_budget() {
-        assert_eq!((1, FrameStep::Redraw), next_step(PRESENTED, 0, Some(2)));
-        assert_eq!((2, FrameStep::Exit), next_step(PRESENTED, 1, Some(2)));
-        assert_eq!((1, FrameStep::Exit), next_step(PRESENTED, 0, Some(1)));
+        assert_eq!(
+            (1, FrameStep::Redraw),
+            next_step(PRESENTED, 0, NonZeroU32::new(2))
+        );
+        assert_eq!(
+            (2, FrameStep::Exit),
+            next_step(PRESENTED, 1, NonZeroU32::new(2))
+        );
+        assert_eq!(
+            (1, FrameStep::Exit),
+            next_step(PRESENTED, 0, NonZeroU32::new(1))
+        );
     }
 
     #[test]
