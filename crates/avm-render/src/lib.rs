@@ -22,6 +22,6 @@ pub use vertex::{
 };
 pub use view::ViewSpec;
 
-/// Background behind the bowl, RGB(30, 36, 50) with an opaque alpha, matching
-/// the C++ reference renderer.
+/// Background behind the bowl, RGB(30, 36, 50) with an opaque alpha. The parity
+/// fixtures were captured with exactly this value.
 pub const BACKGROUND_CLEAR: [f64; 4] = [30.0 / 255.0, 36.0 / 255.0, 50.0 / 255.0, 1.0];

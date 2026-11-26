@@ -1,5 +1,8 @@
 # C++ test -> Rust counterpart map
 
+**Migration record:** the C++ sources are no longer in the tree. Recover them
+from tag `archive/cpp-implementation` when a row needs to be checked by hand.
+
 Every gtest case in the C++ tree at `6baf46a` is listed below once. A case is
 `ported` when a Rust test asserts the same behaviour, `exempt` when the case is
 inherently about the EGL/OSG/wgpu-independent implementation (reasons below),

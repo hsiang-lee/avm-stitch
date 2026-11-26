@@ -1,5 +1,5 @@
 # Build artifacts
-build/
+/build
 vcpkg_installed/
 # Rust workspace build directory
 /target
