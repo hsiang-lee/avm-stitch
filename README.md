@@ -2,17 +2,17 @@
 
 **English** | [中文](README.zh-CN.md)
 
-Rust workspace that stitches N fisheye cameras into a 3D AVM (Around View Monitor / 360° bird's-eye) surround view.
+Rust package that stitches N fisheye cameras into a 3D AVM (Around View Monitor / 360° bird's-eye) surround view.
 
-- **Pure algorithm core** — `avm-core` holds the geometry and camera math with no GPU, no image and no OS dependency.
-- **Headless rendering** — `avm-render` draws four views offscreen with wgpu, so it runs in containers and CI on any Vulkan/Metal/DX12 adapter (software rasterisers included).
+- **Pure algorithm core** — the `camera`, `bowl`, `depth` and `calibration` modules hold the geometry and camera math with no GPU, no image and no OS dependency, and compile without any feature flag.
+- **Headless rendering** — the `render` feature draws four views offscreen with wgpu, so it runs in containers and CI on any Vulkan/Metal/DX12 adapter (software rasterisers included).
 - **N cameras** — up to 8 by architecture; configuration accepts N ∈ [1, 8]. Typical installs use 4 (front/rear/left/right) or 8 cameras.
-- **Optional window** — `avm-viewer` opens the same scene interactively and can present a fixed number of frames and save a screenshot.
+- **Optional window** — the `viewer` feature opens the same scene interactively and can present a fixed number of frames and save a screenshot.
 
 ## Contents
 
 1. [What it does](#1-what-it-does)
-2. [Workspace layout](#2-workspace-layout)
+2. [Package layout](#2-package-layout)
 3. [Bowl model](#3-bowl-model)
 4. [Bake](#4-bake)
 5. [Camera models](#5-camera-models)
@@ -56,21 +56,39 @@ The pipeline has three stages:
 
 All geometry and blending costs happen once at configuration; per-frame work is a texture upload and one draw pass per view.
 
-## 2. Workspace layout
+## 2. Package layout
 
-| crate | role | notable dependencies |
+The repository is one Cargo package, `avm-stitch`, with feature flags instead of separate crates:
+
+| feature | contents | notable dependencies |
 |---|---|---|
-| `avm-core` | camera models, extrinsics, bowl geometry, blend weights, depth, calibration JSON | `nalgebra`, `serde`, `thiserror` — no GPU |
-| `avm-render` | wgpu offscreen renderer, WGSL shader, vertex packing, texture readback | `wgpu`, `naga`, `bytemuck`, `pollster` |
-| `avm-engine` | `configure` / `render_frame` orchestration and validation | `avm-core`, `avm-render`, `image` |
-| `avm-viewer` | interactive window and trackball controller; also the viewer binary | `avm-render`, `winit`, `wgpu`, `image` |
-| `avm-cli` | prints calibration, derived bowl parameters and mesh statistics | `avm-core` only |
+| *(always on)* | `camera`, `bowl`, `depth`, `calibration`, `angle_utils` | `nalgebra`, `serde`, `thiserror` — no GPU, no image, no OS |
+| `render` | the `render` module (wgpu offscreen path, WGSL shader, vertex packing, texture readback) and `engine` | `wgpu`, `naga`, `bytemuck`, `pollster`, `image` |
+| `viewer` | `render::windowed` and the `avm_viewer` example | `winit` |
 
-The dependency direction is enforced by tests: `avm-core`'s resolved closure never reaches a GPU or image crate, and `avm-cli`'s closure never reaches `wgpu`, `winit`, `avm-render` or `avm-viewer`.
+`default = ["render", "viewer"]`. The `avm-cli` binary needs neither feature.
+
+```
+src/lib.rs               module root
+src/camera/              camera models, extrinsics
+src/bowl/                bowl geometry and blend weights
+src/depth/               rectification and ground-plane depth
+src/calibration.rs       calibration JSON
+src/angle_utils.rs       angle helpers
+src/engine.rs            StitchEngine                    #[cfg(feature = "render")]
+src/render/              wgpu render path                 #[cfg(feature = "render")]
+src/render/windowed.rs   interactive window                #[cfg(feature = "viewer")]
+src/bin/avm-cli.rs       statistics CLI (core modules only)
+examples/avm_viewer.rs   interactive viewer                required-features = ["viewer"]
+tests/*.rs               integration tests
+tests/fixtures/parity/   reference images for the parity test
+```
+
+The dependency direction is enforced by tests: `cargo tree --no-default-features` never resolves `wgpu`, `winit` or `naga`, and the CPU-only build never reads a file under `src/render`.
 
 ## 3. Bowl model
 
-`avm-core::bowl::BowlParams` defines the immutable parameter object that owns the inputs the geometry derives from — it holds everything the mesh needs, so it is the information expert for bowl geometry:
+`avm_stitch::bowl::BowlParams` defines the immutable parameter object that owns the inputs the geometry derives from — it holds everything the mesh needs, so it is the information expert for bowl geometry:
 
 - `generate_block_boat_mesh` — the mesh.
 - `distance_from_flat_platform`, `bowl_height`, `grid_segments_per_axis` — the radial profile.
@@ -105,7 +123,7 @@ Height profile and footprint:
 
 The same formula covers cars and ships: the bundled sample data contains a 5.27 m car (`data_4`) and a 211.58 m ship (`data_8`).
 
-`avm-core::bowl::BowlModel::new(params, cameras)` builds the mesh and bakes it in the constructor. There is no half-initialized state. Accessors are index-based (`vertex_count` / `baked_vertex` / `triangle_count`), so the internal layout stays a private implementation detail.
+`avm_stitch::bowl::BowlModel::new(params, cameras)` builds the mesh and bakes it in the constructor. There is no half-initialized state. Accessors are index-based (`vertex_count` / `baked_vertex` / `triangle_count`), so the internal layout stays a private implementation detail.
 
 ## 4. Bake
 
@@ -125,7 +143,7 @@ Per vertex the bake:
 
 ## 5. Camera models
 
-`avm-core::camera::CameraModel` is the trait shared by three fisheye models:
+`avm_stitch::camera::CameraModel` is the trait shared by three fisheye models:
 
 - Batch and single-point projection: `project_points`, `project_camera_point`.
 - Gating: `fisheye_circle_radius`, `inside_fisheye_circle`, `edge_feather(u, v, feather_px = 40.0)`.
@@ -185,7 +203,7 @@ World point → pixel is the composition `model.project_camera_point(extr.to_cam
 
 ## 7. Renderer
 
-`avm-render` is the only crate that talks to the GPU. It owns the shader and the draw path used by both offscreen rendering and the window.
+The `render` module is the only part of the package that talks to the GPU. It owns the shader and the draw path used by both offscreen rendering and the window.
 
 - **`PackedVertex`** packs the baked data into one dense vertex (120 bytes) with a fixed 8-camera layout, so the shader stays simple:
 
@@ -209,7 +227,7 @@ location 7   vec4  weights1 = (w4, w5, w6, w7)
 
 ## 8. Engine and data flow
 
-`avm-engine::StitchEngine` exposes a two-stage API:
+`avm_stitch::engine::StitchEngine` exposes a two-stage API:
 
 ```
 configure(Vec<Camera>, &BowlParams, width: u32, height: u32)          once
@@ -230,7 +248,7 @@ Validation is explicit: `configure` returns `EngineError` for N outside [1, 8], 
 
 ## 9. Depth module
 
-`avm-core::depth` contains spherical rectification and **analytic ground-plane depth**:
+`avm_stitch::depth` contains spherical rectification and **analytic ground-plane depth**:
 
 ```rust
 make_rectification_basis(a: &CameraExtrinsics, b: &CameraExtrinsics) -> RectificationBasis;
@@ -244,26 +262,29 @@ Status: geometric only. There is no stereo matcher and no measured disparity yet
 
 ## 10. Build and run
 
-The workspace needs a Rust toolchain (edition 2021, rust-version 1.85) and, for rendering, a wgpu adapter. No system SDK is installed by the build.
+The package needs a Rust toolchain (edition 2021, rust-version 1.85) and, for rendering, a wgpu adapter. No system SDK is installed by the build.
 
 ```bash
-cargo build --workspace
-cargo test --workspace
+cargo build
+cargo test
 
 # calibration statistics: no GPU, no display
-cargo run -p avm-cli -- examples/data_4
+cargo run --bin avm-cli -- examples/data_4
+
+# the same statistics with the GPU stack not compiled at all
+cargo run --no-default-features --bin avm-cli -- examples/data_4
 
 # interactive viewer: needs a display (X11 or Wayland)
-cargo run -p avm-viewer -- examples/data_4
+cargo run --example avm_viewer -- examples/data_4
 ```
 
-`avm-cli` prints the cameras, the derived bowl parameters, the mesh size and the baked weight range. `avm-viewer` opens a 1280×720 window showing the home view of the same scene; left drag rotates, right drag zooms (dolly), middle drag pans, and the wheel zooms.
+`avm-cli` prints the cameras, the derived bowl parameters, the mesh size and the baked weight range. The `avm_viewer` example opens a 1280×720 window showing the home view of the same scene; left drag rotates, right drag zooms (dolly), middle drag pans, and the wheel zooms.
 
 For scripted runs the viewer accepts:
 
 ```bash
-cargo run -p avm-viewer -- examples/data_4 --frames 2
-cargo run -p avm-viewer -- examples/data_4 --frames 1 --screenshot shot.png
+cargo run --example avm_viewer -- examples/data_4 --frames 2
+cargo run --example avm_viewer -- examples/data_4 --frames 1 --screenshot shot.png
 ```
 
 `--frames N` presents N frames and exits; `--screenshot PATH` writes the first presented frame as PNG and fails the run if no frame could be captured. Without a display the viewer exits non-zero with an explicit message.
@@ -271,10 +292,10 @@ cargo run -p avm-viewer -- examples/data_4 --frames 1 --screenshot shot.png
 ## 11. Verification and parity
 
 ```bash
-cargo test -p avm-render --test parity
+cargo test --test parity
 ```
 
-The parity test renders `examples/data_4` at 960×640 and compares each of the four views with the stored reference PNGs in `crates/avm-render/tests/fixtures/parity/data_4/`. It requires, per channel, PSNR > 45 dB and a mean absolute difference < 1.0; the current fixtures sit at 86+ dB on the worst channel. Those fixtures were captured from the original renderer and are kept as external ground truth, so a shader or matrix change that alters output fails here.
+The parity test renders `examples/data_4` at 960×640 and compares each of the four views with the stored reference PNGs in `tests/fixtures/parity/data_4/`. It requires, per channel, PSNR > 45 dB and a mean absolute difference < 1.0; the current fixtures sit at 86+ dB on the worst channel. Those fixtures were captured from the original renderer and are kept as external ground truth, so a shader or matrix change that alters output fails here.
 
 GPU-backed tests skip when the machine has no adapter; parity deliberately fails instead of skipping, so a silent GPU-less run cannot claim parity.
 
@@ -298,7 +319,7 @@ GPU-backed tests skip when the machine has no adapter; parity deliberately fails
 }
 ```
 
-`avm-core::calibration::Calibration::load_from_path` reads it; `bowl_params()` derives the bowl from the `car` block.
+`avm_stitch::calibration::Calibration::load_from_path` reads it; `bowl_params()` derives the bowl from the `car` block.
 
 ## 13. Extending beyond 8 cameras
 
@@ -306,7 +327,7 @@ The geometry and blend-weight algorithms are independent of N. The 8-camera cap 
 
 | Bottleneck | Location | Current state |
 |---|---|---|
-| Vertex attribute layout | `avm-render::vertex` slot constants | UV: 4 × vec4 (locations 2-5); weights: 2 × vec4 (locations 6-7) |
+| Vertex attribute layout | `avm_stitch::render::vertex` slot constants | UV: 4 × vec4 (locations 2-5); weights: 2 × vec4 (locations 6-7) |
 | Fragment shader | `shader.wgsl` | 8 unrolled camera branches |
 | Configuration validation | `StitchEngine::configure` | N ∈ [1, 8] |
 
@@ -319,9 +340,9 @@ For 16 cameras:
 
 ## 14. Known limitations
 
-- **Windowed output is checked only by the smoke test** — with a display, `avm-viewer/tests/windowed_smoke.rs` compares the screenshot byte-for-byte with the offscreen render of the same view; without a display and without `xvfb-run` it skips with an explicit message.
+- **Windowed output is checked only by the smoke test** — with a display, `tests/windowed_smoke.rs` compares the screenshot byte-for-byte with the offscreen render of the same view; without a display and without `xvfb-run` it skips with an explicit message.
 - **Depth module is analytic only** — it computes ground-plane depth and predicted disparity from geometry; it does not read images, has no stereo matcher, and currently has no production caller.
-- **QNX is not verified** — no target toolchain run has been performed; the core crate is OS-independent by construction but the GPU path assumes a Vulkan/Metal/DX12 adapter.
+- **QNX is not verified** — no target toolchain run has been performed; the core modules are OS-independent by construction but the GPU path assumes a Vulkan/Metal/DX12 adapter.
 - **Parity fixtures cover one dataset** — `data_4` at 960×640, four views. Other sizes, datasets and camera counts have no reference images.
 - **8-camera GPU layout cap** — see [section 13](#13-extending-beyond-8-cameras).
 - **Deferred refactors** — the migration's known debt is tracked in [`docs/known-debt.md`](docs/known-debt.md).

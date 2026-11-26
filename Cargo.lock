@@ -91,53 +91,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
-name = "avm-cli"
+name = "avm-stitch"
 version = "0.1.0"
 dependencies = [
- "avm-core",
-]
-
-[[package]]
-name = "avm-core"
-version = "0.1.0"
-dependencies = [
- "nalgebra",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "avm-engine"
-version = "0.1.0"
-dependencies = [
- "avm-core",
- "avm-render",
- "image",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "avm-render"
-version = "0.1.0"
-dependencies = [
- "avm-core",
  "bytemuck",
  "image",
  "naga",
  "nalgebra",
  "pollster",
- "thiserror 2.0.21",
- "wgpu",
-]
-
-[[package]]
-name = "avm-viewer"
-version = "0.1.0"
-dependencies = [
- "avm-core",
- "avm-render",
- "image",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "wgpu",
  "winit",

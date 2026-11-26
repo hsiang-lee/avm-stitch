@@ -6,7 +6,7 @@ was left alone, and the condition that should trigger the work.
 
 ## `BowlParams` is a large, multi-purpose value object
 
-- **Where**: `crates/avm-core/src/bowl/params.rs` — 9-argument `new()` (:42-65),
+- **Where**: `src/bowl/params.rs` — 9-argument `new()` (:42-65),
   `for_car_size` with unnamed scale constants (:67-82), mesh generation
   (:143-195) and `compute_bowl_normals` (:261-328), view helpers (:197-215),
   clip planes (:217-236).
@@ -19,7 +19,7 @@ was left alone, and the condition that should trigger the work.
 
 ## Camera-model parameters are data clumps and diverge per model
 
-- **Where**: `crates/avm-core/src/camera/model.rs:40-56` (`CameraModelBase::new`),
+- **Where**: `src/camera/model.rs:40-56` (`CameraModelBase::new`),
   `:118-123` (`project_points` triple), `:189-273` (`KbParams` / `LutParams` /
   `OcamParams`). Each model repeats `(width, height, cx, cy)` with a different
   field order and the batch projections repeat the `(points, uv, valid)` triple.
@@ -31,8 +31,8 @@ was left alone, and the condition that should trigger the work.
 
 ## The three projection skeletons are duplicated
 
-- **Where**: `crates/avm-core/src/camera/model.rs:118` plus
-  `crates/avm-core/src/camera/{kb.rs:61,lut.rs:49,ocam.rs:40}` — the same
+- **Where**: `src/camera/model.rs:118` plus
+  `src/camera/{kb.rs:61,lut.rs:49,ocam.rs:40}` — the same
   equal-length checks, loop and UV normalisation around a per-model core.
 - **Why deferred**: the shared skeleton lives behind a trait and each model's
   inner kernel differs; extracting it now would only move three size checks.
@@ -41,7 +41,7 @@ was left alone, and the condition that should trigger the work.
 
 ## Camera model type is a string
 
-- **Where**: `crates/avm-core/src/camera/model.rs` (`make_camera_model("kb" |
+- **Where**: `src/camera/model.rs` (`make_camera_model("kb" |
   "table" | "ocam", …)`).
 - **Why deferred**: the strings come straight from the calibration files and the
   error path already names the offending kind; a typed enum is a schema change
@@ -50,9 +50,9 @@ was left alone, and the condition that should trigger the work.
 
 ## Long render functions
 
-- **Where**: `crates/avm-render/src/offscreen.rs:59-` (setup, target creation and
+- **Where**: `src/render/offscreen.rs:59-` (setup, target creation and
   the per-view loop in one function) and
-  `crates/avm-viewer/src/windowed.rs:224` / `:501` (draw + present, capture +
+  `src/render/windowed.rs:224` / `:501` (draw + present, capture +
   encode + save).
 - **Why deferred**: both are linear, single-purpose sequences around GPU calls
   that are hard to unit test; splitting them would mostly move lines.
@@ -61,7 +61,7 @@ was left alone, and the condition that should trigger the work.
 
 ## `configure_surface` takes five arguments and a mode flag
 
-- **Where**: `crates/avm-viewer/src/windowed.rs:408` —
+- **Where**: `src/render/windowed.rs:408` —
   `(window, surface, adapter, device, want_copy: bool)`, where the bool both
   changes the surface usage and can fail with a screenshot-domain error.
 - **Why deferred**: there is one caller; the flag only means "this run wants a
@@ -71,29 +71,78 @@ was left alone, and the condition that should trigger the work.
 
 ## Test helpers are duplicated across integration-test binaries
 
-- **Where**: `crates/avm-render/tests/parity.rs:35` and
-  `crates/avm-render/tests/offscreen.rs` (`to_render_basis`, default-view and
-  clip construction), `crates/avm-viewer/tests/windowed_smoke.rs` (calibration →
+- **Where**: `tests/parity.rs:35` and
+  `tests/offscreen.rs` (`to_render_basis`, default-view and
+  clip construction), `tests/windowed_smoke.rs` (calibration →
   `BowlModel` → `SceneData` → render), and the `count_vivid` helpers in
-  `avm-engine/tests/engine.rs`.
-- **Why deferred**: integration tests in different crates cannot share a module
-  without a new test-utility crate, and adding one crate for four helpers is
-  more structure than the duplication costs today.
+  `tests/engine.rs`.
+- **Why deferred**: the helpers were written per binary while the tests lived in
+  five crates. `tests/common/mod.rs` can now be included from every test binary,
+  but moving them changes four suites at once and B5 was a pure move; the
+  duplication is stable and cheap in the meantime.
 - **When to handle**: when a helper changes twice, or a third consumer appears.
 
-## `avm-engine` exposes test-only accessors
+## The VCS → render-basis remap is written four times
 
-- **Where**: `crates/avm-engine/src/lib.rs:197` (`is_configured`) and `:201`
-  (`num_cameras`); their only callers are `crates/avm-engine/tests/engine.rs`.
+- **Where**: `src/render/vertex.rs:42-47` (`position` and `normal`),
+  `src/render/controller.rs:11-14`, `src/engine.rs:98-100`, plus the copies in
+  `tests/parity.rs` and `tests/offscreen.rs`. All implement
+  `(x, y, z) -> (x, z, -y)`; `controller.rs` even carries a comment saying it is
+  "the same remap as the renderer".
+- **Why deferred**: before B5 these lived in three different crates, which was
+  the reason for the copies. The merge makes one shared function possible, but
+  two of the copies return `f32` and one `f64`, and touching the render path in
+  a move-only batch would have mixed concerns.
+- **When to handle**: the next change to the render basis or vertex packing; at
+  that point fold all four into one function with a documented unit.
+
+## The engine exposes test-only accessors
+
+- **Where**: `src/engine.rs:197` (`is_configured`) and `:201`
+  (`num_cameras`); their only callers are `tests/engine.rs`. Same shape:
+  `src/bowl/model.rs:79` (`has_visible_vertices`), used only by
+  `tests/bowl_model.rs` and `tests/calibration.rs`.
 - **Why deferred**: they are harmless read-only queries and removing them means
-  rewriting those tests around `render_frame` errors.
+  rewriting those tests around other observations.
 - **When to handle**: when the engine gains external consumers, or the next
   public-API review.
 
+## The engine's error text still uses reference-implementation names
+
+- **Where**: `src/engine.rs:14-40` — `StitchEngine::Configure` (the method is
+  `configure`), `StitchEngine::RenderFrame`, `Camera.model is null` (Rust has
+  `Option`), `bowl_params.GridStep` (the accessor is `grid_step()`).
+- **Why deferred**: the strings are asserted by the engine tests and originate
+  in the reference implementation; changing them is a user-visible change, not
+  a move.
+- **When to handle**: with the next user-visible message pass, or when the
+  engine gets a CLI front end.
+
+## `naga` is a `render` dependency but only the tests use it
+
+- **Where**: `Cargo.toml:11` and `:21`; `naga` has no production caller, only
+  `tests/shader_validation.rs`. It was a dev-dependency before B5.
+- **Why deferred**: the feature set is fixed by the migration plan, and moving
+  `naga` to `[dev-dependencies]` would put it into every `cargo tree` closure
+  (dev-dependencies cannot be feature-gated), weakening the CPU-only guard.
+- **When to handle**: when `cargo-udeps`/`cargo-machete` joins CI, or when the
+  shader validation moves into a build script.
+
+## No configure-time validation runs without the `render` feature
+
+- **Where**: `tests/engine.rs` begins with `#![cfg(feature = "render")]`
+  because `StitchEngine` needs `SceneData`; the twelve `configure_*` cases never
+  create a device but still disappear under `--no-default-features`
+  (262 → 186 tests).
+- **Why deferred**: separating validation from scene assembly is a behaviour-
+  neutral refactor of `src/engine.rs`, not part of a move-only batch.
+- **When to handle**: when validation grows a rule that a GPU-less consumer
+  (a calibration checker, the CLI) should enforce.
+
 ## The two binaries duplicate the data-directory default and argument parsing
 
-- **Where**: `crates/avm-cli/src/main.rs:7` and
-  `crates/avm-viewer/src/bin/avm-viewer.rs:9` (`DEFAULT_DATA_DIR`), plus each
+- **Where**: `src/bin/avm-cli.rs:7` and
+  `examples/avm_viewer.rs:9` (`DEFAULT_DATA_DIR`), plus each
   binary's positional/flag loop.
 - **Why deferred**: the two CLIs deliberately differ (one rejects `--windowed`
   with a pointer to the other), and the shared surface is a single constant.

@@ -2,17 +2,17 @@
 
 [English](README.md) | **中文**
 
-把 N 路鱼眼相机拼接成 3D AVM（Around View Monitor / 360° 鸟瞰）环视的 Rust workspace。
+把 N 路鱼眼相机拼接成 3D AVM（Around View Monitor / 360° 鸟瞰）环视的 Rust package。
 
-- **纯算法核心** — `avm-core` 承载几何与相机数学，零 GPU、零图像库、零 OS 依赖。
-- **离屏渲染** — `avm-render` 用 wgpu 离屏绘制四个视角，可在容器与 CI 中跑在任何 Vulkan/Metal/DX12 适配器上（含软件光栅化器）。
+- **纯算法核心** — `camera`、`bowl`、`depth`、`calibration` 模块承载几何与相机数学，零 GPU、零图像库、零 OS 依赖，且不依赖任何 feature。
+- **离屏渲染** — `render` feature 用 wgpu 离屏绘制四个视角，可在容器与 CI 中跑在任何 Vulkan/Metal/DX12 适配器上（含软件光栅化器）。
 - **N 路相机** — 架构上限 8 路；配置接受 N ∈ [1, 8]。常见部署为 4 路（前/后/左/右）或 8 路。
-- **可选窗口** — `avm-viewer` 以交互方式打开同一场景，也能只呈现固定帧数并保存截图。
+- **可选窗口** — `viewer` feature 以交互方式打开同一场景，也能只呈现固定帧数并保存截图。
 
 ## 目录
 
 1. [它做什么](#1-它做什么)
-2. [Workspace 结构](#2-workspace-结构)
+2. [Package 结构](#2-package-结构)
 3. [碗模型](#3-碗模型)
 4. [烘焙](#4-烘焙)
 5. [相机模型](#5-相机模型)
@@ -56,21 +56,39 @@ AVM 系统在车辆四周安装 N 路鱼眼相机（FOV 通常 > 180°），相�
 
 所有几何与融合开销只发生在配置阶段；逐帧工作只有一次纹理上传和每个视角一次 draw pass。
 
-## 2. Workspace 结构
+## 2. Package 结构
 
-| crate | 职责 | 主要依赖 |
+整个仓库是一个 Cargo package `avm-stitch`，用 feature 划分边界，而不是拆成多个 crate：
+
+| feature | 内容 | 主要依赖 |
 |---|---|---|
-| `avm-core` | 相机模型、外参、碗几何、融合权重、深度、标定 JSON | `nalgebra`、`serde`、`thiserror` — 无 GPU |
-| `avm-render` | wgpu 离屏渲染器、WGSL shader、顶点打包、纹理回读 | `wgpu`、`naga`、`bytemuck`、`pollster` |
-| `avm-engine` | `configure` / `render_frame` 编排与校验 | `avm-core`、`avm-render`、`image` |
-| `avm-viewer` | 交互窗口与 trackball 控制器；同时提供 viewer 二进制 | `avm-render`、`winit`、`wgpu`、`image` |
-| `avm-cli` | 打印标定、派生碗参数与网格统计 | 仅 `avm-core` |
+| （始终启用） | `camera`、`bowl`、`depth`、`calibration`、`angle_utils` | `nalgebra`、`serde`、`thiserror` — 无 GPU、无图像库、无 OS 依赖 |
+| `render` | `render` 模块（wgpu 离屏路径、WGSL shader、顶点打包、纹理回读）与 `engine` | `wgpu`、`naga`、`bytemuck`、`pollster`、`image` |
+| `viewer` | `render::windowed` 与 `avm_viewer` 示例 | `winit` |
 
-依赖方向由测试强制：`avm-core` 的解析闭包不得出现 GPU 或图像 crate，`avm-cli` 的闭包不得出现 `wgpu`、`winit`、`avm-render` 或 `avm-viewer`。
+`default = ["render", "viewer"]`；`avm-cli` 二进制两个 feature 都不需要。
+
+```
+src/lib.rs               模块根
+src/camera/              相机模型、外参
+src/bowl/                碗几何与融合权重
+src/depth/               球面校正与地面深度
+src/calibration.rs       标定 JSON
+src/angle_utils.rs       角度工具
+src/engine.rs            StitchEngine                     #[cfg(feature = "render")]
+src/render/              wgpu 渲染路径                     #[cfg(feature = "render")]
+src/render/windowed.rs   交互窗口                          #[cfg(feature = "viewer")]
+src/bin/avm-cli.rs       统计 CLI（只用核心模块）
+examples/avm_viewer.rs   交互 viewer                       required-features = ["viewer"]
+tests/*.rs               集成测试
+tests/fixtures/parity/   对拍参考图
+```
+
+依赖方向由测试强制：`cargo tree --no-default-features` 的解析闭包不得出现 `wgpu`、`winit`、`naga`，且 CPU-only 构建不会读取 `src/render` 下的任何文件。
 
 ## 3. 碗模型
 
-`avm-core::bowl::BowlParams` 是不可变参数对象，拥有几何所依赖的全部输入——网格需要的一切都在它手里，因此它是碗几何的 information expert：
+`avm_stitch::bowl::BowlParams` 是不可变参数对象，拥有几何所依赖的全部输入——网格需要的一切都在它手里，因此它是碗几何的 information expert：
 
 - `generate_block_boat_mesh` — 网格。
 - `distance_from_flat_platform`、`bowl_height`、`grid_segments_per_axis` — 径向剖面。
@@ -105,7 +123,7 @@ AVM 系统在车辆四周安装 N 路鱼眼相机（FOV 通常 > 180°），相�
 
 同一公式覆盖轿车与轮船：仓库自带 5.27 m 轿车（`data_4`）与 211.58 m 轮船（`data_8`）样例。
 
-`avm-core::bowl::BowlModel::new(params, cameras)` 在构造函数里建网格并完成烘焙，不存在半初始化状态。访问器按索引提供（`vertex_count` / `baked_vertex` / `triangle_count`），内部布局保持私有。
+`avm_stitch::bowl::BowlModel::new(params, cameras)` 在构造函数里建网格并完成烘焙，不存在半初始化状态。访问器按索引提供（`vertex_count` / `baked_vertex` / `triangle_count`），内部布局保持私有。
 
 ## 4. 烘焙
 
@@ -125,7 +143,7 @@ AVM 系统在车辆四周安装 N 路鱼眼相机（FOV 通常 > 180°），相�
 
 ## 5. 相机模型
 
-`avm-core::camera::CameraModel` 是三种鱼眼模型共享的 trait：
+`avm_stitch::camera::CameraModel` 是三种鱼眼模型共享的 trait：
 
 - 批量与单点投影：`project_points`、`project_camera_point`。
 - 门控：`fisheye_circle_radius`、`inside_fisheye_circle`、`edge_feather(u, v, feather_px = 40.0)`。
@@ -185,7 +203,7 @@ camera.extrinsics();                 // T_wc 位姿
 
 ## 7. 渲染器
 
-`avm-render` 是唯一接触 GPU 的 crate。shader 与绘制路径由离屏渲染和窗口共用。
+`render` 模块是 package 中唯一接触 GPU 的部分。shader 与绘制路径由离屏渲染和窗口共用。
 
 - **`PackedVertex`** 把烘焙数据打包成一个稠密顶点（120 字节），布局固定为 8 路，shader 因而保持简单：
 
@@ -209,7 +227,7 @@ location 7   vec4  weights1 = (w4, w5, w6, w7)
 
 ## 8. 引擎与数据流
 
-`avm-engine::StitchEngine` 暴露两段式 API：
+`avm_stitch::engine::StitchEngine` 暴露两段式 API：
 
 ```
 configure(Vec<Camera>, &BowlParams, width: u32, height: u32)          一次
@@ -229,7 +247,7 @@ Vec<(String, RgbaImage)>             ("3d_front" .. "3d_right")
 
 ## 9. 深度模块
 
-`avm-core::depth` 包含球面校正与**解析地面深度**：
+`avm_stitch::depth` 包含球面校正与**解析地面深度**：
 
 ```rust
 make_rectification_basis(a: &CameraExtrinsics, b: &CameraExtrinsics) -> RectificationBasis;
@@ -243,26 +261,29 @@ triangulate_depth(dir_a_world, origin_a, dir_b_world, origin_b) -> f64;
 
 ## 10. 构建与运行
 
-workspace 需要 Rust 工具链（edition 2021，rust-version 1.85）；渲染还需要一个 wgpu 适配器。构建过程不安装任何系统 SDK。
+该 package 需要 Rust 工具链（edition 2021，rust-version 1.85）；渲染还需要一个 wgpu 适配器。构建过程不安装任何系统 SDK。
 
 ```bash
-cargo build --workspace
-cargo test --workspace
+cargo build
+cargo test
 
 # 标定统计：不需要 GPU，也不需要显示环境
-cargo run -p avm-cli -- examples/data_4
+cargo run --bin avm-cli -- examples/data_4
+
+# 同样的统计，但完全不编译 GPU 栈
+cargo run --no-default-features --bin avm-cli -- examples/data_4
 
 # 交互窗口：需要显示环境（X11 或 Wayland）
-cargo run -p avm-viewer -- examples/data_4
+cargo run --example avm_viewer -- examples/data_4
 ```
 
-`avm-cli` 打印相机、派生碗参数、网格规模与烘焙权重范围。`avm-viewer` 以 1280×720 打开同一场景的 home 视角；左键拖动旋转，右键拖动缩放（dolly），中键拖动平移，滚轮缩放。
+`avm-cli` 打印相机、派生碗参数、网格规模与烘焙权重范围。`avm_viewer` 示例以 1280×720 打开同一场景的 home 视角；左键拖动旋转，右键拖动缩放（dolly），中键拖动平移，滚轮缩放。
 
 脚本化运行支持：
 
 ```bash
-cargo run -p avm-viewer -- examples/data_4 --frames 2
-cargo run -p avm-viewer -- examples/data_4 --frames 1 --screenshot shot.png
+cargo run --example avm_viewer -- examples/data_4 --frames 2
+cargo run --example avm_viewer -- examples/data_4 --frames 1 --screenshot shot.png
 ```
 
 `--frames N` 呈现 N 帧后退出；`--screenshot PATH` 把第一帧写成 PNG，若始终无法取帧则以非零退出码结束。没有显示环境时 viewer 会以明确信息非零退出。
@@ -270,10 +291,10 @@ cargo run -p avm-viewer -- examples/data_4 --frames 1 --screenshot shot.png
 ## 11. 验证与对拍
 
 ```bash
-cargo test -p avm-render --test parity
+cargo test --test parity
 ```
 
-对拍测试以 960×640 渲染 `examples/data_4`，把四个视角与 `crates/avm-render/tests/fixtures/parity/data_4/` 中的参考 PNG 比较。逐通道要求 PSNR > 45 dB、平均绝对差 < 1.0；当前夹具最差通道为 86+ dB。参考图取自原始渲染器，作为外部真值保留，因此任何改变输出的 shader 或矩阵改动都会在这里失败。
+对拍测试以 960×640 渲染 `examples/data_4`，把四个视角与 `tests/fixtures/parity/data_4/` 中的参考 PNG 比较。逐通道要求 PSNR > 45 dB、平均绝对差 < 1.0；当前夹具最差通道为 86+ dB。参考图取自原始渲染器，作为外部真值保留，因此任何改变输出的 shader 或矩阵改动都会在这里失败。
 
 依赖 GPU 的测试在机器没有适配器时跳过；对拍测试故意失败而不跳过，避免无 GPU 的运行悄悄声称通过。
 
@@ -297,7 +318,7 @@ cargo test -p avm-render --test parity
 }
 ```
 
-由 `avm-core::calibration::Calibration::load_from_path` 读取；`bowl_params()` 从 `car` 段派生碗参数。
+由 `avm_stitch::calibration::Calibration::load_from_path` 读取；`bowl_params()` 从 `car` 段派生碗参数。
 
 ## 13. 扩展到 8 路以上
 
@@ -305,7 +326,7 @@ cargo test -p avm-render --test parity
 
 | 瓶颈 | 位置 | 现状 |
 |---|---|---|
-| 顶点属性布局 | `avm-render::vertex` 槽常量 | UV：4 × vec4（location 2-5）；权重：2 × vec4（location 6-7） |
+| 顶点属性布局 | `avm_stitch::render::vertex` 槽常量 | UV：4 × vec4（location 2-5）；权重：2 × vec4（location 6-7） |
 | 片元 shader | `shader.wgsl` | 8 段展开的相机分支 |
 | 配置校验 | `StitchEngine::configure` | N ∈ [1, 8] |
 
@@ -318,9 +339,9 @@ cargo test -p avm-render --test parity
 
 ## 14. 已知限制
 
-- **窗口画面只由冒烟测试检查** — 有显示环境时，`avm-viewer/tests/windowed_smoke.rs` 会把截图与同视角离屏渲染逐字节比较；无显示且无 `xvfb-run` 时，测试会打印原因并明确跳过。
+- **窗口画面只由冒烟测试检查** — 有显示环境时，`tests/windowed_smoke.rs` 会把截图与同视角离屏渲染逐字节比较；无显示且无 `xvfb-run` 时，测试会打印原因并明确跳过。
 - **深度模块仅解析** — 它从几何计算地面深度与预测视差；不读取图像，没有立体匹配器，目前没有生产调用方。
-- **QNX 未验证** — 尚未在目标工具链上运行；core crate 在构造上不依赖 OS，但 GPU 路径假定存在 Vulkan/Metal/DX12 适配器。
+- **QNX 未验证** — 尚未在目标工具链上运行；核心模块在构造上不依赖 OS，但 GPU 路径假定存在 Vulkan/Metal/DX12 适配器。
 - **对拍夹具只覆盖一个数据集** — `data_4`、960×640、四个视角。其他尺寸、数据集与相机数没有参考图。
 - **8 路 GPU 布局上限** — 见[第 13 节](#13-扩展到-8-路以上)。
 - **延后的重构** — 迁移期已知债务记录在 [`docs/known-debt.md`](docs/known-debt.md)。

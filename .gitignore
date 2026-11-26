@@ -1,6 +1,6 @@
 # Build directory (repository root)
 /build
-# Rust workspace build directory
+# Rust build directory
 /target
 
 # Editor

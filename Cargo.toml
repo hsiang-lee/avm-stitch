@@ -1,20 +1,28 @@
-[workspace]
-resolver = "2"
-members = ["crates/avm-core", "crates/avm-render", "crates/avm-engine", "crates/avm-viewer", "crates/avm-cli"]
-
-[workspace.package]
+[package]
+name = "avm-stitch"
+description = "N-camera fisheye AVM stitching: bowl geometry, calibration and wgpu rendering"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
 
-[workspace.dependencies]
+[features]
+default = ["render", "viewer"]
+render = ["dep:wgpu", "dep:naga", "dep:pollster", "dep:bytemuck", "dep:image"]
+viewer = ["render", "dep:winit"]
+
+[dependencies]
 nalgebra = "0.35"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-wgpu = "30"
-naga = { version = "30", features = ["wgsl-in"] }
-bytemuck = { version = "1.25", features = ["derive"] }
-pollster = "0.4"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
+wgpu = { version = "30", optional = true }
+naga = { version = "30", features = ["wgsl-in"], optional = true }
+bytemuck = { version = "1.25", features = ["derive"], optional = true }
+pollster = { version = "0.4", optional = true }
+winit = { version = "0.30.12", default-features = false, features = ["rwh_06", "x11"], optional = true }
+
+[[example]]
+name = "avm_viewer"
+required-features = ["viewer"]

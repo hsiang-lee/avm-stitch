@@ -2,21 +2,22 @@
 
 > **Superseded by B4 (2026-11-26).** 本文档是迁移期的计划记录，不是当前事实。
 > C++ 源码已随 B4 删除，需要对照时从 tag `archive/cpp-implementation` 取出；
-> 窗口渲染器已在 B3.5 完成；workspace 最终为 5 个 crate（`avm-core`、`avm-render`、
-> `avm-engine`、`avm-viewer`、`avm-cli`）。下文凡称“保留 C++ / 不做窗口 / 三个 crate”
-> 之处均为**当时的约束**，已按下述标注由后续批次取代。仍然有效的延后项记录在
-> `docs/known-debt.md`。
+> 窗口渲染器已在 B3.5 完成。crate 边界在 B5 被折叠：最终形态是**单个 package
+> `avm-stitch` + feature**（`render` / `viewer`），不再是 `avm-core`/`avm-render`/
+> `avm-engine`/`avm-viewer`/`avm-cli` 五个 crate。下文凡称“保留 C++ / 不做窗口 /
+> 三个 crate / 五个 crate”之处均为**当时的约束**，已按下述标注由后续批次取代。
+> 仍然有效的延后项记录在 `docs/known-debt.md`。
 
 ## Epic 目标
 
 把 avm-stitch 的 C++ 算法核心（camera model / bowl model）与渲染骨架（OSG + GLSL 330）
-按行为对等原则移植为 Rust workspace，目标平台为 Linux 桌面。C++ 源码在本 Epic 全程保留，
+按行为对等原则移植为 Rust package（B5 起为单 package + feature），目标平台为 Linux 桌面。C++ 源码在本 Epic 全程保留，
 作为规格来源与参考实现；C++ 文件不改动、不删除。
 
 **（历史约束，已被 B4 取代）** C++ 源码在 B4 删除，保留于 tag `archive/cpp-implementation`；
 渲染骨架最终为 wgpu + WGSL，而非 OSG + GLSL 330。
 
-验收方式：`cargo build --workspace` 通过 + `cargo test --workspace` 全绿。
+验收方式：`cargo build` 通过 + `cargo test` 全绿（B5 前的形态为 `--workspace`）。
 
 ## 非目标（本 Epic 明确不做）
 
@@ -50,9 +51,14 @@
   链接 GPU 栈，`cargo tree -p avm-cli` 闭包不得出现 `wgpu`/`winit`/`naga`/`avm-render`/
   `avm-viewer`。GPU 代码仅限 `avm-render`（离屏）与 `avm-viewer`（窗口）；`avm-viewer`
   是唯一链接 `winit` 的 crate，交互入口为 `cargo run -p avm-viewer -- <data_dir>`。
+  **（历史约束，已被 B5 取代）** 现为单 package `avm-stitch`：`cargo tree
+  --no-default-features` 不见 `wgpu`/`winit`/`naga`，且 CPU-only 构建不读取 `src/render`；
+  交互入口为 `cargo run --example avm_viewer -- <data_dir>`。
 - **A2 依赖白名单**：只允许 `nalgebra`（数学，二选一，需说明理由）、`serde`/`serde_json`、
   `thiserror`、`image`（唯一图像 IO）、`wgpu`/`naga`/`bytemuck`/`pollster`（离屏渲染在
   render，窗口在 render + viewer）、`winit`（仅 viewer）。不引入 OpenCV。
+  **（B5 后仍成立）** 依赖集不变，只是 `wgpu`/`naga`/`pollster`/`bytemuck` 挂在 `render`
+  feature、`winit` 挂在 `viewer` feature 上。
 - **A3 camera 对等**：外参（含 `relative_rotation_from`、`azimuth_deg`）、kb 多项式、
   table LUT、ocam 三类模型；门控保持 C++ 的 0/1 硬门限与 `fisheye_circle_radius`
   自动内切圆；`Camera` 组合 `name`（默认空串）+ 外参 + 模型；模型工厂保持
@@ -109,7 +115,7 @@
 
 | 故事 | 内容 | AC |
 |------|------|----|
-| S1 | workspace 骨架（三个 crate + 依赖约束；后续 B3/B3.5 扩为五个 crate） | A1, A2, A9 |
+| S1 | workspace 骨架（三个 crate + 依赖约束；B3/B3.5 扩为五个 crate，B5 再折叠为单 package + feature） | A1, A2, A9 |
 | S2 | camera 模块（外参、kb/table/ocam、门控、Camera 组合、工厂） | A3, A5, A6 |
 | S3 | bowl 模块（BowlParams、BlendWeightsCalculator、BowlModel 烘焙） | A4, A5, A6 |
 | S4 | 标定 JSON 加载 + CLI | A8 |
