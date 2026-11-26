@@ -2,303 +2,282 @@
 
 [English](README.md) | **中文**
 
-C++20 AVM（Around View Monitor，环视 / 360° 鸟瞰）拼接静态库：把 N 路鱼眼相机画面拼成车辆周围的三维环视视图。
+把 N 路鱼眼相机拼接成 3D AVM（Around View Monitor / 360° 鸟瞰）环视的 Rust workspace。
 
-- **纯算法 API** — 结构体 / `cv::Mat` 进出（`Configure` + `RenderFrame`），不依赖 JSON，也不依赖任务协议。
-- **无窗口渲染** — EGL surfaceless 离屏上下文，不需要 X server / 显示器，可直接跑在 Docker / CI 中。
-- **可嵌入** — 纯静态库，无 `main`，命名空间 `avm_stitch`，CMake + vcpkg 管理。
-- **N 路相机** — 架构上限 8 路，`Configure` 接受 N ∈ [1, 8]；典型配置为 4 路（前/后/左/右）或 8 路。
+- **纯算法核心** — `avm-core` 承载几何与相机数学，零 GPU、零图像库、零 OS 依赖。
+- **离屏渲染** — `avm-render` 用 wgpu 离屏绘制四个视角，可在容器与 CI 中跑在任何 Vulkan/Metal/DX12 适配器上（含软件光栅化器）。
+- **N 路相机** — 架构上限 8 路；配置接受 N ∈ [1, 8]。常见部署为 4 路（前/后/左/右）或 8 路。
+- **可选窗口** — `avm-viewer` 以交互方式打开同一场景，也能只呈现固定帧数并保存截图。
 
 ## 目录
 
 1. [它做什么](#1-它做什么)
-2. [碗模型](#2-碗模型)
-3. [烘焙](#3-烘焙)
-4. [相机模型](#4-相机模型)
-5. [融合权重](#5-融合权重)
-6. [渲染](#6-渲染)
-7. [深度模块](#7-深度模块)
-8. [架构与数据流](#8-架构与数据流)
-9. [目录结构](#9-目录结构)
-10. [构建与测试](#10-构建与测试)
-11. [示例：avm_viewer](#11-示例avm_viewer)
-12. [集成方式](#12-集成方式)
+2. [Workspace 结构](#2-workspace-结构)
+3. [碗模型](#3-碗模型)
+4. [烘焙](#4-烘焙)
+5. [相机模型](#5-相机模型)
+6. [融合权重](#6-融合权重)
+7. [渲染器](#7-渲染器)
+8. [引擎与数据流](#8-引擎与数据流)
+9. [深度模块](#9-深度模块)
+10. [构建与运行](#10-构建与运行)
+11. [验证与对拍](#11-验证与对拍)
+12. [标定 JSON](#12-标定-json)
 13. [扩展到 8 路以上](#13-扩展到-8-路以上)
 14. [已知限制](#14-已知限制)
+15. [历史](#15-历史)
 
 ## 1. 它做什么
 
-AVM 系统在车辆前后左右安装 N 路鱼眼相机（FOV 通常超过 180°），相邻视野在地面上重叠。把画面直接拼到一张俯视平面上并不可行：同一块地面在不同相机里的像素密度不同，平面拼接会在每条接缝处出现明显的拉伸断层。
+AVM 系统在车辆四周安装 N 路鱼眼相机（FOV 通常 > 180°），相邻视角在地面上互相重叠。把它们直接贴进一张平面俯视图行不通：同一块地面在每个相机里的像素密度不同，平面在每个接缝处都会出现可见的拉伸断裂。
 
-行业通行解法是**碗模型**：把车辆周围建模成一只中间平坦、四周缓缓升起的碗。虚拟相机看向这只碗时，远处地面被自然压缩，各路画面在碗面上恰好平滑衔接。
+业界标准解法是**碗模型**：把车周围的世界建模成一只碗——车底平坦，向边缘平滑抬升。在这张曲面上渲染虚拟相机，远处地面会被自然压缩，于是所有相机图像在接缝处无缝相接。
 
 ```
-                    [Front]
-                      F
-            +---------+---------+      F/R/L/R = 鱼眼相机
-            | overlap | overlap |      (FOV > 180°)
-       L    |    +---------+    |    R
-      e ----+    |   CAR   |    +---- i
-      f    |    +---------+    |    g
-      t    |         |         |    h
-            | overlap | overlap |
-            +---------+---------+
-                      R
-                    [Rear]
+                [Front]
+                  F
+        +---------+---------+      F/R/L/R = 鱼眼相机
+        | overlap | overlap |      (FOV > 180 deg)
+   L    |    +---------+    |    R
+  e ----+    |   CAR   |    +---- i
+  f    |    +---------+    |    g
+  t    |         |         |    h
+        | overlap | overlap |
+        +---------+---------+
+                  R
+                [Rear]
 ```
 
-整条流水线分三步：
+流水线分三段：
 
 1. **几何** — 由 `BowlParams` 生成三角网格。
-2. **烘焙** — 对每个顶点，投影进每一路相机，在 CPU 上预计算归一化 UV 和融合权重。
-3. **渲染** — 把 N 路画面作为 `Texture2DArray` 上传；GLSL 330 着色器按烘焙好的 UV 采样各相机，再按权重求和。
+2. **烘焙** — 每个顶点投影进每个相机，在 CPU 上预先算好归一化 UV 与融合权重。
+3. **渲染** — N 帧相机图像作为纹理数组上传；WGSL shader 按烘焙 UV 采样每路相机并加权求和。
 
-几何与融合全部在 `Configure` 时算一次；每帧只做纹理上传和每个视图一次绘制。
+所有几何与融合开销只发生在配置阶段；逐帧工作只有一次纹理上传和每个视角一次 draw pass。
 
-## 2. 碗模型
+## 2. Workspace 结构
 
-`src/bowl_model/bowl_params.hpp` 定义 `BowlParams`：不可变参数对象，持有几何所依赖的参数——它握有网格所需的全部输入，是碗几何的信息专家：
+| crate | 职责 | 主要依赖 |
+|---|---|---|
+| `avm-core` | 相机模型、外参、碗几何、融合权重、深度、标定 JSON | `nalgebra`、`serde`、`thiserror` — 无 GPU |
+| `avm-render` | wgpu 离屏渲染器、WGSL shader、顶点打包、纹理回读 | `wgpu`、`naga`、`bytemuck`、`pollster` |
+| `avm-engine` | `configure` / `render_frame` 编排与校验 | `avm-core`、`avm-render`、`image` |
+| `avm-viewer` | 交互窗口与 trackball 控制器；同时提供 viewer 二进制 | `avm-render`、`winit`、`wgpu`、`image` |
+| `avm-cli` | 打印标定、派生碗参数与网格统计 | 仅 `avm-core` |
 
-- `GenerateBlockBoatMesh(vertices, normals, triangles)` — 网格生成。
-- `DistanceFromFlatPlatform`、`BowlHeight`、`GridSegmentsPerAxis` — 径向剖面。
-- `DefaultViewPoses`、`HomeViewPose`、`HomeViewDistance`、`ClipPlanesFor` — 视图辅助。
+依赖方向由测试强制：`avm-core` 的解析闭包不得出现 GPU 或图像 crate，`avm-cli` 的闭包不得出现 `wgpu`、`winit`、`avm-render` 或 `avm-viewer`。
 
-`BowlParams::ForCarSize(car_length, car_width, axis_x)` 按车辆尺寸派生整套参数。令 `scale = car_length / 5.6`：
+## 3. 碗模型
+
+`avm-core::bowl::BowlParams` 是不可变参数对象，拥有几何所依赖的全部输入——网格需要的一切都在它手里，因此它是碗几何的 information expert：
+
+- `generate_block_boat_mesh` — 网格。
+- `distance_from_flat_platform`、`bowl_height`、`grid_segments_per_axis` — 径向剖面。
+- `default_view_poses`、`home_view_pose`、`clip_planes_for` — 视角辅助。
+
+`BowlParams::for_car_size(car_length, car_width, axis_x)` 由车辆 footprint 推导整套参数。令 `scale = car_length / 5.6`：
 
 | 参数 | 取值 | 说明 |
 |---|---|---|
-| `flat_platform_radius` | `2.0 × scale` | 车体轮廓外的圆角外扩量 |
-| `grid_step` | `0.2 × scale` | 网格步长（m）；L = 5.6 时约 126×126 |
+| `flat_platform_radius` | `2.0 × scale` | 车体 footprint 外的一圈圆角余量 |
+| `grid_step` | `0.2 × scale` | 网格间距（米）；L = 5.6 时约 126×126 |
 | `outer_radius` | `12.6 × scale` | 碗的径向范围 |
-| `slope_coefficient` | `0.09 × scale^-1.2` | 碗沿坡度 |
+| `slope_coefficient` | `0.09 × scale^-1.2` | 边缘坡度 |
 | `height_exponent` | `2.2` | 固定剖面形状 |
-| `max_height` | `8.6 × scale` | 超过此高度的顶点被裁剪 |
+| `max_height` | `8.6 × scale` | 超过此高度的顶点被裁掉 |
 | `car_center` | `(axis_x / 2, 0)` | 后轴坐标系 |
 
 高度剖面与 footprint：
 
 ```
- z ^      rim: z = slope_coefficient * distance_from_flat_platform^height_exponent   (max_height 封顶)
+ z ^      rim: z = slope_coefficient * distance_from_flat_platform^height_exponent   (capped at max_height)
    |    ___                          ___
    |   /    \___                ___/    \
    |  /         \___      ___/           \
    | /             \____/                 \
    |/                                     \
- 0 +----|---------平地 z=0--------|--------\----> rd
-        | 车体 footprint          |      outer_radius
-     圆角矩形                 弧形坡面
+ 0 +----|---------flat z=0--------|--------\----> rd
+        | car footprint           |      outer_radius
+     rounded rectangle         curved slope
      (L/2 + flat_platform_radius, W/2 + flat_platform_radius)
 ```
 
-同一套公式覆盖汽车和船舶：内置样例数据包含 5.27 m 汽车（`data_4`）和 211.58 m 船舶（`data_8`）。
+同一公式覆盖轿车与轮船：仓库自带 5.27 m 轿车（`data_4`）与 211.58 m 轮船（`data_8`）样例。
 
-`src/bowl_model/bowl_model.cpp` — `BowlModel(params, cameras)` 在构造函数里生成网格并完成烘焙，不存在半初始化状态。数据经细粒度索引访问（`vertex_count` / `vertex(i)` / `normal_count` / `normal(i)` / `triangle_count` / `triangle(i)`），内部布局是纯实现细节。
+`avm-core::bowl::BowlModel::new(params, cameras)` 在构造函数里建网格并完成烘焙，不存在半初始化状态。访问器按索引提供（`vertex_count` / `baked_vertex` / `triangle_count`），内部布局保持私有。
 
-## 3. 烘焙
+## 4. 烘焙
 
-`BowlModel` 构造函数对每个顶点计算：
+`BowlModel` 的构造函数对每个顶点计算：
 
-- `uv[N]` — 在该路相机图像中的归一化像素坐标（`pixel / width`、`pixel / height`）；不可见的相机槽保持 `(0, 0)`。
-- `weight[N]` — 每路相机的融合权重，在可见集合内归一化，和为 1；不可见相机为 0。
+- `uv[N]` — 每路相机图像中的归一化像素坐标（`pixel / width`、`pixel / height`）；不可见相机保持 `(0, 0)`。
+- `weight[N]` — 每路相机的融合权重，在可见集合上归一化使和为 1；不可见相机为 0。
 
-逐顶点烘焙流程：
+逐顶点的烘焙流程：
 
-1. 计算方位角扇区融合权重（`BlendWeightsCalculator`）；
-2. 判定可见性：在图像矩形内且在鱼眼有效圆内；
-3. 可见相机乘上边缘羽化系数；
-4. 在“可见且权重非零”的相机集合内归一化。
+1. 计算方位扇区的融合权重（`BlendWeightsCalculator`）；
+2. 可见性门控：落在图像矩形内且落在鱼眼圆内；
+3. 可见相机乘以边缘羽化因子；
+4. 在“可见且权重非零”的相机上归一化。
 
-`BakedVertex` 按实际相机数 N 分配，不为 8 路上限预留空槽。8 路上限只存在于 GPU 布局与 `Configure` 校验中；着色器按 `uNumCameras` 只激活前 N 层。
+`BakedVertex` 按实际相机数 N 分配，而不是按 8 路上限。8 路上限只存在于 GPU 布局与配置校验；shader 只激活前 N 层。
 
-## 4. 相机模型
+## 5. 相机模型
 
-`src/camera_model/camera_model.hpp` 定义三种鱼眼模型共享的 `CameraModel` 基类：
+`avm-core::camera::CameraModel` 是三种鱼眼模型共享的 trait：
 
-- 批量 / 单点投影：`ProjectPoints(…)`、`ProjectCameraPoint(P_cam)`。
-- 门控：`FisheyeCircleRadius()`、`InsideFisheyeCircle(u, v)`、`EdgeFeather(u, v, feather_px = 40.0)`。
+- 批量与单点投影：`project_points`、`project_camera_point`。
+- 门控：`fisheye_circle_radius`、`inside_fisheye_circle`、`edge_feather(u, v, feather_px = 40.0)`。
 
-`EdgeFeather` 是硬门限而非软衰减：鱼眼图像边缘是纯黑，线性插值无法挽回，因此距离有效圆边缘不足 `feather_px` 的像素直接返回 0。
+`edge_feather` 是硬门限而非软衰减：鱼眼图像暗边是纯黑，插值无法恢复，因此圆边缘 `feather_px` 内的像素直接返回 0。
 
-`MakeCameraModel("kb" | "table" | "ocam", params)` 构造 `KbCameraModel` / `LutCameraModel` / `OcamCameraModel`：
+`make_camera_model("kb" | "table" | "ocam", params)` 构造 `KbCameraModel` / `LutCameraModel` / `OcamCameraModel`：
 
 | 模型 | 参数 | 说明 |
 |---|---|---|
-| `kb` | `KbParams` | width, height, fx, fy, cx, cy, k1..k4, fisheye_radius（0 = 自动内切圆） |
-| `table` | `LutParams` | 查找表投影 |
+| `kb` | `KbParams` | width、height、fx、fy、cx、cy、k1..k4、fisheye_radius（0 = 自动内切圆） |
+| `table` | `LutParams` | 查表投影 |
 | `ocam` | `OcamParams` | OCamCalib 风格多项式 |
 
-kb 模型使用手写等距鱼眼多项式（`θ = atan2(r_xy, z)`，θ ∈ [0, π]），单一事实源为 `KbCameraModel::ProjectCameraPoint`；批量循环委托同一公式。
+kb 模型在 `KbCameraModel::project_camera_point` 里用一份手写的等距鱼眼多项式（`θ = atan2(r_xy, z)`，θ ∈ [0, π]）作为唯一真源；批量循环复用同一公式。
 
-`Camera`（`src/camera_model/camera.hpp`）把外参与模型指针统一成对：
+`Camera` 把外参与模型组合成一个整体：
 
-```cpp
-Camera cam(CameraExtrinsics{R, t}, MakeCameraModel("kb", kb_params));
-cam.Valid();                 // 模型是否存在？
-cam.Width(); cam.Height();
-cam.ProjectPoints(...);      // 相机系点 -> 像素
-cam.InsideFisheyeCircle(u, v);
-cam.EdgeFeather(u, v);
-cam.Extrinsics();            // CameraExtrinsics
+```rust
+let camera = Camera::new(extrinsics, make_camera_model("kb", &CameraModelParams::Kb(kb_params))?);
+camera.width();
+let mut uv = [[0.0, 0.0]; points.len()];
+let mut valid = [0u8; points.len()];
+camera.project_points(&points, &mut uv, &mut valid)?;  // 相机系点 -> 像素
+camera.inside_fisheye_circle(u, v);
+camera.edge_feather(u, v, 40.0);
+camera.extrinsics();                 // T_wc 位姿
 ```
 
-`CameraExtrinsics`（`src/camera_model/camera_extrinsics.hpp`）保存 T_wc 位姿（camera → world），内部为 3×3 行主序 R 与平移（米），遵循 OpenCV 惯例（相机 y 轴朝下）。提供 `ToCamera` / `ToWorld` / `RotateCameraToWorld` / `RotateWorldToCamera` / `position()`。
+`CameraExtrinsics` 保存 T_wc 位姿（相机 → 世界）：行主序 3×3 `R` 加米制平移，相机 y 轴朝下。提供 `to_camera` / `to_world` / `rotate_camera_to_world` / `rotate_world_to_camera` / `position`。
 
-世界点 → 像素的组合：`model.ProjectCameraPoint(extr.ToCamera(P_world))`——外参负责位姿，模型负责成像。
+世界点 → 像素是复合 `model.project_camera_point(extr.to_camera(p_world))`：外参管位姿，模型管成像。
 
-## 5. 融合权重
+## 6. 融合权重
 
-`src/bowl_model/blend_weights.cpp` 实现与 N 无关的方位角扇区算法（4 路和 8 路同一套代码）：
+`BlendWeightsCalculator` 实现与 N 无关的方位扇区算法（4 路与 8 路共用同一份代码）：
 
-1. 构造时把每路相机投影成方位角 `Extrinsics().AzimuthDeg()`，对 `(方位角, 相机下标)` 排序。
-2. 扇区边界取相邻相机方位角的中点（`SectorBoundaryDeg`）。
-3. `ComputeBlendHalfAngle(N) = 52.0 / N` 度，是过渡带半角。
-4. `WeightsFor(P_world)` 定位地面点方位角：
-   - 落在某边界 ± `52°/N` 过渡带内 → 相邻两路按余弦 smoothstep 混合（边界处各 0.5）；
-   - 过渡带之外 → 最近相机独占，权重 1.0。
-5. `NormalizeWeights(blend_weights, edge_factors, normalized_weights)` 在边缘羽化后按可见相机重新归一化，保证黑边不进入接缝。
+1. 构造函数把每路相机投影到方位角 `extrinsics().azimuth_deg()`，并对 `(方位角, 相机下标)` 排序。
+2. 扇区边界是相邻相机方位角的中点。
+3. `compute_blend_half_angle(N) = 52.0 / N` 度是过渡带的半宽。
+4. `weights_for(p_world)` 定位地面点的方位角：
+   - 落在边界 ± `52°/N` 带内 → 相邻两路相机按余弦 smoothstep 融合（边界处各 0.5）；
+   - 落在所有带外 → 最近相机独占，权重 1.0。
+5. `normalize_weights(blend_weights, edge_factors, normalized_weights)` 在边缘羽化后于可见相机上重新归一化，黑色鱼眼边缘永远不会进入接缝。
 
 ```
  weight
  1.0 |________                          ________
-             \                        /        A 独占（最近）
+             \                        /        A owns (nearest)
  0.5 |         \                     /
-              |                     |     <- 边界：A = B = 0.5
- 0.0 |          \__________________/          B 独占
-     +----------+--------+---------+---------> 方位角
+              |                     |     <- boundary: A = B = 0.5
+ 0.0 |          \__________________/          B owns
+     +----------+--------+---------+---------> azimuth
                b-h      b       b+h
-              过渡带：h = 52/N 度（N=4 -> 13 度）
+              blend band:  h = 52/N deg  (N=4 -> 13 deg)
 ```
 
-## 6. 渲染
+## 7. 渲染器
 
-`src/render/` 基于 OSG（OpenSceneGraph）+ GLSL 330，默认离屏（可选 `Windowed` 调试模式）。
+`avm-render` 是唯一接触 GPU 的 crate。shader 与绘制路径由离屏渲染和窗口共用。
 
-- **`StitchScene`**（`stitch_scene.cpp`）拥有场景图，把烘焙数据装配成 `osg::Geometry`。顶点属性布局按 8 路固定打包：
+- **`PackedVertex`** 把烘焙数据打包成一个稠密顶点（120 字节），布局固定为 8 路，shader 因而保持简单：
 
 ```
-location 0   vec3  position   (VCS -> OpenGL: x,y,z -> x,z,-y)
+location 0   vec3  position   (VCS -> 渲染基：x,y,z -> x,z,-y)
 location 1   vec3  normal
-location 2   vec4  uvCoord0 = (u0, v0, u1, v1)
-location 3   vec4  uvCoord1 = (u2, v2, u3, v3)    8 路，4 x vec4
-location 4   vec4  uvCoord2 = (u4, v4, u5, v5)
-location 5   vec4  uvCoord3 = (u6, v6, u7, v7)
-location 6   vec4  weights0  = (w0, w1, w2, w3)   2 x vec4
-location 7   vec4  weights1  = (w4, w5, w6, w7)
+location 2   vec4  uv0 = (u0, v0, u1, v1)
+location 3   vec4  uv1 = (u2, v2, u3, v3)    8 路，4 x vec4
+location 4   vec4  uv2 = (u4, v4, u5, v5)
+location 5   vec4  uv3 = (u6, v6, u7, v7)
+location 6   vec4  weights0 = (w0, w1, w2, w3)   2 x vec4
+location 7   vec4  weights1 = (w4, w5, w6, w7)
 ```
 
-- **着色器**（GLSL 330，装配进 `StitchScene` 的 state set）：片元着色器把 8 路显式展开，避免动态采样器数组索引。每路在 `fragNumCameras > k && w_k > 0.001` 时贡献 `texture(uCameraTextures, vec3(uv_k, k)).rgb * w_k`。
-- **`StitchScene::UploadCameraImages`** 把 N 路画面作为 `Texture2DArray` 的 N 个图层上传（BGR → BGRA，自持拷贝，禁用非 2 次幂重缩放）。
-- **`OSGViewRenderer`**（`osg_view_renderer.cpp`）为每个视图位姿建一个 FBO 相机。`RenderAllViews()` 渲染全部视图并回读为 BGR `cv::Mat`（默认 960×640，清屏色 RGB(30,36,50)，回读后翻转补偿 GL 左下角原点）。`RenderMode::Windowed` 则打开可缩放窗口并挂 trackball 操作器。
-- 视图位姿与裁剪面来自 `BowlParams`：`DefaultViewPoses()`、`HomeViewPose()`、`HomeViewDistance()`、`ClipPlanesFor(max_eye_to_target)`。默认视图名为 `3d_front`、`3d_rear`、`3d_left`、`3d_right`。
-- **`EGLHeadlessContext`** 以 EGL surfaceless（Mesa）实现桌面 GL 3.3 兼容 Profile 的 `osgViewer::GraphicsWindow`。16×16 pbuffer 只负责持有上下文，真正的绘制全部进 FBO——无窗口、无 X server。
+- **Shader**（`shader.wgsl`）：片元 shader 显式展开 8 路相机，避免动态 sampler 数组下标。当 `num_cameras > k && w_k > 0.001` 时，每路贡献 `textureSample(camera_textures, camera_sampler, vec3(uv_k, k)).rgb * w_k`。
+- **`SceneData`** 把 `BowlModel` 转成顶点、索引与 N 路相机图像；图像成为纹理数组的 N 个层。
+- **`GpuSceneRenderer`** 负责管线（颜色格式参数化）、相机数组、顶点/索引缓冲，并为每个 `ViewSpec` 录制一次 pass。深度为 `Depth32Float`，比较函数 `Less`。
+- **`render_all_views` / `render_all_views_with`** 创建适配器、离屏渲染每个视角，并用 `TextureReadback` 按 RGBA8 回读。没有适配器时返回 `RenderError::NoAdapter`，不会 panic。
+- 视角与裁剪面来自 `BowlParams`：`default_view_poses()`、`home_view_pose()`、`clip_planes_for(max_eye_to_target)`。默认视角名为 `3d_front`、`3d_rear`、`3d_left`、`3d_right`。
+- 场景以背景色 `BACKGROUND_CLEAR` = RGB(30, 36, 50) 绘制。
 
-## 7. 深度模块
+## 8. 引擎与数据流
 
-`src/depth/` 包含球面矫正与**解析地面深度**：
-
-```cpp
-RectificationBasis MakeRectificationBasis(const CameraExtrinsics& a,
-                                          const CameraExtrinsics& b);
-GroundDepthMap ComputeGroundDepthMap(const RectificationBasis& basis,
-                                     const CameraExtrinsics& a,
-                                     const CameraExtrinsics& b,
-                                     const SphericalGrid& grid,
-                                     const GroundDepthOptions& opts = {});
-double TriangulateDepth(const cv::Vec3d& dir_a_world, const cv::Vec3d& origin_a,
-                        const cv::Vec3d& dir_b_world, const cv::Vec3d& origin_b);
-```
-
-`GroundDepthMap` 含 `depth`、`disparity`、`valid` 三张图。`ComputeGroundDepthMap` **不读图像**：对球面网格每格，假设点位于地面平面 `z = ground_z`，射线与该平面求交得到深度 λ，再计算该点在 B 相机中的**预测**视差。
-
-当前状态：该模块只有几何推导，没有立体匹配，也没有测量视差；目前没有生产调用方。它是图像化地面深度估计的基础设施。
-
-## 8. 架构与数据流
-
-`StitchEngine`（`src/core/stitch_engine.cpp`）提供两阶段 API：
+`avm-engine::StitchEngine` 暴露两段式 API：
 
 ```
-Configure(std::vector<Camera>, BowlParams, width = 960, height = 640)   一次性
-    |   (Camera 持有外参 + 模型；所有权移入引擎)
+configure(Vec<Camera>, &BowlParams, width = 960, height = 640)          一次
+    |   (Camera 拥有外参与模型；所有权移入引擎)
     |
-    | BowlModel(params, cameras)   网格 + 烘焙 uv/weight，CPU
+    | BowlModel::new                  网格 + 烘焙 uv/weight，CPU
     v
-StitchScene(bowl, w, h)            osg::Geometry + GLSL 330
+SceneData::from_bowl_model           PackedVertex 缓冲 + 相机图像
     ^
-    | UploadCameraImages -> Texture2DArray（N 层）      每帧
-RenderFrame(std::vector<cv::Mat>)
+    | render_frame(&[RgbaImage])      逐帧：纹理上传 + 每视角一次 pass
     |
     v
-OSGViewRenderer（每个 ViewPose 一个 FBO 相机）
-    |
-    v
-{"3d_front": cv::Mat, "3d_rear": cv::Mat, "3d_left": cv::Mat, "3d_right": cv::Mat}
+Vec<(String, RgbaImage)>             ("3d_front" .. "3d_right")
 ```
 
-参数校验是显式的：N 不在 [1, 8] 或参数不一致时，`Configure` 抛 `std::invalid_argument`。
+校验是显式的：N 不在 [1, 8]、缺少相机模型、图像尺寸不一致、grid step 或 outer radius 非正、坡度系数或高度指数为负时，`configure` 返回 `EngineError`。
 
-## 9. 目录结构
+## 9. 深度模块
 
-```
-src/
-├── camera_model/                  相机模型（纯数学）
-│   ├── camera_extrinsics.hpp      T_wc 位姿值类（header-only）
-│   ├── camera_model.hpp / .cpp    CameraModel 基类、Kb/Lut/Ocam 参数、MakeCameraModel
-│   ├── camera.hpp / .cpp          Camera：外参 + 模型作为一体
-│   └── kb_ / lut_ / ocam_camera_model.{hpp,cpp}
-├── bowl_model/                    碗几何与融合（CPU 预计算）
-│   ├── bowl_params.hpp / .cpp     BowlParams + ForCarSize + 网格/视图辅助
-│   ├── bowl_model.hpp / .cpp      BowlModel：构造即生成网格并烘焙
-│   └── blend_weights.hpp / .cpp   BlendWeightsCalculator（与 N 无关）
-├── common/
-│   └── angle_utils.hpp            角度归一化/换算辅助
-├── depth/                         球面矫正 + 解析地面深度
-│   ├── depth_common.hpp
-│   ├── spherical_rectification.{hpp,cpp}
-│   └── ground_depth.{hpp,cpp}
-├── render/                        GPU / OSG
-│   ├── stitch_scene.hpp / .cpp    场景图、GLSL 330、Texture2DArray
-│   ├── osg_view_renderer.hpp / .cpp  离屏多视图渲染 + 回读
-│   └── egl_headless_context.hpp / .cpp  surfaceless EGL GL 3.3
-└── core/
-    └── stitch_engine.hpp / .cpp   Configure + RenderFrame
+`avm-core::depth` 包含球面校正与**解析地面深度**：
 
-examples/
-├── avm_viewer.cpp                 交互式碗模型查看器
-├── data_4/                        4 路样例（5.27 m 汽车）
-└── data_8/                        8 路样例（211.58 m 船舶）
-
-tests/                             15 个 gtest 可执行文件 / 210 个测试用例
-├── test_support/                  共享测试基建（header-only）
-├── camera_model/                  投影、外参、Camera、工厂
-├── bowl_model/                    碗参数、网格/烘焙、融合权重
-├── depth/                         球面矫正、地面深度
-├── render/                        场景图、渲染器、EGL 上下文
-├── common/                        角度工具
-└── core/                          引擎端到端 + 回归
+```rust
+make_rectification_basis(a: &CameraExtrinsics, b: &CameraExtrinsics) -> RectificationBasis;
+compute_ground_depth_map(&basis, a, b, &grid, &opts) -> GroundDepthMap;
+triangulate_depth(dir_a_world, origin_a, dir_b_world, origin_b) -> f64;
 ```
 
-## 10. 构建与测试
+`GroundDepthMap` 保存 `depth`、`disparity`、`valid` 三张图。`compute_ground_depth_map` **不读取图像**：对球面网格的每个单元，它假定点位于地面 `z = ground_z`，把射线与该平面求交得到深度 λ，再计算该点在相机 B 中的*预测*视差。
 
-依赖由 vcpkg manifest 提供（`gtest`、`opencv4`（`calib3d`/`jpeg`/`png`）、`osg`、`nlohmann-json`），另加系统 EGL（`find_package(OpenGL COMPONENTS EGL)`）。库本身不依赖 JSON；`nlohmann-json` 仅由 `avm_viewer` 示例读取 `calibration.json` 时使用。
+状态：纯几何。尚无立体匹配器，也没有实测视差，目前没有生产调用方。它是基于图像的地面深度估计的前置工作。
+
+## 10. 构建与运行
+
+workspace 需要 Rust 工具链（edition 2021，rust-version 1.85）；渲染还需要一个 wgpu 适配器。构建过程不安装任何系统 SDK。
 
 ```bash
-export VCPKG_ROOT=/path/to/vcpkg
-cmake --preset default          # Unix Makefiles，build/
-cmake --build build             # 增量编译；不要删 build/
-ctest --test-dir build          # 15 个 gtest 可执行文件，共 210 个用例
+cargo build --workspace
+cargo test --workspace
+
+# 标定统计：不需要 GPU，也不需要显示环境
+cargo run -p avm-cli -- examples/data_4
+
+# 交互窗口：需要显示环境（X11 或 Wayland）
+cargo run -p avm-viewer -- examples/data_4
 ```
 
-GL 门控用例（`test_stitch_engine`、`test_egl_headless_context`、`test_osg_view_renderer`）会探测 headless EGL 上下文，不可用时 **SKIP**；设置 `AVM_STITCH_TEST_GL=1` 可强制开启。
+`avm-cli` 打印相机、派生碗参数、网格规模与烘焙权重范围。`avm-viewer` 以 1280×720 打开同一场景的四个默认视角；左键拖动旋转，右键拖动缩放（dolly），中键拖动平移，滚轮缩放。
 
-## 11. 示例：avm_viewer
+脚本化运行支持：
 
 ```bash
-./build/examples/avm_viewer ../../examples/data_8
+cargo run -p avm-viewer -- examples/data_4 --frames 2
+cargo run -p avm-viewer -- examples/data_4 --frames 1 --screenshot shot.png
 ```
 
-`avm_viewer` 用 nlohmann-json 读取 `<dir>/calibration.json`，用 OpenCV 加载图像，经 `BowlParams::ForCarSize` 派生碗，然后打开 OSG 窗口。操作：左键拖动 = 旋转，右键拖动 = 缩放，中键拖动 = 平移。
+`--frames N` 呈现 N 帧后退出；`--screenshot PATH` 把第一帧写成 PNG，若始终无法取帧则以非零退出码结束。没有显示环境时 viewer 会以明确信息非零退出。
 
-`calibration.json` 结构：
+## 11. 验证与对拍
+
+```bash
+cargo test -p avm-render --test parity
+```
+
+对拍测试以 960×640 渲染 `examples/data_4`，把四个视角与 `crates/avm-render/tests/fixtures/parity/data_4/` 中的参考 PNG 比较。逐通道要求 PSNR > 45 dB、平均绝对差 < 1.0；当前夹具最差通道为 86+ dB。参考图取自原始渲染器，作为外部真值保留，因此任何改变输出的 shader 或矩阵改动都会在这里失败。
+
+依赖 GPU 的测试在机器没有适配器时跳过；对拍测试故意失败而不跳过，避免无 GPU 的运行悄悄声称通过。
+
+## 12. 标定 JSON
 
 ```json
 {
@@ -318,56 +297,33 @@ GL 门控用例（`test_stitch_engine`、`test_egl_headless_context`、`test_osg
 }
 ```
 
-## 12. 集成方式
-
-```cpp
-#include "bowl_model/bowl_params.hpp"
-#include "camera_model/camera.hpp"
-#include "camera_model/camera_model.hpp"
-#include "core/stitch_engine.hpp"
-
-using namespace avm_stitch;
-
-std::vector<Camera> cameras;
-cameras.emplace_back(CameraExtrinsics{R, t}, MakeCameraModel("kb", kb_params));
-// ... N 路，N ∈ [1, 8]
-
-StitchEngine engine;
-engine.Configure(std::move(cameras),
-                 BowlParams::ForCarSize(5.27, 2.17, 2.9),
-                 960, 640);
-
-std::vector<cv::Mat> frames;  // N 路 BGR 图像，顺序与 cameras 一致
-auto views = engine.RenderFrame(frames);
-// views["3d_front"]、views["3d_rear"]、views["3d_left"]、views["3d_right"]
-```
-
-- `Configure` 接管 `Camera` 对象（连带其模型）的所有权。
-- `RenderFrame` 的相机顺序必须与 `Configure` 一致。
-- 错误以异常表达（配置错误抛 `std::invalid_argument`）。
-- 协议适配（队列任务、base64 解码、结果信封、`ParseBowlParams`）位于 **avm-worker**，不在本库。
+由 `avm-core::calibration::Calibration::load_from_path` 读取；`bowl_params()` 从 `car` 段派生碗参数。
 
 ## 13. 扩展到 8 路以上
 
-几何与融合算法本身与 N 无关；8 路上限只在 GPU 布局和校验中：
+几何与融合权重算法与 N 无关。8 路上限只存在于 GPU 布局与校验：
 
 | 瓶颈 | 位置 | 现状 |
 |---|---|---|
-| 顶点属性布局 | `StitchScene` 槽位常量 | UV：4 × vec4（location 2-5）；权重：2 × vec4（location 6-7） |
-| 片元着色器 | `StitchScene` 片元源码 | 8 路展开分支 |
-| Configure 校验 | `StitchEngine::Configure` | N ∈ [1, 8] |
+| 顶点属性布局 | `avm-render::vertex` 槽常量 | UV：4 × vec4（location 2-5）；权重：2 × vec4（location 6-7） |
+| 片元 shader | `shader.wgsl` | 8 段展开的相机分支 |
+| 配置校验 | `StitchEngine::configure` | N ∈ [1, 8] |
 
-扩到 16 路需要：
+扩展到 16 路：
 
-1. UV 重打包为 8 × vec4（location 2-9），权重为 4 × vec4（location 10-13）。GLSL 330 保证至少 16 个顶点属性，0-13 理论安全，但需在目标 GPU 上验证。
-2. 着色器展开 16 路分支；`WEIGHT_MIN` 阈值机制可沿用。
-3. `Configure` 上限放到 16。
-4. **不需要动**：`BlendWeightsCalculator`（半角自动变为 `52/16 = 3.25°`）、`BowlModel`、`UploadCameraImages`。
+1. 把 UV 重排为 8 × vec4、权重重排为 4 × vec4，并扩展顶点布局。
+2. 展开 16 段 shader 分支；`w_k > 0.001` 阈值仍适用。
+3. 把配置上限提高到 16。
+4. `BlendWeightsCalculator`（半角变为 `52/16 = 3.25°`）、`BowlModel` 与纹理数组上传均无需改动。
 
 ## 14. 已知限制
 
-- **深度模块只有解析推导** — `src/depth/` 从几何计算地面深度与预测视差，不读图像、无立体匹配、目前无生产调用方。
-- **JSON 集成在外部** — 任务契约、后端工厂、结果信封、相机名解析、`ParseBowlParams` 均在 avm-worker（`avm_stitch_integration` / `avm_renderer_bridge`）。本库只暴露 C++ 算法 API。
-- **GL 测试依赖 EGL** — GL 门控用例在没有 headless EGL 上下文时 SKIP（`AVM_STITCH_TEST_GL=1` 强制开启）。
-- **OSG / vcpkg 怪癖** — `osg_ModelViewProjectionMatrix` 不会自动更新；MVP uniform 必须使用 `osg::Matrixf`（`Matrixd` 会触发 `GL_INVALID_OPERATION`）。升级 OSG 构建时需复测。
+- **窗口画面不做自动断言** — `avm-viewer` 有控制器测试、子进程冒烟测试与截图钩子，但冒烟测试需要显示环境或 `xvfb-run`，否则会明确打印原因并跳过。交互窗口的像素内容不被自动判定；在有显示环境时，冒烟测试会把截图与同视角离屏渲染逐字节比较。
+- **深度模块仅解析** — 它从几何计算地面深度与预测视差；不读取图像，没有立体匹配器，目前没有生产调用方。
+- **QNX 未验证** — 尚未在目标工具链上运行；core crate 在构造上不依赖 OS，但 GPU 路径假定存在 Vulkan/Metal/DX12 适配器。
+- **对拍夹具只覆盖一个数据集** — `data_4`、960×640、四个视角。其他尺寸、数据集与相机数没有参考图。
 - **8 路 GPU 布局上限** — 见[第 13 节](#13-扩展到-8-路以上)。
+
+## 15. 历史
+
+本仓库由一份 C++20/OSG 实现迁移而来。该实现已从代码树中删除，保留在 tag `archive/cpp-implementation`，连同参考图生成工具一起，供需要对照行为或重建夹具时取用。迁移测试映射记录在 `docs/migration-test-mapping.md`，逐条说明每个原始用例是移植还是豁免。

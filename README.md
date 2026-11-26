@@ -2,29 +2,30 @@
 
 **English** | [中文](README.zh-CN.md)
 
-C++20 static library that stitches N fisheye cameras into a 3D AVM (Around View Monitor / 360° bird's-eye) surround view.
+Rust workspace that stitches N fisheye cameras into a 3D AVM (Around View Monitor / 360° bird's-eye) surround view.
 
-- **Pure algorithm API** — structs and `cv::Mat` in/out (`Configure` + `RenderFrame`); no JSON, no protocol dependency.
-- **Headless rendering** — EGL surfaceless offscreen context; no X server or display, runs in Docker/CI.
-- **Embeddable** — static library, no `main`, namespace `avm_stitch`, CMake + vcpkg.
-- **N cameras** — up to 8 by architecture; `Configure` accepts N ∈ [1, 8]. Typical installs use 4 (front/rear/left/right) or 8 cameras.
+- **Pure algorithm core** — `avm-core` holds the geometry and camera math with no GPU, no image and no OS dependency.
+- **Headless rendering** — `avm-render` draws four views offscreen with wgpu, so it runs in containers and CI on any Vulkan/Metal/DX12 adapter (software rasterisers included).
+- **N cameras** — up to 8 by architecture; configuration accepts N ∈ [1, 8]. Typical installs use 4 (front/rear/left/right) or 8 cameras.
+- **Optional window** — `avm-viewer` opens the same scene interactively and can present a fixed number of frames and save a screenshot.
 
 ## Contents
 
 1. [What it does](#1-what-it-does)
-2. [Bowl model](#2-bowl-model)
-3. [Bake](#3-bake)
-4. [Camera models](#4-camera-models)
-5. [Blend weights](#5-blend-weights)
-6. [Rendering](#6-rendering)
-7. [Depth module](#7-depth-module)
-8. [Architecture and data flow](#8-architecture-and-data-flow)
-9. [Repository layout](#9-repository-layout)
-10. [Build and test](#10-build-and-test)
-11. [Example: avm_viewer](#11-example-avm_viewer)
-12. [Integration](#12-integration)
+2. [Workspace layout](#2-workspace-layout)
+3. [Bowl model](#3-bowl-model)
+4. [Bake](#4-bake)
+5. [Camera models](#5-camera-models)
+6. [Blend weights](#6-blend-weights)
+7. [Renderer](#7-renderer)
+8. [Engine and data flow](#8-engine-and-data-flow)
+9. [Depth module](#9-depth-module)
+10. [Build and run](#10-build-and-run)
+11. [Verification and parity](#11-verification-and-parity)
+12. [Calibration JSON](#12-calibration-json)
 13. [Extending beyond 8 cameras](#13-extending-beyond-8-cameras)
 14. [Known limitations](#14-known-limitations)
+15. [History](#15-history)
 
 ## 1. What it does
 
@@ -51,19 +52,31 @@ The pipeline has three stages:
 
 1. **Geometry** — build a triangle mesh from `BowlParams`.
 2. **Bake** — for every vertex, project it into every camera and precompute normalized UVs and blend weights on the CPU.
-3. **Render** — upload the N camera frames as a `Texture2DArray`; a GLSL 330 shader samples each camera at its baked UV and sums them weighted.
+3. **Render** — upload the N camera frames as a texture array; a WGSL shader samples each camera at its baked UV and sums them weighted.
 
-All geometry and blending costs happen once at `Configure`; per-frame work is a texture upload and one draw pass per view.
+All geometry and blending costs happen once at configuration; per-frame work is a texture upload and one draw pass per view.
 
-## 2. Bowl model
+## 2. Workspace layout
 
-`src/bowl_model/bowl_params.hpp` defines `BowlParams`, an immutable parameter object that owns the parameters the geometry derives from — it holds every input the mesh needs, so it is the information expert for bowl geometry:
+| crate | role | notable dependencies |
+|---|---|---|
+| `avm-core` | camera models, extrinsics, bowl geometry, blend weights, depth, calibration JSON | `nalgebra`, `serde`, `thiserror` — no GPU |
+| `avm-render` | wgpu offscreen renderer, WGSL shader, vertex packing, texture readback | `wgpu`, `naga`, `bytemuck`, `pollster` |
+| `avm-engine` | `configure` / `render_frame` orchestration and validation | `avm-core`, `avm-render`, `image` |
+| `avm-viewer` | interactive window and trackball controller; also the viewer binary | `avm-render`, `winit`, `wgpu`, `image` |
+| `avm-cli` | prints calibration, derived bowl parameters and mesh statistics | `avm-core` only |
 
-- `GenerateBlockBoatMesh(vertices, normals, triangles)` — the mesh.
-- `DistanceFromFlatPlatform`, `BowlHeight`, `GridSegmentsPerAxis` — the radial profile.
-- `DefaultViewPoses`, `HomeViewPose`, `HomeViewDistance`, `ClipPlanesFor` — view helpers.
+The dependency direction is enforced by tests: `avm-core`'s resolved closure never reaches a GPU or image crate, and `avm-cli`'s closure never reaches `wgpu`, `winit`, `avm-render` or `avm-viewer`.
 
-`BowlParams::ForCarSize(car_length, car_width, axis_x)` derives a full parameter set from the vehicle footprint. With `scale = car_length / 5.6`:
+## 3. Bowl model
+
+`avm-core::bowl::BowlParams` defines the immutable parameter object that owns the inputs the geometry derives from — it holds everything the mesh needs, so it is the information expert for bowl geometry:
+
+- `generate_block_boat_mesh` — the mesh.
+- `distance_from_flat_platform`, `bowl_height`, `grid_segments_per_axis` — the radial profile.
+- `default_view_poses`, `home_view_pose`, `clip_planes_for` — view helpers.
+
+`BowlParams::for_car_size(car_length, car_width, axis_x)` derives a full parameter set from the vehicle footprint. With `scale = car_length / 5.6`:
 
 | Parameter | Value | Notes |
 |---|---|---|
@@ -92,9 +105,9 @@ Height profile and footprint:
 
 The same formula covers cars and ships: the bundled sample data contains a 5.27 m car (`data_4`) and a 211.58 m ship (`data_8`).
 
-`src/bowl_model/bowl_model.cpp` — `BowlModel(params, cameras)` builds the mesh and bakes it in the constructor. There is no half-initialized state. Accessors are index-based (`vertex_count` / `vertex(i)` / `normal_count` / `normal(i)` / `triangle_count` / `triangle(i)`), so the internal layout stays a private implementation detail.
+`avm-core::bowl::BowlModel::new(params, cameras)` builds the mesh and bakes it in the constructor. There is no half-initialized state. Accessors are index-based (`vertex_count` / `baked_vertex` / `triangle_count`), so the internal layout stays a private implementation detail.
 
-## 3. Bake
+## 4. Bake
 
 `BowlModel`'s constructor computes, for every vertex:
 
@@ -108,18 +121,18 @@ Per vertex the bake:
 3. multiplies visible cameras by the edge feather factor;
 4. normalizes over the cameras that are visible **and** have non-zero weight.
 
-`BakedVertex` is allocated per actual camera count N, not for the 8-camera maximum. The 8-camera cap lives only in the GPU layout and in `Configure` validation; the shader activates only the first N layers via `uNumCameras`.
+`BakedVertex` is allocated per actual camera count N, not for the 8-camera maximum. The 8-camera cap lives only in the GPU layout and in configuration validation; the shader activates only the first N layers.
 
-## 4. Camera models
+## 5. Camera models
 
-`src/camera_model/camera_model.hpp` defines the `CameraModel` base class shared by three fisheye models:
+`avm-core::camera::CameraModel` is the trait shared by three fisheye models:
 
-- Batch and single-point projection: `ProjectPoints(…)`, `ProjectCameraPoint(P_cam)`.
-- Gating: `FisheyeCircleRadius()`, `InsideFisheyeCircle(u, v)`, `EdgeFeather(u, v, feather_px = 40.0)`.
+- Batch and single-point projection: `project_points`, `project_camera_point`.
+- Gating: `fisheye_circle_radius`, `inside_fisheye_circle`, `edge_feather(u, v, feather_px = 40.0)`.
 
-`EdgeFeather` is a hard gate, not a soft falloff: the dark rim of a fisheye image is pure black, and interpolation cannot recover it, so pixels within `feather_px` of the circle edge return 0.
+`edge_feather` is a hard gate, not a soft falloff: the dark rim of a fisheye image is pure black, and interpolation cannot recover it, so pixels within `feather_px` of the circle edge return 0.
 
-`MakeCameraModel("kb" | "table" | "ocam", params)` constructs `KbCameraModel` / `LutCameraModel` / `OcamCameraModel`:
+`make_camera_model("kb" | "table" | "ocam", params)` constructs `KbCameraModel` / `LutCameraModel` / `OcamCameraModel`:
 
 | Model | Params | Notes |
 |---|---|---|
@@ -127,35 +140,36 @@ Per vertex the bake:
 | `table` | `LutParams` | lookup-table projection |
 | `ocam` | `OcamParams` | OCamCalib-style polynomial |
 
-The kb model uses a hand-written equirectangular fisheye polynomial (`θ = atan2(r_xy, z)`, θ ∈ [0, π]) as the single source of truth in `KbCameraModel::ProjectCameraPoint`; the batch loop delegates to the same formula.
+The kb model uses a hand-written equirectangular fisheye polynomial (`θ = atan2(r_xy, z)`, θ ∈ [0, π]) as the single source of truth in `KbCameraModel::project_camera_point`; the batch loop delegates to the same formula.
 
-`Camera` (`src/camera_model/camera.hpp`) bundles extrinsics and the model pointer as one unit:
+`Camera` bundles extrinsics and the model as one unit:
 
-```cpp
-Camera cam(CameraExtrinsics{R, t}, MakeCameraModel("kb", kb_params));
-cam.Valid();                 // model present?
-cam.Width(); cam.Height();
-cam.ProjectPoints(...);      // camera-frame points -> pixels
-cam.InsideFisheyeCircle(u, v);
-cam.EdgeFeather(u, v);
-cam.Extrinsics();            // CameraExtrinsics
+```rust
+let camera = Camera::new(extrinsics, make_camera_model("kb", &CameraModelParams::Kb(kb_params))?);
+camera.width();
+let mut uv = [[0.0, 0.0]; points.len()];
+let mut valid = [0u8; points.len()];
+camera.project_points(&points, &mut uv, &mut valid)?;  // camera-frame points -> pixels
+camera.inside_fisheye_circle(u, v);
+camera.edge_feather(u, v, 40.0);
+camera.extrinsics();                 // T_wc pose
 ```
 
-`CameraExtrinsics` (`src/camera_model/camera_extrinsics.hpp`) stores the T_wc pose (camera → world) as a 3×3 row-major R and a translation in metres, following the OpenCV convention (camera y axis points down). It provides `ToCamera` / `ToWorld` / `RotateCameraToWorld` / `RotateWorldToCamera` / `position()`.
+`CameraExtrinsics` stores the T_wc pose (camera → world) as a row-major 3×3 `R` and a translation in metres, with the camera y axis pointing down. It provides `to_camera` / `to_world` / `rotate_camera_to_world` / `rotate_world_to_camera` / `position`.
 
-World point → pixel is the composition `model.ProjectCameraPoint(extr.ToCamera(P_world))`: extrinsics handle pose, the model handles imaging.
+World point → pixel is the composition `model.project_camera_point(extr.to_camera(p_world))`: extrinsics handle pose, the model handles imaging.
 
-## 5. Blend weights
+## 6. Blend weights
 
-`src/bowl_model/blend_weights.cpp` implements an azimuth-sector algorithm that is independent of N (4 and 8 cameras use the same code):
+`BlendWeightsCalculator` implements an azimuth-sector algorithm that is independent of N (4 and 8 cameras use the same code):
 
-1. The constructor projects each camera to its azimuth `Extrinsics().AzimuthDeg()` and sorts the `(azimuth, camera_index)` pairs.
-2. Sector boundaries are the midpoints between adjacent camera azimuths (`SectorBoundaryDeg`).
-3. `ComputeBlendHalfAngle(N) = 52.0 / N` degrees is the half-width of the transition band.
-4. `WeightsFor(P_world)` locates the ground point's azimuth:
+1. The constructor projects each camera to its azimuth `extrinsics().azimuth_deg()` and sorts the `(azimuth, camera_index)` pairs.
+2. Sector boundaries are the midpoints between adjacent camera azimuths.
+3. `compute_blend_half_angle(N) = 52.0 / N` degrees is the half-width of the transition band.
+4. `weights_for(p_world)` locates the ground point's azimuth:
    - inside a boundary ± `52°/N` band → the two adjacent cameras blend with a cosine smoothstep (0.5 each at the boundary);
    - outside every band → the nearest camera owns the point with weight 1.0.
-5. `NormalizeWeights(blend_weights, edge_factors, normalized_weights)` renormalizes over visible cameras after edge feathering, so black fisheye rims never enter a seam.
+5. `normalize_weights(blend_weights, edge_factors, normalized_weights)` renormalizes over visible cameras after edge feathering, so black fisheye rims never enter a seam.
 
 ```
  weight
@@ -169,136 +183,101 @@ World point → pixel is the composition `model.ProjectCameraPoint(extr.ToCamera
               blend band:  h = 52/N deg  (N=4 -> 13 deg)
 ```
 
-## 6. Rendering
+## 7. Renderer
 
-`src/render/` is OSG (OpenSceneGraph) + GLSL 330, offscreen by default (with an optional `Windowed` debug mode).
+`avm-render` is the only crate that talks to the GPU. It owns the shader and the draw path used by both offscreen rendering and the window.
 
-- **`StitchScene`** (`stitch_scene.cpp`) owns the scene graph and packs the baked data into an `osg::Geometry`. The attribute layout is fixed for 8 cameras so the shader stays simple:
+- **`PackedVertex`** packs the baked data into one dense vertex (120 bytes) with a fixed 8-camera layout, so the shader stays simple:
 
 ```
-location 0   vec3  position   (VCS -> OpenGL: x,y,z -> x,z,-y)
+location 0   vec3  position   (VCS -> render basis: x,y,z -> x,z,-y)
 location 1   vec3  normal
-location 2   vec4  uvCoord0 = (u0, v0, u1, v1)
-location 3   vec4  uvCoord1 = (u2, v2, u3, v3)    8 cameras, 4 x vec4
-location 4   vec4  uvCoord2 = (u4, v4, u5, v5)
-location 5   vec4  uvCoord3 = (u6, v6, u7, v7)
-location 6   vec4  weights0  = (w0, w1, w2, w3)   2 x vec4
-location 7   vec4  weights1  = (w4, w5, w6, w7)
+location 2   vec4  uv0 = (u0, v0, u1, v1)
+location 3   vec4  uv1 = (u2, v2, u3, v3)    8 cameras, 4 x vec4
+location 4   vec4  uv2 = (u4, v4, u5, v5)
+location 5   vec4  uv3 = (u6, v6, u7, v7)
+location 6   vec4  weights0 = (w0, w1, w2, w3)   2 x vec4
+location 7   vec4  weights1 = (w4, w5, w6, w7)
 ```
 
-- **Shader** (GLSL 330, assembled into the `StitchScene` state set): the fragment shader unrolls all 8 cameras explicitly to avoid dynamic sampler-array indexing. Each camera contributes `texture(uCameraTextures, vec3(uv_k, k)).rgb * w_k` when `fragNumCameras > k && w_k > 0.001`.
-- **`StitchScene::UploadCameraImages`** uploads the N frames as the N layers of a `Texture2DArray` (BGR → BGRA, owned copy, non-power-of-two resize disabled).
-- **`OSGViewRenderer`** (`osg_view_renderer.cpp`) creates one FBO camera per view pose. `RenderAllViews()` renders all views and reads them back as BGR `cv::Mat` (default 960×640, clear colour RGB(30,36,50), row flip to compensate the GL bottom-left origin). `RenderMode::Windowed` opens a resizable window with a trackball manipulator instead.
-- View poses and clip planes come from `BowlParams`: `DefaultViewPoses()`, `HomeViewPose()`, `HomeViewDistance()`, `ClipPlanesFor(max_eye_to_target)`. Default view names are `3d_front`, `3d_rear`, `3d_left`, `3d_right`.
-- **`EGLHeadlessContext`** implements EGL surfaceless (Mesa) desktop GL 3.3 compatibility profile as an `osgViewer::GraphicsWindow`. The 16×16 pbuffer only holds the context; actual drawing goes to FBOs, so no window and no X server are needed.
+- **Shader** (`shader.wgsl`): the fragment shader unrolls all 8 cameras explicitly to avoid dynamic sampler-array indexing. Each camera contributes `textureSample(camera_textures, camera_sampler, vec3(uv_k, k)).rgb * w_k` when `num_cameras > k && w_k > 0.001`.
+- **`SceneData`** converts a `BowlModel` into vertices, indices and the N camera images; the images become the N layers of a texture array.
+- **`GpuSceneRenderer`** builds the pipeline (color-format parameterised), the camera array, the vertex/index buffers and records one pass per `ViewSpec`. Depth is `Depth32Float`, compare `Less`.
+- **`render_all_views` / `render_all_views_with`** create the adapter, render every view offscreen, and read each frame back as RGBA8 with `TextureReadback`. Without an adapter they return `RenderError::NoAdapter` instead of panicking.
+- View poses and clip planes come from `BowlParams`: `default_view_poses()`, `home_view_pose()`, `clip_planes_for(max_eye_to_target)`. Default view names are `3d_front`, `3d_rear`, `3d_left`, `3d_right`.
+- The scene is drawn with the background colour `BACKGROUND_CLEAR` = RGB(30, 36, 50).
 
-## 7. Depth module
+## 8. Engine and data flow
 
-`src/depth/` contains spherical rectification and **analytic ground-plane depth**:
-
-```cpp
-RectificationBasis MakeRectificationBasis(const CameraExtrinsics& a,
-                                          const CameraExtrinsics& b);
-GroundDepthMap ComputeGroundDepthMap(const RectificationBasis& basis,
-                                     const CameraExtrinsics& a,
-                                     const CameraExtrinsics& b,
-                                     const SphericalGrid& grid,
-                                     const GroundDepthOptions& opts = {});
-double TriangulateDepth(const cv::Vec3d& dir_a_world, const cv::Vec3d& origin_a,
-                        const cv::Vec3d& dir_b_world, const cv::Vec3d& origin_b);
-```
-
-`GroundDepthMap` holds `depth`, `disparity`, and `valid` maps. `ComputeGroundDepthMap` does **not** read images: for each cell of a spherical grid it assumes the point lies on the ground plane `z = ground_z`, intersects the ray with that plane to obtain the depth λ, and computes the *predicted* disparity of that point in camera B.
-
-Status: this module is geometric only. There is no stereo matcher and no measured disparity yet, and it currently has no production caller. It is the groundwork for image-based ground depth estimation.
-
-## 8. Architecture and data flow
-
-`StitchEngine` (`src/core/stitch_engine.cpp`) exposes a two-stage API:
+`avm-engine::StitchEngine` exposes a two-stage API:
 
 ```
-Configure(std::vector<Camera>, BowlParams, width = 960, height = 640)   once
+configure(Vec<Camera>, &BowlParams, width = 960, height = 640)          once
     |   (Camera owns extrinsics + model; ownership moves into the engine)
     |
-    | BowlModel(params, cameras)   mesh + baked uv/weight, CPU
+    | BowlModel::new                  mesh + baked uv/weight, CPU
     v
-StitchScene(bowl, w, h)            osg::Geometry + GLSL 330
+SceneData::from_bowl_model           PackedVertex buffer + camera images
     ^
-    | UploadCameraImages -> Texture2DArray (N layers)   per frame
-RenderFrame(std::vector<cv::Mat>)
+    | render_frame(&[RgbaImage])      per frame: texture upload + one pass per view
     |
     v
-OSGViewRenderer (one FBO camera per ViewPose)
-    |
-    v
-{"3d_front": cv::Mat, "3d_rear": cv::Mat, "3d_left": cv::Mat, "3d_right": cv::Mat}
+Vec<(String, RgbaImage)>             ("3d_front" .. "3d_right")
 ```
 
-Validation is explicit: `Configure` throws `std::invalid_argument` for N outside [1, 8] or otherwise inconsistent arguments.
+Validation is explicit: `configure` returns `EngineError` for N outside [1, 8], a missing camera model, mismatched image sizes, a non-positive grid step or outer radius, and a negative slope coefficient or height exponent.
 
-## 9. Repository layout
+## 9. Depth module
 
-```
-src/
-├── camera_model/                  camera models (pure math)
-│   ├── camera_extrinsics.hpp      T_wc pose value class (header-only)
-│   ├── camera_model.hpp / .cpp    CameraModel base, Kb/Lut/Ocam params, MakeCameraModel
-│   ├── camera.hpp / .cpp          Camera: extrinsics + model as one unit
-│   └── kb_ / lut_ / ocam_camera_model.{hpp,cpp}
-├── bowl_model/                    bowl geometry and blending (CPU precompute)
-│   ├── bowl_params.hpp / .cpp     BowlParams + ForCarSize + mesh/view helpers
-│   ├── bowl_model.hpp / .cpp      BowlModel: constructor builds mesh and bakes
-│   └── blend_weights.hpp / .cpp   BlendWeightsCalculator (N-agnostic)
-├── common/
-│   └── angle_utils.hpp            angle normalization/conversion helpers
-├── depth/                         spherical rectification + analytic ground depth
-│   ├── depth_common.hpp
-│   ├── spherical_rectification.{hpp,cpp}
-│   └── ground_depth.{hpp,cpp}
-├── render/                        GPU / OSG
-│   ├── stitch_scene.hpp / .cpp    scene graph, GLSL 330, Texture2DArray
-│   ├── osg_view_renderer.hpp / .cpp  offscreen multi-view renderer + readback
-│   └── egl_headless_context.hpp / .cpp  surfaceless EGL GL 3.3
-└── core/
-    └── stitch_engine.hpp / .cpp   Configure + RenderFrame
+`avm-core::depth` contains spherical rectification and **analytic ground-plane depth**:
 
-examples/
-├── avm_viewer.cpp                 interactive bowl viewer
-├── data_4/                        4-camera sample (5.27 m car)
-└── data_8/                        8-camera sample (211.58 m ship)
-
-tests/                             15 gtest executables / 210 test cases
-├── test_support/                  shared fixtures (header-only)
-├── camera_model/                  projection, extrinsics, Camera, factory
-├── bowl_model/                    bowl params, mesh/bake, blend weights
-├── depth/                         spherical rectification, ground depth
-├── render/                        scene graph, renderer, EGL context
-├── common/                        angle utilities
-└── core/                          engine end-to-end + regression
+```rust
+make_rectification_basis(a: &CameraExtrinsics, b: &CameraExtrinsics) -> RectificationBasis;
+compute_ground_depth_map(&basis, a, b, &grid, &opts) -> GroundDepthMap;
+triangulate_depth(dir_a_world, origin_a, dir_b_world, origin_b) -> f64;
 ```
 
-## 10. Build and test
+`GroundDepthMap` holds `depth`, `disparity`, and `valid` maps. `compute_ground_depth_map` does **not** read images: for each cell of a spherical grid it assumes the point lies on the ground plane `z = ground_z`, intersects the ray with that plane to obtain the depth λ, and computes the *predicted* disparity of that point in camera B.
 
-Dependencies come from the vcpkg manifest (`gtest`, `opencv4` with `calib3d`/`jpeg`/`png`, `osg`, `nlohmann-json`) plus system EGL (`find_package(OpenGL COMPONENTS EGL)`). The library itself has no JSON dependency; `nlohmann-json` is used only by the `avm_viewer` example to read `calibration.json`.
+Status: geometric only. There is no stereo matcher and no measured disparity yet, and it currently has no production caller. It is the groundwork for image-based ground depth estimation.
+
+## 10. Build and run
+
+The workspace needs a Rust toolchain (edition 2021, rust-version 1.85) and, for rendering, a wgpu adapter. No system SDK is installed by the build.
 
 ```bash
-export VCPKG_ROOT=/path/to/vcpkg
-cmake --preset default          # Unix Makefiles, build/
-cmake --build build             # incremental; do not delete build/
-ctest --test-dir build          # 210 tests in 15 gtest executables
+cargo build --workspace
+cargo test --workspace
+
+# calibration statistics: no GPU, no display
+cargo run -p avm-cli -- examples/data_4
+
+# interactive viewer: needs a display (X11 or Wayland)
+cargo run -p avm-viewer -- examples/data_4
 ```
 
-The GL-gated suites (`test_stitch_engine`, `test_egl_headless_context`, `test_osg_view_renderer`) probe for a headless EGL context and **skip** when none is available; set `AVM_STITCH_TEST_GL=1` to force them on.
+`avm-cli` prints the cameras, the derived bowl parameters, the mesh size and the baked weight range. `avm-viewer` opens a 1280×720 window with the four default views of the same scene; left drag rotates, right drag zooms (dolly), middle drag pans, and the wheel zooms.
 
-## 11. Example: avm_viewer
+For scripted runs the viewer accepts:
 
 ```bash
-./build/examples/avm_viewer ../../examples/data_8
+cargo run -p avm-viewer -- examples/data_4 --frames 2
+cargo run -p avm-viewer -- examples/data_4 --frames 1 --screenshot shot.png
 ```
 
-`avm_viewer` reads `<dir>/calibration.json` with nlohmann-json, loads the images with OpenCV, derives the bowl via `BowlParams::ForCarSize`, and opens an OSG window. Controls: left drag = rotate, right drag = zoom, middle drag = pan.
+`--frames N` presents N frames and exits; `--screenshot PATH` writes the first presented frame as PNG and fails the run if no frame could be captured. Without a display the viewer exits non-zero with an explicit message.
 
-`calibration.json` schema:
+## 11. Verification and parity
+
+```bash
+cargo test -p avm-render --test parity
+```
+
+The parity test renders `examples/data_4` at 960×640 and compares each of the four views with the stored reference PNGs in `crates/avm-render/tests/fixtures/parity/data_4/`. It requires, per channel, PSNR > 45 dB and a mean absolute difference < 1.0; the current fixtures sit at 86+ dB on the worst channel. Those fixtures were captured from the original renderer and are kept as external ground truth, so a shader or matrix change that alters output fails here.
+
+GPU-backed tests skip when the machine has no adapter; parity deliberately fails instead of skipping, so a silent GPU-less run cannot claim parity.
+
+## 12. Calibration JSON
 
 ```json
 {
@@ -318,34 +297,7 @@ The GL-gated suites (`test_stitch_engine`, `test_egl_headless_context`, `test_os
 }
 ```
 
-## 12. Integration
-
-```cpp
-#include "bowl_model/bowl_params.hpp"
-#include "camera_model/camera.hpp"
-#include "camera_model/camera_model.hpp"
-#include "core/stitch_engine.hpp"
-
-using namespace avm_stitch;
-
-std::vector<Camera> cameras;
-cameras.emplace_back(CameraExtrinsics{R, t}, MakeCameraModel("kb", kb_params));
-// ... N cameras, N in [1, 8]
-
-StitchEngine engine;
-engine.Configure(std::move(cameras),
-                 BowlParams::ForCarSize(5.27, 2.17, 2.9),
-                 960, 640);
-
-std::vector<cv::Mat> frames;  // N BGR images, same order as cameras
-auto views = engine.RenderFrame(frames);
-// views["3d_front"], views["3d_rear"], views["3d_left"], views["3d_right"]
-```
-
-- `Configure` takes ownership of the `Camera` objects (and therefore of their models).
-- `RenderFrame` requires the same camera order as `Configure`.
-- Errors are reported as exceptions (`std::invalid_argument` for configuration errors).
-- Protocol adaptation (queue tasks, base64 decoding, result envelopes, `ParseBowlParams`) lives in **avm-worker**, not in this library.
+`avm-core::calibration::Calibration::load_from_path` reads it; `bowl_params()` derives the bowl from the `car` block.
 
 ## 13. Extending beyond 8 cameras
 
@@ -353,21 +305,25 @@ The geometry and blend-weight algorithms are independent of N. The 8-camera cap 
 
 | Bottleneck | Location | Current state |
 |---|---|---|
-| Vertex attribute layout | `StitchScene` slot constants | UV: 4 × vec4 (locations 2-5); weights: 2 × vec4 (locations 6-7) |
-| Fragment shader | `StitchScene` fragment source | 8 unrolled camera branches |
-| Configure validation | `StitchEngine::Configure` | N ∈ [1, 8] |
+| Vertex attribute layout | `avm-render::vertex` slot constants | UV: 4 × vec4 (locations 2-5); weights: 2 × vec4 (locations 6-7) |
+| Fragment shader | `shader.wgsl` | 8 unrolled camera branches |
+| Configuration validation | `StitchEngine::configure` | N ∈ [1, 8] |
 
 For 16 cameras:
 
-1. Repack UVs as 8 × vec4 (locations 2-9) and weights as 4 × vec4 (locations 10-13). GLSL 330 guarantees at least 16 vertex attributes, so 0-13 is safe in principle; verify on the target GPU.
-2. Unroll 16 shader branches; the `WEIGHT_MIN` threshold still applies.
-3. Raise the `Configure` limit to 16.
-4. No changes needed in `BlendWeightsCalculator` (half-angle becomes `52/16 = 3.25°`), `BowlModel`, or `UploadCameraImages`.
+1. Repack UVs as 8 × vec4 and weights as 4 × vec4, and extend the vertex layout.
+2. Unroll 16 shader branches; the `w_k > 0.001` threshold still applies.
+3. Raise the configuration limit to 16.
+4. No changes needed in `BlendWeightsCalculator` (half-angle becomes `52/16 = 3.25°`), `BowlModel`, or the texture-array upload.
 
 ## 14. Known limitations
 
-- **Depth module is analytic only** — `src/depth/` computes ground-plane depth and predicted disparity from geometry; it does not read images, has no stereo matcher, and currently has no production caller.
-- **JSON integration is external** — task contracts, backend factories, result envelopes, camera-name parsing and `ParseBowlParams` live in avm-worker (`avm_stitch_integration` / `avm_renderer_bridge`). This library exposes only the C++ algorithm API.
-- **GL tests need EGL** — the GL-gated suites skip without a headless EGL context (`AVM_STITCH_TEST_GL=1` forces them on).
-- **OSG/vcpkg quirk** — `osg_ModelViewProjectionMatrix` is not updated automatically; the MVP uniform must be `osg::Matrixf` (a `Matrixd` triggers `GL_INVALID_OPERATION`). Re-test when the OSG build changes.
+- **Windowed output is not asserted visually** — `avm-viewer` has a controller test suite, a child-process smoke test and a screenshot hook, but the smoke test needs a display or `xvfb-run` and skips loudly otherwise. The pixel content of the interactive window is not judged automatically; with a display the smoke test does compare its screenshot byte-for-byte with the offscreen render of the same view.
+- **Depth module is analytic only** — it computes ground-plane depth and predicted disparity from geometry; it does not read images, has no stereo matcher, and currently has no production caller.
+- **QNX is not verified** — no target toolchain run has been performed; the core crate is OS-independent by construction but the GPU path assumes a Vulkan/Metal/DX12 adapter.
+- **Parity fixtures cover one dataset** — `data_4` at 960×640, four views. Other sizes, datasets and camera counts have no reference images.
 - **8-camera GPU layout cap** — see [section 13](#13-extending-beyond-8-cameras).
+
+## 15. History
+
+This repository was ported from a C++20/OSG implementation. That implementation is no longer in the tree; it is preserved at tag `archive/cpp-implementation`, together with the reference-image driver, for anyone who needs to compare behaviour or regenerate fixtures. The migration test map in `docs/migration-test-mapping.md` records how each original case was ported or exempted.
