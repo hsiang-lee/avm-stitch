@@ -1,0 +1,14 @@
+# Build directory (repository root)
+/build
+# Rust build directory
+/target
+
+# Editor
+.vscode/
+.idea/
+
+# Workflow ledger artifact (per-batch executor communication, not source)
+REFACTOR_LEDGER.md
+
+# Local screenshots (visual verification, not source)
+截图*
