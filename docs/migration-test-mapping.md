@@ -3,7 +3,7 @@
 Every gtest case in the C++ tree at `6baf46a` is listed below once. A case is
 `ported` when a Rust test asserts the same behaviour, `exempt` when the case is
 inherently about the EGL/OSG/wgpu-independent implementation (reasons below),
-and `deferred` only for windowed-mode cases (B3.5).
+and `deferred` is empty: the two windowed cases are exempt because they need a display.
 
 ## Counting method
 
@@ -33,10 +33,10 @@ source count above is the one this document uses.
 | `tests/core/test_stitch_engine.cpp` | 22 | 22 | 0 | 0 |
 | `tests/depth/test_ground_depth.cpp` | 7 | 7 | 0 | 0 |
 | `tests/depth/test_spherical_rectification.cpp` | 7 | 7 | 0 | 0 |
-| `tests/render/test_osg_view_renderer.cpp` | 18 | 14 | 2 | 2 |
+| `tests/render/test_osg_view_renderer.cpp` | 18 | 14 | 4 | 0 |
 | `tests/render/test_stitch_scene.cpp` | 15 | 11 | 4 | 0 |
 | `tests/render/test_egl_headless_context.cpp` | 4 | 0 | 4 | 0 |
-| **total** | **210** | **197** | **11** | **2** |
+| **total** | **210** | **197** | **13** | **0** |
 
 Self-check: `210 == ported + exempt + deferred` and every `ported` counterpart
 name resolves in `cargo test --workspace -- --list` (the check is repeated in
@@ -50,6 +50,9 @@ the commit report).
    more strictly, so a second Rust test would add nothing.
 3. **Implementation-detail assertion** - the case inspects `osg::Geometry` /
    `osg::Texture2DArray` internals rather than observable output.
+4. **Display-dependent construction** - the case opens an interactive window,
+   which the headless test environment cannot do; the camera and interaction
+   math it depends on is covered by the `avm-viewer` controller tests.
 
 ## `tests/bowl_model/test_blend_weights.cpp`
 
@@ -309,8 +312,8 @@ the commit report).
 | `test_osg_view_renderer.cpp` | `OSGViewRenderer_ConstructionDoesNotCrash` | ① EGL/OSG 实现专属：构造 `osgViewer::Viewer` 与 `osg::Camera` 没有 wgpu 对应概念 | exempt |
 | `test_osg_view_renderer.cpp` | `OSGViewRenderer_RenderAllViews_ShipScale_NotAllBackground` | ② 与 `bowl_frame_has_non_black_pixels_in_the_centre_region` / `renders_every_view_or_skips_without_adapter` 等价重复：同一离屏渲染行为，只换了碗的尺度；ship 尺度的几何已由 avm-core 的 `ship_scale_*` 用例覆盖 | exempt |
 | `test_osg_view_renderer.cpp` | `OSGViewRenderer_OffscreenMode_Works` | `avm-render/tests/offscreen.rs::renders_every_view_or_skips_without_adapter` | ported |
-| `test_osg_view_renderer.cpp` | `OSGViewRenderer_WindowedMode_Constructs` | windowed 模式，B3.5 处理 | deferred |
-| `test_osg_view_renderer.cpp` | `OSGViewRenderer_WindowedMode_Constructs_WithCarCenter` | windowed 模式，B3.5 处理 | deferred |
+| `test_osg_view_renderer.cpp` | `OSGViewRenderer_WindowedMode_Constructs` | ④ 需要可交互显示：`EventLoop`/窗口构造在无显示的 CI 中无法自动化；`--windowed` 入口与 `avm-viewer` 控制器测试覆盖了窗口所用的相机与交互数学 | exempt |
+| `test_osg_view_renderer.cpp` | `OSGViewRenderer_WindowedMode_Constructs_WithCarCenter` | ④ 同上；车心对初始相机的影响由 `avm-viewer/tests/controller.rs::home_camera_matches_the_home_view_pose` 覆盖（fixture 的 car_center 非零） | exempt |
 
 ## `tests/render/test_stitch_scene.cpp`
 

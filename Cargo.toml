@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/avm-core", "crates/avm-render", "crates/avm-engine", "crates/avm-cli"]
+members = ["crates/avm-core", "crates/avm-render", "crates/avm-engine", "crates/avm-viewer", "crates/avm-cli"]
 
 [workspace.package]
 version = "0.1.0"
