@@ -1,0 +1,16 @@
+[package]
+name = "avm-cli"
+description = "Command line front end: load calibration.json, bake the bowl mesh, print statistics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "avm-cli"
+path = "src/main.rs"
+
+[dependencies]
+avm-core = { path = "../avm-core" }
+
+[dev-dependencies]
