@@ -54,15 +54,27 @@ struct GpuContext {
     camera_bind_group: wgpu::BindGroup,
 }
 
-/// Render every view offscreen and return one RGBA8 frame per view.
+/// Render every view offscreen with an opaque black background.
 ///
 /// Returns [`RenderError::NoAdapter`] (never panics) when no GPU adapter is
-/// available; callers/tests treat that as "skipped".
+/// available.
 pub fn render_all_views(
     scene: &SceneData,
     views: &[ViewSpec],
     width: u32,
     height: u32,
+) -> Result<Vec<Vec<u8>>, RenderError> {
+    render_all_views_with(scene, views, width, height, [0.0, 0.0, 0.0, 1.0])
+}
+
+/// Render every view offscreen and return one RGBA8 frame per view, clearing to
+/// `clear_color` (linear RGBA in `[0, 1]`, matching `wgpu::Color`).
+pub fn render_all_views_with(
+    scene: &SceneData,
+    views: &[ViewSpec],
+    width: u32,
+    height: u32,
+    clear_color: [f64; 4],
 ) -> Result<Vec<Vec<u8>>, RenderError> {
     if scene.vertices.is_empty() || scene.indices.is_empty() {
         return Err(RenderError::EmptyScene);
@@ -168,10 +180,10 @@ pub fn render_all_views(
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: 1.0,
+                            r: clear_color[0],
+                            g: clear_color[1],
+                            b: clear_color[2],
+                            a: clear_color[3],
                         }),
                         store: wgpu::StoreOp::Store,
                     },

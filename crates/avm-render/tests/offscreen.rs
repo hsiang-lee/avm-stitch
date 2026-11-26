@@ -6,10 +6,18 @@ use avm_core::bowl::{BowlModel, BowlParams};
 use avm_core::camera::{make_camera_model, Camera, CameraExtrinsics, CameraModelParams, KbParams};
 use avm_core::{Matrix3, Vector3};
 use avm_render::vertex::{PackedVertex, MAX_CAMERAS};
-use avm_render::{render_all_views, RenderError, SceneData, ViewSpec};
+use avm_render::{render_all_views, render_all_views_with, RenderError, SceneData, ViewSpec};
 
 const WIDTH: u32 = 320;
 const HEIGHT: u32 = 240;
+
+/// llvmpipe segfaults when several tests create devices at the same time, so the
+/// GPU work in this binary is serialised.
+static GPU_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn gpu_lock() -> std::sync::MutexGuard<'static, ()> {
+    GPU_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// Camera basis columns are `(right, down, forward)`, in that order.
 fn look_at_extrinsics(az_deg: f64, radius: f64, height: f64, target_z: f64) -> CameraExtrinsics {
@@ -68,11 +76,16 @@ fn bowl_scene(model: &BowlModel) -> SceneData {
 }
 
 /// Screen-covering triangle in the y-up render basis, seen from above.
-fn triangle_scene(weight: [f32; 4], num_cameras: usize) -> SceneData {
+fn covering_triangle() -> [PackedVertex; 3] {
     let mut vertices = [PackedVertex::default(); 3];
     vertices[0].position = [-10.0, 0.0, -10.0];
     vertices[1].position = [10.0, 0.0, -10.0];
     vertices[2].position = [0.0, 0.0, 10.0];
+    vertices
+}
+
+fn triangle_scene(weight: [f32; 4], num_cameras: usize) -> SceneData {
+    let mut vertices = covering_triangle();
     for vertex in &mut vertices {
         vertex.uv[0] = [0.5, 0.5, 0.0, 0.0];
         vertex.weights[0] = weight;
@@ -119,10 +132,15 @@ fn top_down_view() -> ViewSpec {
     )
 }
 
-/// Renders one frame, or returns `None` when the machine has no adapter.
-fn render_single(scene: &SceneData) -> Option<Vec<u8>> {
-    match render_all_views(scene, &[top_down_view()], WIDTH, HEIGHT) {
-        Ok(mut frames) => Some(frames.remove(0)),
+/// Renders the views, or returns `None` when the machine has no adapter.
+fn render_views(
+    scene: &SceneData,
+    views: &[ViewSpec],
+    clear: [f64; 4],
+) -> Option<Vec<Vec<u8>>> {
+    let _gpu = gpu_lock();
+    match render_all_views_with(scene, views, WIDTH, HEIGHT, clear) {
+        Ok(frames) => Some(frames),
         Err(RenderError::NoAdapter) => {
             eprintln!("skipping offscreen check: no wgpu adapter available");
             None
@@ -131,16 +149,13 @@ fn render_single(scene: &SceneData) -> Option<Vec<u8>> {
     }
 }
 
+fn render_single(scene: &SceneData) -> Option<Vec<u8>> {
+    render_views(scene, &[top_down_view()], [0.0, 0.0, 0.0, 1.0])
+        .map(|mut frames| frames.remove(0))
+}
+
 fn center_pixel(frame: &[u8]) -> [u8; 4] {
-    let x = WIDTH / 2;
-    let y = HEIGHT / 2;
-    let offset = ((y * WIDTH + x) * 4) as usize;
-    [
-        frame[offset],
-        frame[offset + 1],
-        frame[offset + 2],
-        frame[offset + 3],
-    ]
+    pixel_at(frame, WIDTH / 2, HEIGHT / 2)
 }
 
 fn pixel_at(frame: &[u8], x: u32, y: u32) -> [u8; 4] {
@@ -177,8 +192,8 @@ fn renders_every_view_or_skips_without_adapter() {
     // first view's matrix for every frame cannot pass both assertions.
     let views = vec![top_down_view(), clipped_view()];
 
-    match render_all_views(&scene, &views, WIDTH, HEIGHT) {
-        Ok(frames) => {
+    if let Some(frames) = render_views(&scene, &views, [0.0, 0.0, 0.0, 1.0]) {
+        {
             assert_eq!(views.len(), frames.len());
             for frame in &frames {
                 assert_eq!((WIDTH * HEIGHT * 4) as usize, frame.len());
@@ -196,10 +211,6 @@ fn renders_every_view_or_skips_without_adapter() {
                 "the near=200 view clips the whole bowl and must stay black"
             );
         }
-        Err(RenderError::NoAdapter) => {
-            eprintln!("skipping offscreen render: no wgpu adapter available");
-        }
-        Err(other) => panic!("unexpected render error: {other}"),
     }
 }
 
@@ -273,15 +284,26 @@ fn zero_camera_count_disables_every_layer() {
 }
 
 #[test]
-fn empty_scene_is_rejected_without_touching_the_gpu() {
-    let scene = SceneData {
+fn empty_scene_is_rejected() {
+    let empty = SceneData {
         vertices: Vec::new(),
         indices: Vec::new(),
         num_cameras: 0,
         camera_images: Vec::new(),
     };
-    let err = render_all_views(&scene, &[top_down_view()], WIDTH, HEIGHT)
+    let err = render_all_views(&empty, &[top_down_view()], WIDTH, HEIGHT)
         .expect_err("empty scene must fail");
+    assert!(matches!(err, RenderError::EmptyScene));
+
+    // Vertices without indices draw nothing; the guard must reject the pair.
+    let vertices_only = SceneData {
+        vertices: covering_triangle().to_vec(),
+        indices: Vec::new(),
+        num_cameras: 0,
+        camera_images: Vec::new(),
+    };
+    let err = render_all_views(&vertices_only, &[top_down_view()], WIDTH, HEIGHT)
+        .expect_err("vertices without indices must fail");
     assert!(matches!(err, RenderError::EmptyScene));
 }
 
@@ -330,10 +352,7 @@ fn every_camera_slot_samples_its_own_layer_and_uv_slot() {
     const LAYERS: usize = 8;
     let centre_v = 24.5 / 48.0;
 
-    let mut vertices = [PackedVertex::default(); 3];
-    vertices[0].position = [-10.0, 0.0, -10.0];
-    vertices[1].position = [10.0, 0.0, -10.0];
-    vertices[2].position = [0.0, 0.0, 10.0];
+    let mut vertices = covering_triangle();
     for vertex in &mut vertices {
         for camera in 0..LAYERS {
             let u = (2.0 + 7.0 * camera as f32 + 0.5) / 64.0;
@@ -368,4 +387,94 @@ fn every_camera_slot_samples_its_own_layer_and_uv_slot() {
             "camera {camera} sampled the wrong layer / uv slot / weight lane"
         );
     }
+}
+
+/// Maps world `x, y` in `[-1, 1]` straight to NDC and pins `z_ndc = 0.5`, so
+/// screen-space tests need no camera.
+fn screen_view() -> ViewSpec {
+    ViewSpec::new([
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.5, 1.0],
+    ])
+}
+
+fn corner_scene() -> SceneData {
+    let mut vertices = [PackedVertex::default(); 3];
+    vertices[0].position = [-0.9, -0.9, 0.0];
+    vertices[1].position = [-0.5, -0.9, 0.0];
+    vertices[2].position = [-0.9, -0.5, 0.0];
+    SceneData {
+        vertices: vertices.to_vec(),
+        indices: vec![0, 1, 2],
+        num_cameras: 0,
+        camera_images: Vec::new(),
+    }
+}
+
+#[test]
+fn clear_colour_fills_the_background() {
+    let clear = [30.0 / 255.0, 36.0 / 255.0, 50.0 / 255.0, 1.0];
+    let Some(frames) = render_views(&corner_scene(), &[screen_view()], clear) else {
+        return;
+    };
+    assert_eq!([30, 36, 50, 255], center_pixel(&frames[0]));
+}
+
+/// The camera image's row 0 must reach the top of the frame, and its column 0
+/// the left edge: a flipped or mirrored upload swaps the halves or the gradient.
+#[test]
+fn camera_image_row_zero_is_the_top_of_the_frame() {
+    let image = image::RgbaImage::from_fn(64, 48, |x, y| {
+        if y < 24 {
+            image::Rgba([(x * 4) as u8, 0, 0, 255])
+        } else {
+            image::Rgba([0, 0, 255, 255])
+        }
+    });
+
+    let mut vertices = [PackedVertex::default(); 4];
+    let corners = [
+        (-1.0, 1.0, 0.0, 0.0),
+        (1.0, 1.0, 1.0, 0.0),
+        (-1.0, -1.0, 0.0, 1.0),
+        (1.0, -1.0, 1.0, 1.0),
+    ];
+    for (vertex, (x, y, u, v)) in vertices.iter_mut().zip(corners) {
+        vertex.position = [x, y, 0.0];
+        vertex.uv[0] = [u, v, 0.0, 0.0];
+        vertex.weights[0] = [1.0, 0.0, 0.0, 0.0];
+    }
+    let scene = SceneData {
+        vertices: vertices.to_vec(),
+        indices: vec![0, 1, 2, 1, 3, 2],
+        num_cameras: 1,
+        camera_images: vec![image],
+    };
+
+    let Some(frames) = render_views(&scene, &[screen_view()], [0.0, 0.0, 0.0, 1.0]) else {
+        return;
+    };
+    let frame = &frames[0];
+    for x in [WIDTH / 8, WIDTH / 2, 7 * WIDTH / 8] {
+        let top = pixel_at(frame, x, HEIGHT / 8);
+        assert_eq!(
+            [0, 0],
+            [top[1], top[2]],
+            "x = {x}: image rows 0..23 (red gradient) must paint the top half, got {top:?}"
+        );
+        assert_eq!(
+            [0, 0, 255, 255],
+            pixel_at(frame, x, 7 * HEIGHT / 8),
+            "x = {x}: image rows 24..47 must paint the bottom half"
+        );
+    }
+
+    let left = pixel_at(frame, WIDTH / 8, HEIGHT / 8)[0];
+    let right = pixel_at(frame, 7 * WIDTH / 8, HEIGHT / 8)[0];
+    assert!(
+        left < 60 && right > 180,
+        "column 0 must be on the left: red = {left} then {right}"
+    );
 }
