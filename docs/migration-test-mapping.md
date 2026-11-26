@@ -257,37 +257,37 @@ the commit report).
 | `test_stitch_engine.cpp` | `ConfigureNonPositiveOuterRadiusThrows` | `avm-engine/tests/engine.rs::configure_rejects_a_non_positive_outer_radius` | ported |
 | `test_stitch_engine.cpp` | `ConfigureNegativeKSlopThrows` | `avm-engine/tests/engine.rs::configure_rejects_a_negative_slope_coefficient` | ported |
 | `test_stitch_engine.cpp` | `ConfigureNegativeZExpThrows` | `avm-engine/tests/engine.rs::configure_rejects_a_negative_height_exponent` | ported |
-| `test_stitch_engine.cpp` | `StitchEngineGL_RenderFrame_Returns4Views` | `avm-engine/tests/engine.rs::public_api_round_trip` | ported |
-| `test_stitch_engine.cpp` | `ConfigureKbPath_Configures_AndRenders4Views` | `avm-engine/tests/engine.rs::render_frame_returns_four_named_views` | ported |
-| `test_stitch_engine.cpp` | `StitchEngineGL_RenderFrame_OutputSize` | `avm-engine/tests/engine.rs::configure_kb_path_renders_four_views` | ported |
-| `test_stitch_engine.cpp` | `StitchEngineGL_RenderFrame_NonBlackOutput` | `avm-engine/tests/engine.rs::render_frame_output_size_matches_the_engine_default` | ported |
-| `test_stitch_engine.cpp` | `StitchEngineGL_RenderFrame_N8Cameras` | `avm-engine/tests/engine.rs::render_frame_output_is_not_black` | ported |
-| `test_stitch_engine.cpp` | `StitchEngineGL_FrontViewNotVerticallyFlipped` | `avm-engine/tests/engine.rs::render_frame_with_eight_cameras` | ported |
-| `test_stitch_engine.cpp` | `PublicApiHeadersAreSelfContained` | `avm-engine/tests/engine.rs::front_view_is_not_vertically_flipped` | ported |
+| `test_stitch_engine.cpp` | `StitchEngineGL_RenderFrame_Returns4Views` | `avm-engine/tests/engine.rs::render_frame_returns_four_named_views` | ported |
+| `test_stitch_engine.cpp` | `ConfigureKbPath_Configures_AndRenders4Views` | `avm-engine/tests/engine.rs::configure_kb_path_renders_four_views` | ported |
+| `test_stitch_engine.cpp` | `StitchEngineGL_RenderFrame_OutputSize` | `avm-engine/tests/engine.rs::render_frame_output_size_matches_the_engine_default` | ported |
+| `test_stitch_engine.cpp` | `StitchEngineGL_RenderFrame_NonBlackOutput` | `avm-engine/tests/engine.rs::render_frame_output_is_not_black` | ported |
+| `test_stitch_engine.cpp` | `StitchEngineGL_RenderFrame_N8Cameras` | `avm-engine/tests/engine.rs::render_frame_with_eight_cameras` | ported |
+| `test_stitch_engine.cpp` | `StitchEngineGL_FrontViewNotVerticallyFlipped` | `avm-engine/tests/engine.rs::front_view_is_not_vertically_flipped` | ported |
+| `test_stitch_engine.cpp` | `PublicApiHeadersAreSelfContained` | `avm-engine/tests/engine.rs::public_api_headers_are_self_contained` | ported |
 
 ## `tests/depth/test_ground_depth.cpp`
 
 | C++ file | C++ case | Rust counterpart | Status |
 | --- | --- | --- | --- |
-| `test_ground_depth.cpp` | `GroundDepthKnownCase` | `avm-core/tests/depth.rs::det_is_right_handed` | ported |
-| `test_ground_depth.cpp` | `DisparityMonotonicWithDepth` | `avm-core/tests/depth.rs::basis_is_orthonormal` | ported |
-| `test_ground_depth.cpp` | `TriangulateDepthRoundTrip` | `avm-core/tests/depth.rs::baseline_points_from_a_to_b` | ported |
-| `test_ground_depth.cpp` | `InvalidOutsideRange` | `avm-core/tests/depth.rs::row_alignment_holds_for_random_points` | ported |
-| `test_ground_depth.cpp` | `MapShapes` | `avm-core/tests/depth.rs::grid_direction_is_unit` | ported |
-| `test_ground_depth.cpp` | `DisparityAnalyticValue` | `avm-core/tests/depth.rs::mirror_keeps_basis_right_handed` | ported |
-| `test_ground_depth.cpp` | `DepthRangeBoundsInvalid` | `avm-core/tests/depth.rs::sky_up_needs_mirror_detects_flipped_row_order` | ported |
+| `test_ground_depth.cpp` | `GroundDepthKnownCase` | `avm-core/tests/depth.rs::ground_depth_known_case` | ported |
+| `test_ground_depth.cpp` | `DisparityMonotonicWithDepth` | `avm-core/tests/depth.rs::disparity_monotonic_with_depth` | ported |
+| `test_ground_depth.cpp` | `TriangulateDepthRoundTrip` | `avm-core/tests/depth.rs::triangulate_depth_round_trip` | ported |
+| `test_ground_depth.cpp` | `InvalidOutsideRange` | `avm-core/tests/depth.rs::invalid_outside_range` | ported |
+| `test_ground_depth.cpp` | `MapShapes` | `avm-core/tests/depth.rs::map_shapes` | ported |
+| `test_ground_depth.cpp` | `DisparityAnalyticValue` | `avm-core/tests/depth.rs::disparity_analytic_value` | ported |
+| `test_ground_depth.cpp` | `DepthRangeBoundsInvalid` | `avm-core/tests/depth.rs::depth_range_bounds_invalid` | ported |
 
 ## `tests/depth/test_spherical_rectification.cpp`
 
 | C++ file | C++ case | Rust counterpart | Status |
 | --- | --- | --- | --- |
-| `test_spherical_rectification.cpp` | `DetIsRightHanded` | `avm-core/tests/depth.rs::ground_depth_known_case` | ported |
-| `test_spherical_rectification.cpp` | `BasisIsOrthonormal` | `avm-core/tests/depth.rs::disparity_monotonic_with_depth` | ported |
-| `test_spherical_rectification.cpp` | `BaselinePointsFromAToB` | `avm-core/tests/depth.rs::triangulate_depth_round_trip` | ported |
-| `test_spherical_rectification.cpp` | `RowAlignmentHoldsForRandomPoints` | `avm-core/tests/depth.rs::invalid_outside_range` | ported |
-| `test_spherical_rectification.cpp` | `GridDirectionIsUnit` | `avm-core/tests/depth.rs::map_shapes` | ported |
-| `test_spherical_rectification.cpp` | `MirrorKeepsBasisRightHanded` | `avm-core/tests/depth.rs::disparity_analytic_value` | ported |
-| `test_spherical_rectification.cpp` | `SkyUpNeedsMirrorDetectsFlippedRowOrder` | `avm-core/tests/depth.rs::depth_range_bounds_invalid` | ported |
+| `test_spherical_rectification.cpp` | `DetIsRightHanded` | `avm-core/tests/depth.rs::det_is_right_handed` | ported |
+| `test_spherical_rectification.cpp` | `BasisIsOrthonormal` | `avm-core/tests/depth.rs::basis_is_orthonormal` | ported |
+| `test_spherical_rectification.cpp` | `BaselinePointsFromAToB` | `avm-core/tests/depth.rs::baseline_points_from_a_to_b` | ported |
+| `test_spherical_rectification.cpp` | `RowAlignmentHoldsForRandomPoints` | `avm-core/tests/depth.rs::row_alignment_holds_for_random_points` | ported |
+| `test_spherical_rectification.cpp` | `GridDirectionIsUnit` | `avm-core/tests/depth.rs::grid_direction_is_unit` | ported |
+| `test_spherical_rectification.cpp` | `MirrorKeepsBasisRightHanded` | `avm-core/tests/depth.rs::mirror_keeps_basis_right_handed` | ported |
+| `test_spherical_rectification.cpp` | `SkyUpNeedsMirrorDetectsFlippedRowOrder` | `avm-core/tests/depth.rs::sky_up_needs_mirror_detects_flipped_row_order` | ported |
 
 ## `tests/render/test_osg_view_renderer.cpp`
 

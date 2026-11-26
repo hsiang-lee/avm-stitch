@@ -161,7 +161,7 @@ pub fn sky_up_needs_mirror(
     height: usize,
 ) -> bool {
     let sky = Vector3::new(0.0, 0.0, 1.0);
-    let phi = phi_deg(rectified_direction(basis, sky, a, false));
+    let phi = phi_deg(rectified_direction(basis, sky, a, CameraSide::First));
     let half = if height > 0 { 0.5 * height as f64 } else { 360.0 };
     let row = if height > 1 {
         (phi + 180.0) * (height - 1) as f64 / 360.0
@@ -171,30 +171,39 @@ pub fn sky_up_needs_mirror(
     row >= half
 }
 
+/// Names the camera of the rectified stereo pair a direction belongs to, so a
+/// swapped side cannot be written as a bare boolean.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CameraSide {
+    First,
+    Second,
+}
+
+impl CameraSide {
+    fn matrix(self, basis: &RectificationBasis) -> &Matrix3<f64> {
+        match self {
+            CameraSide::First => &basis.m1,
+            CameraSide::Second => &basis.m2,
+        }
+    }
+}
+
 pub fn camera_direction(
     basis: &RectificationBasis,
     dir_c: Vector3<f64>,
-    second: bool,
+    side: CameraSide,
 ) -> Vector3<f64> {
-    if second {
-        basis.m2.transpose() * dir_c
-    } else {
-        basis.m1.transpose() * dir_c
-    }
+    side.matrix(basis).transpose() * dir_c
 }
 
 pub fn rectified_direction(
     basis: &RectificationBasis,
     dir_world: Vector3<f64>,
     extrinsics: &CameraExtrinsics,
-    second: bool,
+    side: CameraSide,
 ) -> Vector3<f64> {
     let dir_cam = extrinsics.rotate_world_to_camera(dir_world);
-    if second {
-        basis.m2 * dir_cam
-    } else {
-        basis.m1 * dir_cam
-    }
+    side.matrix(basis) * dir_cam
 }
 
 pub fn phi_deg(dir_c: Vector3<f64>) -> f64 {

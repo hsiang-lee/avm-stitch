@@ -4,7 +4,7 @@
 use avm_core::camera::CameraExtrinsics;
 use avm_core::depth::{
     compute_ground_depth_map, make_rectification_basis, phi_deg, rectified_direction,
-    sky_up_needs_mirror, triangulate_depth, GroundDepthOptions, SphericalGrid,
+    sky_up_needs_mirror, triangulate_depth, CameraSide, GroundDepthOptions, SphericalGrid,
 };
 use avm_core::{Matrix3, Vector3};
 
@@ -60,6 +60,22 @@ fn make_look_down_pair() -> (CameraExtrinsics, CameraExtrinsics) {
     (
         look_down(vec3(0.0, 0.0, 1.0)),
         look_down(vec3(1.0, 0.0, 1.0)),
+    )
+}
+
+fn make_look_up_pair() -> (CameraExtrinsics, CameraExtrinsics) {
+    let look_up = |position: Vector3<f64>| {
+        let forward = vec3(0.0, 0.0, 1.0);
+        let right = vec3(1.0, 0.0, 0.0);
+        let up = forward.cross(&right);
+        CameraExtrinsics::new(
+            Matrix3::from_rows(&[right.transpose(), up.transpose(), forward.transpose()]),
+            position,
+        )
+    };
+    (
+        look_up(vec3(0.0, 0.0, 1.0)),
+        look_up(vec3(1.0, 0.0, 1.0)),
     )
 }
 
@@ -152,8 +168,8 @@ fn row_alignment_holds_for_random_points() {
 
         let d_a_w = (p - a.position()).normalize();
         let d_b_w = (p - b.position()).normalize();
-        let phi_a = phi_deg(rectified_direction(&basis, d_a_w, &a, false));
-        let phi_b = phi_deg(rectified_direction(&basis, d_b_w, &b, true));
+        let phi_a = phi_deg(rectified_direction(&basis, d_a_w, &a, CameraSide::First));
+        let phi_b = phi_deg(rectified_direction(&basis, d_b_w, &b, CameraSide::Second));
         assert!(angular_distance(phi_a, phi_b) < 1e-9);
     }
 }
@@ -200,22 +216,40 @@ fn sky_up_needs_mirror_detects_flipped_row_order() {
     let (a, b) = make_stereo_pair(0.0);
     let basis = make_rectification_basis(&a, &b);
     const HEIGHT: usize = 720;
-    let step = 360.0 / (HEIGHT - 1) as f64;
+    const STEP: f64 = 360.0 / (HEIGHT - 1) as f64;
 
-    let needs_mirror = sky_up_needs_mirror(&basis, &a, HEIGHT);
+    // Pinned: this fixture puts the sky in the half that needs mirroring.
+    assert!(sky_up_needs_mirror(&basis, &a, HEIGHT));
+
     let sky = vec3(0.0, 0.0, 1.0);
-    let phi_sky = phi_deg(rectified_direction(&basis, sky, &a, false));
-    let row_unmirrored = (phi_sky + 180.0) / step;
+    let phi_sky = phi_deg(rectified_direction(&basis, sky, &a, CameraSide::First));
+    let row_unmirrored = (phi_sky + 180.0) / STEP;
+    assert!((row_unmirrored - 698.0870430056614).abs() < 1e-6);
+    assert!(row_unmirrored >= HEIGHT as f64 * 0.5);
 
-    if needs_mirror {
-        assert!(row_unmirrored >= HEIGHT as f64 * 0.5);
-        let row_mirrored = (-phi_sky + 180.0) / step;
-        assert!(row_mirrored >= 0.0);
-        assert!(row_mirrored < HEIGHT as f64 * 0.5);
-    } else {
-        assert!(row_unmirrored >= 0.0);
-        assert!(row_unmirrored < HEIGHT as f64 * 0.5);
-    }
+    let row_mirrored = (-phi_sky + 180.0) / STEP;
+    assert!((row_mirrored - 20.912956994338685).abs() < 1e-6);
+    assert!(row_mirrored >= 0.0);
+    assert!(row_mirrored < HEIGHT as f64 * 0.5);
+}
+
+/// The unmirrored half: an upward-looking pair maps the sky to row 359.5, just
+/// below the half-row boundary, so `sky_up_needs_mirror` must say no.
+#[test]
+fn sky_up_needs_mirror_is_false_for_an_upward_camera() {
+    let (a, b) = make_look_up_pair();
+    let basis = make_rectification_basis(&a, &b);
+    const HEIGHT: usize = 720;
+    const STEP: f64 = 360.0 / (HEIGHT - 1) as f64;
+
+    assert!(!sky_up_needs_mirror(&basis, &a, HEIGHT));
+
+    let sky = vec3(0.0, 0.0, 1.0);
+    let phi_sky = phi_deg(rectified_direction(&basis, sky, &a, CameraSide::First));
+    let row_unmirrored = (phi_sky + 180.0) / STEP;
+    assert!((row_unmirrored - 359.5).abs() < 1e-6);
+    assert!(row_unmirrored >= 0.0);
+    assert!(row_unmirrored < HEIGHT as f64 * 0.5);
 }
 
 #[test]

@@ -2,7 +2,9 @@ use crate::angle_utils::DEG_TO_RAD;
 use crate::camera::CameraExtrinsics;
 use crate::Vector3;
 
-use super::rectification::{camera_direction, RectificationBasis, SphericalGrid};
+use super::rectification::{
+    camera_direction, rectified_direction, CameraSide, RectificationBasis, SphericalGrid,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct GroundDepthOptions {
@@ -70,7 +72,7 @@ struct GroundSampler<'a> {
 impl GroundSampler<'_> {
     fn sample(&self, row: usize, col: usize) -> Option<GroundSample> {
         let dir_r = self.grid.direction_c(row, col);
-        let dir_a = camera_direction(self.basis, dir_r, false);
+        let dir_a = camera_direction(self.basis, dir_r, CameraSide::First);
         let dir_world = self.a.rotate_camera_to_world(dir_a);
 
         let denom = dir_world[2];
@@ -87,8 +89,7 @@ impl GroundSampler<'_> {
         let point = self.a.position() + lambda * dir_world;
 
         let dir_b_world = (point - self.b.position()).normalize();
-        let dir_b = self.b.rotate_world_to_camera(dir_b_world);
-        let dir_rb = self.basis.m2() * dir_b;
+        let dir_rb = rectified_direction(self.basis, dir_b_world, self.b, CameraSide::Second);
 
         let psi_b = dir_rb[1].hypot(dir_rb[2]).atan2(dir_rb[0]);
         if psi_b < self.psi_min || psi_b > self.psi_max {

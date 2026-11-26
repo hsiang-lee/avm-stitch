@@ -41,11 +41,11 @@ archive can be stale relative to the checked-out headers and then crashes in
 ## Run
 
 ```sh
-./refrender <data_dir> <out_dir>
-# e.g. ./refrender examples/data_4 /tmp/parity-out
+mkdir -p /tmp/parity-out
+./refrender examples/data_4 /tmp/parity-out
 ```
 
-Reads `<data_dir>/calibration.json`, the images it names, and writes
+The output directory must already exist. Reads `<data_dir>/calibration.json`, the images it names, and writes
 `3d_front.png` / `3d_rear.png` / `3d_left.png` / `3d_right.png` (960x640, RGB8)
 into `<out_dir>`. Rendering is deterministic on a fixed driver stack: identical
 MD5 between runs. A different MD5 means the C++ code, the GPU driver or the

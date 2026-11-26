@@ -12,6 +12,9 @@ use image::{Rgba, RgbaImage};
 
 const WIDTH: u32 = 960;
 const HEIGHT: u32 = 640;
+const CAR_LENGTH: f64 = 5.6;
+const CAR_WIDTH: f64 = 2.2;
+const CAR_AXIS_X: f64 = 2.9;
 
 static GPU_LOCK: Mutex<()> = Mutex::new(());
 
@@ -36,7 +39,83 @@ fn kb_params() -> KbParams {
 }
 
 fn make_car_bowl() -> BowlParams {
-    BowlParams::for_car_size(5.6, 2.2, 2.9)
+    BowlParams::for_car_size(CAR_LENGTH, CAR_WIDTH, CAR_AXIS_X)
+}
+
+/// The car-sized bowl with one or two fields overridden; the other fields keep
+/// their derived values so a case states only what it is probing.
+struct BowlVariant {
+    car_length: f64,
+    car_width: f64,
+    flat_platform_radius: f64,
+    grid_step: f64,
+    outer_radius: f64,
+    slope_coefficient: f64,
+    height_exponent: f64,
+    max_height: f64,
+    car_center: [f64; 2],
+}
+
+impl BowlVariant {
+    fn from_car_bowl() -> Self {
+        let derived = make_car_bowl();
+        Self {
+            car_length: CAR_LENGTH,
+            car_width: CAR_WIDTH,
+            flat_platform_radius: derived.flat_platform_radius(),
+            grid_step: derived.grid_step(),
+            outer_radius: derived.outer_radius(),
+            slope_coefficient: derived.slope_coefficient(),
+            height_exponent: derived.height_exponent(),
+            max_height: derived.max_height(),
+            car_center: derived.car_center(),
+        }
+    }
+
+    fn car_size(mut self, car_length: f64, car_width: f64) -> Self {
+        self.car_length = car_length;
+        self.car_width = car_width;
+        self
+    }
+
+    fn grid_step(mut self, grid_step: f64) -> Self {
+        self.grid_step = grid_step;
+        self
+    }
+
+    fn outer_radius(mut self, outer_radius: f64) -> Self {
+        self.outer_radius = outer_radius;
+        self
+    }
+
+    fn slope_coefficient(mut self, slope_coefficient: f64) -> Self {
+        self.slope_coefficient = slope_coefficient;
+        self
+    }
+
+    fn height_exponent(mut self, height_exponent: f64) -> Self {
+        self.height_exponent = height_exponent;
+        self
+    }
+
+    fn car_center(mut self, car_center: [f64; 2]) -> Self {
+        self.car_center = car_center;
+        self
+    }
+
+    fn build(self) -> BowlParams {
+        BowlParams::new(
+            self.car_length,
+            self.car_width,
+            self.flat_platform_radius,
+            self.grid_step,
+            self.outer_radius,
+            self.slope_coefficient,
+            self.height_exponent,
+            self.max_height,
+            self.car_center,
+        )
+    }
 }
 
 fn wrap_kb_cameras(intrinsics: &[KbParams], extrinsics: &[CameraExtrinsics]) -> Vec<Camera> {
@@ -141,6 +220,14 @@ fn count_vivid_pixels(image: &RgbaImage) -> usize {
             max - min > 100
         })
         .count()
+}
+
+/// FNV-1a over the RGBA bytes: stable across runs, good enough to tell two
+/// rendered frames apart.
+fn content_hash(image: &RgbaImage) -> u64 {
+    image.as_raw().iter().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
 }
 
 fn band_frame() -> RgbaImage {
@@ -326,18 +413,11 @@ fn render_frame_with_the_wrong_image_count_is_rejected() {
 
 #[test]
 fn configure_accepts_an_overridden_bowl_size() {
-    let derived = make_car_bowl();
-    let bowl = BowlParams::new(
-        18.0,
-        2.5,
-        derived.flat_platform_radius(),
-        1.0,
-        25.0,
-        derived.slope_coefficient(),
-        derived.height_exponent(),
-        derived.max_height(),
-        derived.car_center(),
-    );
+    let bowl = BowlVariant::from_car_bowl()
+        .car_size(18.0, 2.5)
+        .grid_step(1.0)
+        .outer_radius(25.0)
+        .build();
     let mut engine = StitchEngine::new();
     engine
         .configure(
@@ -352,18 +432,7 @@ fn configure_accepts_an_overridden_bowl_size() {
 
 #[test]
 fn configure_rejects_a_zero_grid_step() {
-    let derived = make_car_bowl();
-    let bowl = BowlParams::new(
-        5.6,
-        2.2,
-        derived.flat_platform_radius(),
-        0.0,
-        derived.outer_radius(),
-        derived.slope_coefficient(),
-        derived.height_exponent(),
-        derived.max_height(),
-        derived.car_center(),
-    );
+    let bowl = BowlVariant::from_car_bowl().grid_step(0.0).build();
     let mut engine = StitchEngine::new();
     let error = engine
         .configure(
@@ -378,18 +447,7 @@ fn configure_rejects_a_zero_grid_step() {
 
 #[test]
 fn configure_rejects_a_non_positive_outer_radius() {
-    let derived = make_car_bowl();
-    let bowl = BowlParams::new(
-        5.6,
-        2.2,
-        derived.flat_platform_radius(),
-        derived.grid_step(),
-        0.0,
-        derived.slope_coefficient(),
-        derived.height_exponent(),
-        derived.max_height(),
-        derived.car_center(),
-    );
+    let bowl = BowlVariant::from_car_bowl().outer_radius(0.0).build();
     let mut engine = StitchEngine::new();
     let error = engine
         .configure(
@@ -404,18 +462,7 @@ fn configure_rejects_a_non_positive_outer_radius() {
 
 #[test]
 fn configure_rejects_a_negative_slope_coefficient() {
-    let derived = make_car_bowl();
-    let bowl = BowlParams::new(
-        5.6,
-        2.2,
-        derived.flat_platform_radius(),
-        derived.grid_step(),
-        derived.outer_radius(),
-        -0.1,
-        derived.height_exponent(),
-        derived.max_height(),
-        derived.car_center(),
-    );
+    let bowl = BowlVariant::from_car_bowl().slope_coefficient(-0.1).build();
     let mut engine = StitchEngine::new();
     let error = engine
         .configure(
@@ -430,18 +477,7 @@ fn configure_rejects_a_negative_slope_coefficient() {
 
 #[test]
 fn configure_rejects_a_negative_height_exponent() {
-    let derived = make_car_bowl();
-    let bowl = BowlParams::new(
-        5.6,
-        2.2,
-        derived.flat_platform_radius(),
-        derived.grid_step(),
-        derived.outer_radius(),
-        derived.slope_coefficient(),
-        -1.0,
-        derived.max_height(),
-        derived.car_center(),
-    );
+    let bowl = BowlVariant::from_car_bowl().height_exponent(-1.0).build();
     let mut engine = StitchEngine::new();
     let error = engine
         .configure(
@@ -455,7 +491,7 @@ fn configure_rejects_a_negative_height_exponent() {
 }
 
 #[test]
-fn public_api_round_trip() {
+fn public_api_headers_are_self_contained() {
     let bowl = BowlParams::for_car_size(5.6, 2.2, 2.9);
     assert_eq!(12.6, bowl.outer_radius());
     assert_eq!(4, bowl.default_view_poses().len());
@@ -476,6 +512,16 @@ fn render_frame_returns_four_named_views() {
         vec!["3d_front", "3d_rear", "3d_left", "3d_right"],
         names
     );
+    let hashes: Vec<u64> = views.iter().map(|(_, image)| content_hash(image)).collect();
+    for first in 0..hashes.len() {
+        for second in first + 1..hashes.len() {
+            assert_ne!(
+                hashes[first], hashes[second],
+                "views {} and {} rendered identically",
+                names[first], names[second]
+            );
+        }
+    }
 }
 
 #[test]
@@ -535,18 +581,7 @@ fn render_frame_with_eight_cameras() {
 
 #[test]
 fn front_view_is_not_vertically_flipped() {
-    let derived = make_car_bowl();
-    let bowl = BowlParams::new(
-        5.6,
-        2.2,
-        derived.flat_platform_radius(),
-        derived.grid_step(),
-        derived.outer_radius(),
-        derived.slope_coefficient(),
-        derived.height_exponent(),
-        derived.max_height(),
-        [0.0, 0.0],
-    );
+    let bowl = BowlVariant::from_car_bowl().car_center([0.0, 0.0]).build();
     let mut engine = StitchEngine::new();
     engine
         .configure(

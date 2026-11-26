@@ -9,5 +9,5 @@ pub use ground_depth::{
 };
 pub use rectification::{
     camera_direction, make_rectification_basis, phi_deg, rectified_direction,
-    sky_up_needs_mirror, RectificationBasis, SphericalGrid,
+    sky_up_needs_mirror, CameraSide, RectificationBasis, SphericalGrid,
 };

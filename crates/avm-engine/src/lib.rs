@@ -43,10 +43,16 @@ pub enum EngineError {
     Render(#[from] RenderError),
 }
 
+/// A default view: its name and the matrix pair rendered for it travel
+/// together so the label list can never drift from the view list.
+struct NamedView {
+    name: String,
+    spec: ViewSpec,
+}
+
 struct Configured {
     scene: SceneData,
-    views: Vec<ViewSpec>,
-    names: Vec<String>,
+    views: Vec<NamedView>,
     output: (u32, u32),
 }
 
@@ -94,7 +100,7 @@ fn to_render_basis(p: [f64; 3]) -> [f32; 3] {
     [p[0] as f32, p[2] as f32, -p[1] as f32]
 }
 
-fn build_views(bowl: &BowlParams, width: u32, height: u32) -> (Vec<ViewSpec>, Vec<String>) {
+fn build_views(bowl: &BowlParams, width: u32, height: u32) -> Vec<NamedView> {
     let poses = bowl.default_view_poses();
     let max_eye = poses.iter().fold(0.0f64, |max, pose| {
         let d = [
@@ -106,10 +112,11 @@ fn build_views(bowl: &BowlParams, width: u32, height: u32) -> (Vec<ViewSpec>, Ve
     });
     let clip = bowl.clip_planes_for(max_eye);
     let aspect = width as f32 / height as f32;
-    let views = poses
+    poses
         .iter()
-        .map(|pose| {
-            ViewSpec::look_at(
+        .map(|pose| NamedView {
+            name: pose.name.clone(),
+            spec: ViewSpec::look_at(
                 to_render_basis(pose.position),
                 to_render_basis(pose.target),
                 to_render_basis(pose.up),
@@ -117,11 +124,9 @@ fn build_views(bowl: &BowlParams, width: u32, height: u32) -> (Vec<ViewSpec>, Ve
                 aspect,
                 clip.near as f32,
                 clip.far as f32,
-            )
+            ),
         })
-        .collect();
-    let names = poses.iter().map(|pose| pose.name.clone()).collect();
-    (views, names)
+        .collect()
 }
 
 #[derive(Default)]
@@ -145,12 +150,11 @@ impl StitchEngine {
 
         let model = BowlModel::new(bowl, &cameras);
         let scene = SceneData::from_bowl_model(&model);
-        let (views, names) = build_views(bowl, width, height);
+        let views = build_views(bowl, width, height);
 
         self.configured = Some(Configured {
             scene,
             views,
-            names,
             output: (width, height),
         });
         Ok(())
@@ -171,16 +175,17 @@ impl StitchEngine {
         let mut scene = configured.scene.clone();
         scene.camera_images = images.to_vec();
         let (width, height) = configured.output;
-        let frames = render_all_views_with(&scene, &configured.views, width, height, CLEAR_COLOR)?;
+        let specs: Vec<ViewSpec> = configured.views.iter().map(|view| view.spec).collect();
+        let frames = render_all_views_with(&scene, &specs, width, height, CLEAR_COLOR)?;
 
         Ok(configured
-            .names
+            .views
             .iter()
             .zip(frames)
-            .map(|(name, frame)| {
+            .map(|(view, frame)| {
                 let image = RgbaImage::from_raw(width, height, frame)
                     .expect("the renderer returns width * height RGBA pixels");
-                (name.clone(), image)
+                (view.name.clone(), image)
             })
             .collect())
     }

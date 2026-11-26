@@ -158,6 +158,12 @@ fn each_default_view_matches_the_cpp_reference() {
 
     let (names, frames) = render_data_dir(&data_dir);
     assert_eq!(4, names.len(), "the default presets must produce four views");
+    assert_eq!(
+        names.len(),
+        frames.len(),
+        "the renderer must return one frame per view"
+    );
+    assert_eq!(4, frames.len(), "the renderer must produce four frames");
 
     let mut worst = f64::INFINITY;
     let mut failures = Vec::new();
