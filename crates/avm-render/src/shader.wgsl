@@ -1,4 +1,5 @@
-// WGSL port of the GLSL 330 shader pair in src/render/stitch_scene.cpp.
+// WGSL port of the GLSL 330 shader pair in
+// tag archive/cpp-implementation:src/render/stitch_scene.cpp.
 //
 // Behaviour-preserving differences from the GLSL original:
 // * `uNumCameras` is read straight from the uniform buffer in the fragment

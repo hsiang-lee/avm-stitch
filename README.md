@@ -212,7 +212,7 @@ location 7   vec4  weights1 = (w4, w5, w6, w7)
 `avm-engine::StitchEngine` exposes a two-stage API:
 
 ```
-configure(Vec<Camera>, &BowlParams, width = 960, height = 640)          once
+configure(Vec<Camera>, &BowlParams, width: u32, height: u32)          once
     |   (Camera owns extrinsics + model; ownership moves into the engine)
     |
     | BowlModel::new                  mesh + baked uv/weight, CPU
@@ -225,6 +225,7 @@ SceneData::from_bowl_model           PackedVertex buffer + camera images
 Vec<(String, RgbaImage)>             ("3d_front" .. "3d_right")
 ```
 
+`width` and `height` are required arguments (Rust has no default parameters).
 Validation is explicit: `configure` returns `EngineError` for N outside [1, 8], a missing camera model, mismatched image sizes, a non-positive grid step or outer radius, and a negative slope coefficient or height exponent.
 
 ## 9. Depth module
@@ -233,7 +234,7 @@ Validation is explicit: `configure` returns `EngineError` for N outside [1, 8], 
 
 ```rust
 make_rectification_basis(a: &CameraExtrinsics, b: &CameraExtrinsics) -> RectificationBasis;
-compute_ground_depth_map(&basis, a, b, &grid, &opts) -> GroundDepthMap;
+compute_ground_depth_map(&basis, a, b, &grid, options: GroundDepthOptions) -> GroundDepthMap;
 triangulate_depth(dir_a_world, origin_a, dir_b_world, origin_b) -> f64;
 ```
 
@@ -256,7 +257,7 @@ cargo run -p avm-cli -- examples/data_4
 cargo run -p avm-viewer -- examples/data_4
 ```
 
-`avm-cli` prints the cameras, the derived bowl parameters, the mesh size and the baked weight range. `avm-viewer` opens a 1280×720 window with the four default views of the same scene; left drag rotates, right drag zooms (dolly), middle drag pans, and the wheel zooms.
+`avm-cli` prints the cameras, the derived bowl parameters, the mesh size and the baked weight range. `avm-viewer` opens a 1280×720 window showing the home view of the same scene; left drag rotates, right drag zooms (dolly), middle drag pans, and the wheel zooms.
 
 For scripted runs the viewer accepts:
 
@@ -318,11 +319,12 @@ For 16 cameras:
 
 ## 14. Known limitations
 
-- **Windowed output is not asserted visually** — `avm-viewer` has a controller test suite, a child-process smoke test and a screenshot hook, but the smoke test needs a display or `xvfb-run` and skips loudly otherwise. The pixel content of the interactive window is not judged automatically; with a display the smoke test does compare its screenshot byte-for-byte with the offscreen render of the same view.
+- **Windowed output is checked only by the smoke test** — with a display, `avm-viewer/tests/windowed_smoke.rs` compares the screenshot byte-for-byte with the offscreen render of the same view; without a display and without `xvfb-run` it skips with an explicit message.
 - **Depth module is analytic only** — it computes ground-plane depth and predicted disparity from geometry; it does not read images, has no stereo matcher, and currently has no production caller.
 - **QNX is not verified** — no target toolchain run has been performed; the core crate is OS-independent by construction but the GPU path assumes a Vulkan/Metal/DX12 adapter.
 - **Parity fixtures cover one dataset** — `data_4` at 960×640, four views. Other sizes, datasets and camera counts have no reference images.
 - **8-camera GPU layout cap** — see [section 13](#13-extending-beyond-8-cameras).
+- **Deferred refactors** — the migration's known debt is tracked in [`docs/known-debt.md`](docs/known-debt.md).
 
 ## 15. History
 

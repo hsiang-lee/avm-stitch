@@ -1,17 +1,27 @@
 # Epic: avm-stitch 算法核心与渲染骨架移植到 Rust
 
+> **Superseded by B4 (2026-11-26).** 本文档是迁移期的计划记录，不是当前事实。
+> C++ 源码已随 B4 删除，需要对照时从 tag `archive/cpp-implementation` 取出；
+> 窗口渲染器已在 B3.5 完成；workspace 最终为 5 个 crate（`avm-core`、`avm-render`、
+> `avm-engine`、`avm-viewer`、`avm-cli`）。下文凡称“保留 C++ / 不做窗口 / 三个 crate”
+> 之处均为**当时的约束**，已按下述标注由后续批次取代。仍然有效的延后项记录在
+> `docs/known-debt.md`。
+
 ## Epic 目标
 
 把 avm-stitch 的 C++ 算法核心（camera model / bowl model）与渲染骨架（OSG + GLSL 330）
 按行为对等原则移植为 Rust workspace，目标平台为 Linux 桌面。C++ 源码在本 Epic 全程保留，
 作为规格来源与参考实现；C++ 文件不改动、不删除。
 
+**（历史约束，已被 B4 取代）** C++ 源码在 B4 删除，保留于 tag `archive/cpp-implementation`；
+渲染骨架最终为 wgpu + WGSL，而非 OSG + GLSL 330。
+
 验收方式：`cargo build --workspace` 通过 + `cargo test --workspace` 全绿。
 
 ## 非目标（本 Epic 明确不做）
 
-- 不删除/改写 C++ 源码、CMake 构建、vcpkg 依赖。
-- 不做功能扩展：不新增 CameraRig、不改标定语义、不做多线程/异步调度、不做窗口渲染器。
+- ~~不删除/改写 C++ 源码、CMake 构建、vcpkg 依赖。~~ （历史约束；B4 已删除 C++ 源码、CMake 与 vcpkg，见 tag `archive/cpp-implementation`）
+- ~~不做功能扩展：不新增 CameraRig、不改标定语义、不做多线程/异步调度、不做窗口渲染器。~~ （历史约束；窗口渲染器已由 B3.5 完成，其余仍不做）
 - 不支持 QNX（后续批次另立故事）。
 - 不引入 OpenCV / OSG 依赖；不使用 `image` 以外的图像 IO。
 - 不改 `examples/data_4`、`examples/data_8` 数据。
@@ -64,8 +74,9 @@
   `num_cameras <= 8` 且 `camera_images.len() == num_cameras`。
 - **A8 CLI 可跑**：`cargo run -p avm-cli -- examples/data_4` 打印相机数量、顶点数、
   三角形数、权重和区间；`data_8` 同样可用。
-- **A9 C++ 零改动**：不修改 `src/`、`tests/`、`examples/`、CMake 文件；`git status`
-  只出现新增 Rust 文件与故事文档。
+- ~~**A9 C++ 零改动**：不修改 `src/`、`tests/`、`examples/`、CMake 文件；`git status`
+  只出现新增 Rust 文件与故事文档。~~（历史约束；B4 已删除全部 C++ 源码与构建文件，`git ls-files`
+  不再包含 `.cpp/.hpp/.h/.cc/.cxx/.cmake`）
 
 ### B1.5（B1 审查修复）
 
@@ -98,7 +109,7 @@
 
 | 故事 | 内容 | AC |
 |------|------|----|
-| S1 | workspace 骨架（三个 crate + 依赖约束） | A1, A2, A9 |
+| S1 | workspace 骨架（三个 crate + 依赖约束；后续 B3/B3.5 扩为五个 crate） | A1, A2, A9 |
 | S2 | camera 模块（外参、kb/table/ocam、门控、Camera 组合、工厂） | A3, A5, A6 |
 | S3 | bowl 模块（BowlParams、BlendWeightsCalculator、BowlModel 烘焙） | A4, A5, A6 |
 | S4 | 标定 JSON 加载 + CLI | A8 |
@@ -106,4 +117,5 @@
 
 批次标注：B1 = S1 → S2 → S3 → S4 → S5，单批次单 commit。
 B1.5 = B1 审查的 I-1/I-2/M-1..M-6/G-1/G-2，单独 commit（不 amend B1）。
-后续批次（不在本批次）：QNX 目标、窗口渲染器、性能对齐、`OPEN_ITEMS` 中延后的坏味道。
+后续批次（不在本批次）：QNX 目标（仍未验证）、性能对齐；窗口渲染器已由 B3.5 完成；
+延后的坏味道统一记录在 `docs/known-debt.md`。

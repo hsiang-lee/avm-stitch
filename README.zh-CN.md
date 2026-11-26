@@ -212,7 +212,7 @@ location 7   vec4  weights1 = (w4, w5, w6, w7)
 `avm-engine::StitchEngine` 暴露两段式 API：
 
 ```
-configure(Vec<Camera>, &BowlParams, width = 960, height = 640)          一次
+configure(Vec<Camera>, &BowlParams, width: u32, height: u32)          一次
     |   (Camera 拥有外参与模型；所有权移入引擎)
     |
     | BowlModel::new                  网格 + 烘焙 uv/weight，CPU
@@ -225,7 +225,7 @@ SceneData::from_bowl_model           PackedVertex 缓冲 + 相机图像
 Vec<(String, RgbaImage)>             ("3d_front" .. "3d_right")
 ```
 
-校验是显式的：N 不在 [1, 8]、缺少相机模型、图像尺寸不一致、grid step 或 outer radius 非正、坡度系数或高度指数为负时，`configure` 返回 `EngineError`。
+`width` 与 `height` 是必传参数（Rust 没有默认参数）。校验是显式的：N 不在 [1, 8]、缺少相机模型、图像尺寸不一致、grid step 或 outer radius 非正、坡度系数或高度指数为负时，`configure` 返回 `EngineError`。
 
 ## 9. 深度模块
 
@@ -233,7 +233,7 @@ Vec<(String, RgbaImage)>             ("3d_front" .. "3d_right")
 
 ```rust
 make_rectification_basis(a: &CameraExtrinsics, b: &CameraExtrinsics) -> RectificationBasis;
-compute_ground_depth_map(&basis, a, b, &grid, &opts) -> GroundDepthMap;
+compute_ground_depth_map(&basis, a, b, &grid, options: GroundDepthOptions) -> GroundDepthMap;
 triangulate_depth(dir_a_world, origin_a, dir_b_world, origin_b) -> f64;
 ```
 
@@ -256,7 +256,7 @@ cargo run -p avm-cli -- examples/data_4
 cargo run -p avm-viewer -- examples/data_4
 ```
 
-`avm-cli` 打印相机、派生碗参数、网格规模与烘焙权重范围。`avm-viewer` 以 1280×720 打开同一场景的四个默认视角；左键拖动旋转，右键拖动缩放（dolly），中键拖动平移，滚轮缩放。
+`avm-cli` 打印相机、派生碗参数、网格规模与烘焙权重范围。`avm-viewer` 以 1280×720 打开同一场景的 home 视角；左键拖动旋转，右键拖动缩放（dolly），中键拖动平移，滚轮缩放。
 
 脚本化运行支持：
 
@@ -318,11 +318,12 @@ cargo test -p avm-render --test parity
 
 ## 14. 已知限制
 
-- **窗口画面不做自动断言** — `avm-viewer` 有控制器测试、子进程冒烟测试与截图钩子，但冒烟测试需要显示环境或 `xvfb-run`，否则会明确打印原因并跳过。交互窗口的像素内容不被自动判定；在有显示环境时，冒烟测试会把截图与同视角离屏渲染逐字节比较。
+- **窗口画面只由冒烟测试检查** — 有显示环境时，`avm-viewer/tests/windowed_smoke.rs` 会把截图与同视角离屏渲染逐字节比较；无显示且无 `xvfb-run` 时，测试会打印原因并明确跳过。
 - **深度模块仅解析** — 它从几何计算地面深度与预测视差；不读取图像，没有立体匹配器，目前没有生产调用方。
 - **QNX 未验证** — 尚未在目标工具链上运行；core crate 在构造上不依赖 OS，但 GPU 路径假定存在 Vulkan/Metal/DX12 适配器。
 - **对拍夹具只覆盖一个数据集** — `data_4`、960×640、四个视角。其他尺寸、数据集与相机数没有参考图。
 - **8 路 GPU 布局上限** — 见[第 13 节](#13-扩展到-8-路以上)。
+- **延后的重构** — 迁移期已知债务记录在 [`docs/known-debt.md`](docs/known-debt.md)。
 
 ## 15. 历史
 

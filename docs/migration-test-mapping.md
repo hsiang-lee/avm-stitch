@@ -332,7 +332,7 @@ the commit report).
 | `test_stitch_scene.cpp` | `EmptySlotsZeroPaddedWhenBakingTwoCameras` | `avm-render/tests/vertex_packing.rs::from_baked_zero_fills_cameras_beyond_eight` | ported |
 | `test_stitch_scene.cpp` | `ShaderSources_VertexCompilesSyntactically` | `avm-render/tests/shader_validation.rs::shader_parses_and_validates_with_naga` | ported |
 | `test_stitch_scene.cpp` | `ShaderSources_FragmentCompilesSyntactically` | `avm-render/tests/shader_validation.rs::shader_parses_and_validates_with_naga` | ported |
-| `test_stitch_scene.cpp` | `ShaderSources_All8CamerasUnrolled` | ① GLSL 展开 8 路采样是 OSG 着色器的实现细节；Rust 着色器用循环 + `MAX_CAMERAS`，由 `shader_uses_a_texture_array_and_the_hard_weight_gate` 覆盖 | exempt |
+| `test_stitch_scene.cpp` | `ShaderSources_All8CamerasUnrolled` | ① GLSL 展开 8 路采样是参考实现的实现细节；Rust shader 同样显式展开 8 路（与参考语义一致，避免动态采样器数组下标），由 `shader_parses_and_validates_with_naga` 与离屏逐层采样用例覆盖 | exempt |
 | `test_stitch_scene.cpp` | `CameraTextureArraySetsCorrectSize` | ③ `osg::Texture2DArray::setImage` 的内部尺寸断言，wgpu 侧由纹理创建参数与渲染路径覆盖 | exempt |
 | `test_stitch_scene.cpp` | `NumCamerasComesFromBakedBowl` | `avm-render/tests/vertex_packing.rs::scene_data_packs_the_bowl_mesh_and_index_buffer` | ported |
 | `test_stitch_scene.cpp` | `RootNonNullGroup` | ③ `osg::Group` 根节点结构断言；wgpu 渲染路径没有场景图 | exempt |
