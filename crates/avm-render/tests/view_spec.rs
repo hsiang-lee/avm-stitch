@@ -1,5 +1,3 @@
-//! Camera view matrices for the offscreen renderer.
-
 use avm_render::ViewSpec;
 
 /// Column-major mat4 * vec4 (the layout uploaded to WGSL).

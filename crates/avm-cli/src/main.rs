@@ -1,8 +1,3 @@
-//! `avm-cli`: load a calibration.json, bake the bowl mesh and print statistics.
-//!
-//! Mirrors the load/bake/report part of `examples/avm_viewer.cpp` without the
-//! OSG window.
-
 use std::path::Path;
 use std::process::ExitCode;
 

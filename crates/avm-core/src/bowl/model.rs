@@ -1,6 +1,4 @@
 //! Baked bowl model: mesh plus per-vertex uv/weight for every camera.
-//!
-//! Port of `src/bowl_model/bowl_model.{hpp,cpp}`.
 
 use nalgebra::Vector3;
 
@@ -8,7 +6,6 @@ use crate::bowl::blend::BlendWeightsCalculator;
 use crate::bowl::params::BowlParams;
 use crate::camera::{Camera, DEFAULT_EDGE_FEATHER_PX};
 
-/// Per-vertex per-camera texture coordinates and blend weights.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BakedVertex {
     pub uv: Vec<[f32; 2]>,
@@ -33,7 +30,6 @@ pub struct BowlModel {
 }
 
 impl BowlModel {
-    /// Construction bakes the mesh against the given cameras.
     pub fn new(params: &BowlParams, cameras: &[Camera]) -> Self {
         let mesh = params.generate_block_boat_mesh();
         let baked_vertices = bake_vertices(&mesh.vertices, cameras, params.car_center());
@@ -94,7 +90,7 @@ impl BowlModel {
 }
 
 /// Project every mesh vertex into every camera and normalize the edge-gated
-/// blend weights (D3 fallback included, exactly as in the C++ bake loop).
+/// blend weights (D3 fallback included).
 fn bake_vertices(
     vertices: &[[f64; 3]],
     cameras: &[Camera],

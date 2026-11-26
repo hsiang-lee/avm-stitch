@@ -1,13 +1,9 @@
 //! Projection model abstraction, gating surface and factory.
-//!
-//! Port of `src/camera_model/camera_model.{hpp,cpp}`.
 
 use thiserror::Error;
 
-/// Numerical epsilon shared by the equidistant projections (`kEps` in C++).
 pub const EPS: f64 = 1e-9;
 
-/// Default hard-gate exclusion width in pixels (`EdgeFeather` default argument).
 pub const DEFAULT_EDGE_FEATHER_PX: f64 = 40.0;
 
 #[derive(Debug, Error, PartialEq)]
@@ -37,11 +33,8 @@ pub enum ModelError {
     OcamEmptyPolynomials,
 }
 
-/// Image geometry plus the effective-circle gate configuration.
-///
-/// Mirrors the gating half of the C++ `CameraModel` base: the effective-circle
-/// radius, the inside test and the hard edge gate are all defined here so every
-/// model shares exactly one implementation.
+/// Image geometry plus the effective-circle gate configuration. Every model
+/// shares this single gating implementation.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CameraModelBase {
     width: i32,
@@ -98,7 +91,6 @@ impl CameraModelBase {
         r.max(0.0)
     }
 
-    /// True when the pixel lies inside the fisheye effective circle.
     pub fn inside_fisheye_circle(&self, u: f64, v: f64) -> bool {
         (u - self.cx).hypot(v - self.cy) <= self.fisheye_circle_radius()
     }
@@ -130,7 +122,6 @@ pub trait CameraModel: Send + Sync {
         out_valid: &mut [u8],
     ) -> Result<(), ModelError>;
 
-    /// Single-point forward projection; the default routes through `project_points`.
     fn project_camera_point(&self, p_cam: [f64; 3]) -> [f64; 2] {
         let mut uv = [[0.0, 0.0]];
         let mut valid = [0u8];
@@ -167,7 +158,6 @@ pub trait CameraModel: Send + Sync {
     }
 }
 
-/// Guards the equal-length contract of the batch projections.
 pub fn require_equal_lengths(
     cam_points: usize,
     out_uv: usize,
@@ -179,7 +169,6 @@ pub fn require_equal_lengths(
     Ok(())
 }
 
-/// Guards the positive image-size contract shared by every factory arm.
 fn require_positive_size(
     model: &'static str,
     width: i32,
@@ -195,7 +184,7 @@ fn require_positive_size(
     Ok(())
 }
 
-/// Flat KB (Kannala-Brandt) parameters; symmetric to `KbParams` in C++.
+/// Flat KB (Kannala-Brandt) parameters.
 #[derive(Clone, Debug, PartialEq)]
 pub struct KbParams {
     pub width: i32,
@@ -290,7 +279,7 @@ pub enum CameraModelParams {
     Ocam(OcamParams),
 }
 
-/// Factory mirroring `MakeCameraModel` (validation order included).
+/// Factory. The validation order is part of the contract: first failure wins.
 pub fn make_camera_model(
     model: &str,
     params: &CameraModelParams,

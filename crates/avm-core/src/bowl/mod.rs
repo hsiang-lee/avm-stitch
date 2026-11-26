@@ -1,7 +1,3 @@
-//! Bowl layer: parameters, blend weights and the baked mesh.
-//!
-//! Port of `src/bowl_model/*`.
-
 pub mod blend;
 pub mod model;
 pub mod params;

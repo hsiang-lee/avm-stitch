@@ -1,5 +1,3 @@
-//! Port of `tests/bowl_model/test_bowl_model.cpp`.
-
 mod common;
 
 use avm_core::bowl::{BowlModel, BowlParams};

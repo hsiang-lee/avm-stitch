@@ -1,7 +1,4 @@
-//! Camera view matrices for the offscreen renders.
-//!
-//! The render basis is the OSG conversion used by the C++ scene builder
-//! (`x, z, -y`), i.e. y-up right-handed.
+//! The render basis is y-up right-handed with the `(x, z, -y)` axis remap.
 
 use nalgebra::{Matrix4, Point3};
 
@@ -16,7 +13,6 @@ impl ViewSpec {
         Self { view_proj }
     }
 
-    /// Right-handed look-at perspective view.
     pub fn look_at(
         eye: [f32; 3],
         target: [f32; 3],

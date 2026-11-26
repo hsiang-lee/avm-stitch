@@ -1,6 +1,4 @@
-//! Sector-based blend weights around the car centre.
-//!
-//! Port of `src/bowl_model/blend_weights.{hpp,cpp}`.
+//! Sector-based blend weights around the car centre, not distance-based.
 
 use crate::angle_utils::{normalize_angle_deg, RAD_TO_DEG, PI};
 use crate::camera::Camera;

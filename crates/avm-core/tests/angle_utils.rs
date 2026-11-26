@@ -1,5 +1,3 @@
-//! Port of `tests/common/test_angle_utils.cpp`.
-
 use avm_core::angle_utils::{normalize_angle_deg, DEG_TO_RAD, PI, RAD_TO_DEG};
 
 #[test]

@@ -1,5 +1,3 @@
-//! Port of the calibration loading done by `examples/avm_viewer.cpp`.
-
 use std::path::PathBuf;
 
 use avm_core::bowl::BowlModel;
@@ -39,8 +37,8 @@ fn data_4_keeps_intrinsics_and_extrinsics() {
     assert_eq!(320.0, model.cx());
     assert_eq!(240.0, model.cy());
 
-    // fx/k1..k4 from the JSON must survive into the model: project a
-    // camera-frame ray and compare against the θ-polynomial by hand.
+    // Independent oracle: recompute the θ-polynomial by hand from the JSON
+    // values instead of calling the model twice.
     let theta = 0.1f64.atan();
     let theta2 = theta * theta;
     let (fx, k1, k2, k3, k4) = (

@@ -1,9 +1,3 @@
-//! GPU side of the avm-stitch Rust port (wgpu + WGSL).
-//!
-//! The C++ reference implementation lives in `src/render/stitch_scene.cpp`
-//! (OSG + GLSL 330). This crate ports the vertex packing and the fragment
-//! sampling logic, plus an offscreen render entry point.
-
 pub mod image_source;
 pub mod offscreen;
 pub mod scene;

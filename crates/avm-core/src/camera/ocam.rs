@@ -1,6 +1,4 @@
 //! OCam (unified spherical) projection model.
-//!
-//! Port of `src/camera_model/ocam_camera_model.{hpp,cpp}`.
 
 use crate::camera::model::{
     require_equal_lengths, CameraModel, CameraModelBase, ModelError, OcamParams,
@@ -12,8 +10,7 @@ const OCAM_EPS: f64 = 1e-12;
 #[derive(Clone, Debug)]
 pub struct OcamCameraModel {
     base: CameraModelBase,
-    /// Forward polynomial; kept for parity with the C++ parameter bundle (the
-    /// batch projection uses `invpol`, the inverse direction used it).
+    /// Stored for parameter parity only; the batch projection uses `invpol`.
     #[allow(dead_code)]
     pol: Vec<f64>,
     invpol: Vec<f64>,

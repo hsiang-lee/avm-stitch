@@ -1,5 +1,3 @@
-//! Camera image loading through the `image` crate (AC A2).
-
 use std::path::PathBuf;
 
 use avm_render::image_source::load_camera_image;
@@ -18,7 +16,6 @@ fn loads_a_real_camera_frame_as_rgba8() {
     assert_eq!(480, image.height());
     // Pin the channel order: the frozen fixture's (182, 224) pixel is RGBA.
     assert_eq!([124, 124, 188, 255], image.get_pixel(182, 224).0);
-    // The fixture frames are not uniformly black.
     assert!(image.pixels().any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0));
 }
 

@@ -1,14 +1,10 @@
-//! Vertex packing with the exact attribute layout of the C++ `BuildBowlGeometry`.
-//!
-//! Attribute locations (identical to `src/render/stitch_scene.cpp`):
+//! Vertex packing. Attribute locations must match `shader.wgsl`:
 //! 0 position vec3, 1 normal vec3, 2..5 uv slots vec4 (2 cameras each),
 //! 6..7 weight slots vec4 (4 cameras each). Eight cameras fit in total.
 
 use avm_core::bowl::{BakedVertex, BowlModel};
 
-/// Number of `vec4` uv slots in the packed vertex.
 pub const NUM_UV_SLOTS: usize = 4;
-/// Number of `vec4` weight slots in the packed vertex.
 pub const NUM_WEIGHT_SLOTS: usize = 2;
 /// Cameras representable by the packed layout (`4 uv slots x 2`).
 pub const MAX_CAMERAS: usize = NUM_UV_SLOTS * 2;
@@ -16,10 +12,8 @@ pub const MAX_CAMERAS: usize = NUM_UV_SLOTS * 2;
 /// Size of [`PackedVertex`] in bytes (dense `f32` fields, no padding).
 pub const PACKED_VERTEX_SIZE: usize = 120;
 
-/// One vertex as uploaded to the GPU.
-///
-/// Positions and normals are stored in the OSG render basis used by the C++
-/// scene builder: `(x, y, z) -> (x, z, -y)`.
+/// Positions and normals are stored in the y-up render basis:
+/// `(x, y, z) -> (x, z, -y)`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PackedVertex {
@@ -79,7 +73,6 @@ impl PackedVertex {
         packed
     }
 
-    /// Build the whole vertex buffer for a baked bowl model.
     pub fn vertex_buffer(model: &BowlModel) -> Vec<PackedVertex> {
         (0..model.vertex_count())
             .map(|i| {
@@ -88,7 +81,6 @@ impl PackedVertex {
             .collect()
     }
 
-    /// Triangle index buffer (same winding as the C++ scene).
     pub fn index_buffer(model: &BowlModel) -> Vec<u32> {
         let mut indices = Vec::with_capacity(model.triangle_count() * 3);
         for t in 0..model.triangle_count() {
@@ -100,7 +92,6 @@ impl PackedVertex {
         indices
     }
 
-    /// wgpu vertex buffer layout with the C++ attribute locations.
     pub fn layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: PACKED_VERTEX_SIZE as u64,
@@ -110,7 +101,6 @@ impl PackedVertex {
     }
 }
 
-/// Attribute descriptions shared by the pipeline and the layout tests.
 pub struct VertexAttributes;
 
 impl VertexAttributes {

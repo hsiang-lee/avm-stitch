@@ -1,5 +1,3 @@
-//! Vertex packing contract: identical attribute layout to `BuildBowlGeometry`.
-
 use avm_core::bowl::{BakedVertex, BowlModel, BowlParams};
 use avm_render::vertex::{
     PackedVertex, VertexAttributes, NUM_UV_SLOTS, NUM_WEIGHT_SLOTS, PACKED_VERTEX_SIZE,
@@ -75,8 +73,8 @@ fn from_baked_zero_fills_cameras_beyond_eight() {
     let baked = baked_with(9, 1.0);
     let packed = PackedVertex::from_baked(&[0.0; 3], &[0.0; 3], &baked);
 
-    // Camera 8 (value 9.0) cannot be represented: instead of leaking it we
-    // keep the slot zero, exactly like the C++ packer (8-way limit).
+    // Camera 8 (value 9.0) cannot be represented; the slot stays zero at the
+    // 8-way limit instead of leaking the value.
     assert!(!packed.uv.iter().flatten().any(|v| *v == 9.25));
     assert!(!packed.weights.iter().flatten().any(|v| *v == 9.0));
     assert_eq!(NUM_UV_SLOTS * 2, 8);
@@ -126,7 +124,7 @@ fn scene_data_packs_the_bowl_mesh_and_index_buffer() {
         assert_eq!(tri[2] as u32, scene.indices[i * 3 + 2]);
     }
 
-    // Positions go through the same basis conversion as the C++ builder.
+    // Positions go through the basis conversion: `(x, y, z) -> (x, z, -y)`.
     let v = model.vertex(0);
     assert_eq!(v[0] as f32, scene.vertices[0].position[0]);
     assert_eq!(v[2] as f32, scene.vertices[0].position[1]);

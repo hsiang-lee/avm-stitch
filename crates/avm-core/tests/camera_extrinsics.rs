@@ -1,5 +1,3 @@
-//! Port of `tests/camera_model/test_camera_extrinsics.cpp`.
-
 mod common;
 
 use avm_core::camera::CameraExtrinsics;

@@ -1,5 +1,3 @@
-//! The shipped WGSL must parse and pass naga validation (AC A7).
-
 use avm_render::SHADER_SOURCE;
 
 fn parse() -> naga::Module {

@@ -1,10 +1,5 @@
-//! Port of the pure-math viewer-preset cases from
-//! `tests/render/test_osg_view_renderer.cpp` (`ViewPoseTest` / `ClipPlanesTest`),
-//! plus the degenerate-parameter rule for `clip_planes_for`.
-
 use avm_core::bowl::{BowlParams, CALIBRATED_ANCHOR_OUTER_RADIUS};
 
-/// `BowlAtScale` of the C++ test file.
 fn bowl_at_scale(scale: f64, car_center: [f64; 2]) -> BowlParams {
     BowlParams::new(
         2.0,
@@ -19,7 +14,6 @@ fn bowl_at_scale(scale: f64, car_center: [f64; 2]) -> BowlParams {
     )
 }
 
-/// `MaxEyeToTarget`: the largest pose distance in the default presets.
 fn max_eye_to_target(scale: f64) -> f64 {
     bowl_at_scale(scale, [0.0, 0.0])
         .default_view_poses()

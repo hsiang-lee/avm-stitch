@@ -1,11 +1,6 @@
-//! Offscreen render skeleton: returns frames, and returns an error (never
-//! panics) when no GPU adapter exists (AC A7).
-//!
-//! The colour-sensitive cases build a single screen-covering triangle so that
-//! the assertion targets the shader's per-layer weight gate rather than the
-//! bake result; the bowl case uses cameras that actually look at the bowl, so a
-//! black frame can never pass. Tests skip (not fail) on machines without a GPU
-//! adapter.
+//! Without a GPU adapter these tests skip instead of failing. The colour cases
+//! use a screen-covering triangle so the assertion isolates the shader weight
+//! gate; the bowl case uses cameras that actually look at the bowl.
 
 use avm_core::bowl::{BowlModel, BowlParams};
 use avm_core::camera::{make_camera_model, Camera, CameraExtrinsics, CameraModelParams, KbParams};
@@ -16,8 +11,7 @@ use avm_render::{render_all_views, RenderError, SceneData, ViewSpec};
 const WIDTH: u32 = 320;
 const HEIGHT: u32 = 240;
 
-/// Look-at extrinsics with the camera basis columns `(right, down, forward)`
-/// (mirror of `MakeLookAtCamera` in the C++ test support).
+/// Camera basis columns are `(right, down, forward)`, in that order.
 fn look_at_extrinsics(az_deg: f64, radius: f64, height: f64, target_z: f64) -> CameraExtrinsics {
     let rad = az_deg.to_radians();
     let pos = Vector3::new(radius * rad.cos(), radius * rad.sin(), height);

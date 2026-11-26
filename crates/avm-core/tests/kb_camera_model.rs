@@ -1,11 +1,3 @@
-//! Port of `tests/camera_model/test_kb_camera_model.cpp`.
-//!
-//! `ProjectionTest.MatchesOpenCV` is translated as
-//! [`matches_opencv_fisheye_reference`]: the expected pixels were produced once
-//! by OpenCV 4.12 `cv::fisheye::projectPoints` (the project's vcpkg build) from
-//! a throw-away program outside the repository, and are hard-coded here, so the
-//! Rust crate keeps its zero-OpenCV dependency.
-
 mod common;
 
 use avm_core::angle_utils::PI;
@@ -272,8 +264,6 @@ fn gating_matches_hand_formula_bit_exact_for_model_and_camera() {
 
 #[test]
 fn look_at_extrinsics_keeps_projection_finite() {
-    // Guards the rotation helper used by later bake tests: a look-at camera
-    // 3.84 m in front of the origin must see the origin inside the image.
     let model = make_kb_model(
         real_intrinsics().width,
         real_intrinsics().height,
@@ -298,15 +288,11 @@ fn look_at_extrinsics_keeps_projection_finite() {
     assert!(uv[1] > 0.0 && uv[1] < real_intrinsics().height as f64);
 }
 
-/// `ProjectionTest.MatchesOpenCV`: pinned against OpenCV 4.12
-/// `cv::fisheye::projectPoints` output for the same intrinsics, extrinsics and
-/// world points. The reference program ran outside the repository; no OpenCV
-/// dependency is added here.
-///
-/// This is a truth-anchor test: it locks behaviour that already matches, so it
-/// has no RED phase. It still has teeth — the reference pixels differ from the
-/// pinhole/identity answers by tens to hundreds of pixels, and the `1e-6`
-/// tolerance rejects even a `1e-3` drift of the distortion polynomial.
+/// Truth anchor: the expected pixels come from OpenCV 4.12
+/// `cv::fisheye::projectPoints` run once outside the repository, so the crate
+/// keeps its zero-OpenCV dependency and the constants must not be regenerated
+/// from this model. There is no RED phase; the `1e-6` tolerance still rejects a
+/// `1e-3` drift of the distortion polynomial.
 #[test]
 fn matches_opencv_fisheye_reference() {
     let model = make_kb_model(
@@ -334,7 +320,7 @@ fn matches_opencv_fisheye_reference() {
         [-2.0, -1.0, 0.8],
         [3.0, 0.0, 0.6],
     ];
-    // `cv::fisheye::projectPoints` reference pixels (OpenCV 4.12, %.17g).
+    // External ground truth from `cv::fisheye::projectPoints` (OpenCV 4.12).
     let opencv_uv = [
         [952.14, 758.27],
         [951.5002625473055, 740.0082672371517],

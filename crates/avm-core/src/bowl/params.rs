@@ -1,11 +1,8 @@
 //! Bowl geometry parameters and block-boat mesh generation.
-//!
-//! Port of `src/bowl_model/bowl_params.{hpp,cpp}`.
 
-/// Outer radius of the calibrated reference bowl (`kCalibratedAnchorOuterRadius`).
+/// Outer radius of the calibrated reference bowl.
 pub const CALIBRATED_ANCHOR_OUTER_RADIUS: f64 = 12.6;
 
-/// Camera pose used by the viewer presets.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewPose {
     pub name: String,
@@ -21,7 +18,6 @@ pub struct ClipPlanes {
     pub far: f64,
 }
 
-/// Mesh buffers produced by [`BowlParams::generate_block_boat_mesh`].
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Mesh {
     pub vertices: Vec<[f64; 3]>,
@@ -68,7 +64,6 @@ impl BowlParams {
         }
     }
 
-    /// Scale the calibrated reference bowl to a car of `car_length`.
     pub fn for_car_size(car_length: f64, car_width: f64, axis_x: f64) -> Self {
         const REFERENCE_CAR_LENGTH: f64 = 5.6;
         let scale = car_length / REFERENCE_CAR_LENGTH;
@@ -231,9 +226,7 @@ impl BowlParams {
         // `near == far == 0` and the planes stay ordered. Hardened libstdc++
         // builds abort on this input, so there is no numeric C++ result to copy.
         let low = self.outer_radius * NEAR_REL;
-        // `std::max(low, 1.0e-3)`, NaN-propagating.
         let raised = if low < 1.0e-3 { 1.0e-3 } else { low };
-        // `std::min(raised, far / 1000)`, NaN-propagating.
         let near = if far / 1000.0 < raised {
             far / 1000.0
         } else {

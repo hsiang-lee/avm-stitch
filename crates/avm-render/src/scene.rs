@@ -1,10 +1,7 @@
-//! Offscreen scene description handed to the renderer.
-
 use avm_core::bowl::BowlModel;
 
 use crate::vertex::PackedVertex;
 
-/// Everything the offscreen renderer needs: packed geometry plus camera layers.
 pub struct SceneData {
     pub vertices: Vec<PackedVertex>,
     pub indices: Vec<u32>,

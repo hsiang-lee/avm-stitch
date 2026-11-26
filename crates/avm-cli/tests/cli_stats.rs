@@ -1,5 +1,3 @@
-//! End-to-end check of the `avm-cli` statistics output (AC A8).
-
 use std::process::Command;
 
 fn cli() -> Command {

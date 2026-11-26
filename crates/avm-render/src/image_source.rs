@@ -1,4 +1,4 @@
-//! Camera image loading (`image` crate is the only image IO dependency).
+//! `image` is the only image IO dependency.
 
 use std::path::Path;
 
@@ -14,7 +14,7 @@ pub enum ImageError {
     },
 }
 
-/// Load a camera image as RGBA8 (the format the camera texture array expects).
+/// Load a camera image as RGBA8, the format the camera texture array expects.
 pub fn load_camera_image(path: impl AsRef<Path>) -> Result<image::RgbaImage, ImageError> {
     let path = path.as_ref();
     let image = image::open(path).map_err(|source| ImageError::Load {

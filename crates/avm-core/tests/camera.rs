@@ -1,5 +1,3 @@
-//! Port of `tests/camera_model/test_camera.cpp`.
-
 mod common;
 
 use avm_core::camera::{make_camera_model, Camera, CameraModelParams};

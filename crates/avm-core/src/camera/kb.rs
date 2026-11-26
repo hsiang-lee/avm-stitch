@@ -1,6 +1,4 @@
 //! Kannala-Brandt θ-polynomial projection model.
-//!
-//! Port of `src/camera_model/kb_camera_model.{hpp,cpp}`.
 
 use crate::camera::model::{
     require_equal_lengths, CameraModel, CameraModelBase, KbParams, ModelError, EPS,
@@ -36,7 +34,7 @@ impl CameraModel for KbCameraModel {
         &self.base
     }
 
-    /// θ-polynomial projection: `r_xy < kEps` snaps to the principal point.
+    /// `r_xy < kEps` snaps to the principal point.
     fn project_camera_point(&self, p_cam: [f64; 3]) -> [f64; 2] {
         let (x, y, z) = (p_cam[0], p_cam[1], p_cam[2]);
         let r_xy = (x * x + y * y).sqrt();

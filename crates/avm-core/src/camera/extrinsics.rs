@@ -1,8 +1,5 @@
-//! Rigid transform between world (VCS) coordinates and camera coordinates.
-//!
-//! Port of `src/camera_model/camera_extrinsics.hpp`. OpenCV convention: the
-//! camera y-axis points down; `rotation` maps camera to world, `translation`
-//! is the camera position in world coordinates.
+//! OpenCV convention: the camera y-axis points down; `rotation` maps camera to
+//! world and `translation` is the camera position in world coordinates.
 
 use nalgebra::{Matrix3, Vector3};
 
@@ -28,7 +25,7 @@ impl CameraExtrinsics {
         }
     }
 
-    /// Build from row-major rotation (same element order as `cv::Matx33d`).
+    /// Row-major rotation, same element order as the C++ matrix literals.
     pub fn from_rows(rows: [[f64; 3]; 3], translation: [f64; 3]) -> Self {
         let r = [
             rows[0][0], rows[0][1], rows[0][2], //

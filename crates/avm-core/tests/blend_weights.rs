@@ -1,5 +1,3 @@
-//! Port of `tests/bowl_model/test_blend_weights.cpp`.
-
 mod common;
 
 use avm_core::bowl::BlendWeightsCalculator;

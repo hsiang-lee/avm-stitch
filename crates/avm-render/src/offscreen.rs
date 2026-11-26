@@ -1,9 +1,3 @@
-//! Headless (offscreen) rendering: render target texture -> readback buffer.
-//!
-//! This is the skeleton the later batches build on. It keeps the C++ render
-//! semantics (one blended pass over the baked bowl, camera array sampling with
-//! the hard weight gate) and returns one RGBA8 frame per view.
-
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 use thiserror::Error;
@@ -76,8 +70,7 @@ pub fn render_all_views(
     if width == 0 || height == 0 {
         return Err(RenderError::InvalidSize { width, height });
     }
-    // Mirrors the C++ `Configure` precondition (N9): the packed vertex layout
-    // only carries 8 cameras, and every active camera needs a texture layer.
+    // The packed layout carries 8 cameras and every active camera needs a layer.
     if scene.num_cameras > MAX_CAMERAS {
         return Err(RenderError::TooManyCameras {
             num_cameras: scene.num_cameras,
@@ -446,7 +439,6 @@ impl GpuContext {
     }
 }
 
-/// Staging buffer + row padding for the texture readback.
 struct ReadbackTarget {
     buffer: wgpu::Buffer,
     padded_bytes_per_row: u32,

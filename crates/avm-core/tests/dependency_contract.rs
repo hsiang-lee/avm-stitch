@@ -1,8 +1,6 @@
-//! Architectural contract for the Rust workspace (batch B1, AC A1/A2).
-//!
 //! These assertions are deliberately manifest-level: the dependency direction is
-//! part of the port's contract, and a plain `cargo build` would happily accept a
-//! stray `opencv` or `wgpu` dependency in the CPU core.
+//! part of the contract, and a plain `cargo build` would accept a stray `opencv`
+//! or `wgpu` dependency in the CPU core.
 
 const CORE_MANIFEST: &str = include_str!("../Cargo.toml");
 const RENDER_MANIFEST: &str = include_str!("../../avm-render/Cargo.toml");

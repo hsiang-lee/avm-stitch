@@ -1,8 +1,3 @@
-//! Calibration loading: `calibration.json` -> cameras + bowl parameters.
-//!
-//! Behaviour mirrors `LoadViewerConfig` in `examples/avm_viewer.cpp` (kb models
-//! only; the C++ loader also builds kb models exclusively).
-
 use std::path::PathBuf;
 
 use serde::Deserialize;
@@ -95,7 +90,6 @@ pub enum CalibrationError {
     },
 }
 
-/// Calibration as the runtime consumes it: geometry spec + built cameras.
 pub struct Calibration {
     pub car: CarSpec,
     pub cameras: Vec<Camera>,

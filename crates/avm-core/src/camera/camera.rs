@@ -1,9 +1,3 @@
-//! `Camera` value object: name + extrinsics + optional projection model.
-//!
-//! Port of `src/camera_model/camera.hpp`; the C++ side keeps the model
-//! pointer in the calibration layer, here the name travels with the camera so
-//! that JSON loading and reporting stay simple.
-
 use crate::camera::extrinsics::CameraExtrinsics;
 use crate::camera::model::CameraModel;
 use crate::camera::model::ModelError;
@@ -63,7 +57,7 @@ impl Camera {
         self.model_ref().inside_fisheye_circle(u, v)
     }
 
-    /// Precondition: `is_valid()`. Default gate width is 40 px, as in C++.
+    /// Precondition: `is_valid()`.
     pub fn edge_feather(&self, u: f64, v: f64, feather_px: f64) -> f64 {
         self.model_ref().edge_feather(u, v, feather_px)
     }
@@ -78,7 +72,8 @@ impl Camera {
         self.model_ref().project_points(cam_points, out_uv, out_valid)
     }
 
-    /// Single-point forward projection returning uv plus the rect bit.
+    /// Single-point forward projection: uv plus the `[0,width) x [0,height)`
+    /// inside-rect bit.
     ///
     /// Precondition: `is_valid()`.
     pub fn project_point(&self, p_cam: [f64; 3]) -> ([f64; 2], u8) {

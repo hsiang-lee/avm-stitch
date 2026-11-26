@@ -1,6 +1,4 @@
 //! Table-LUT (θ_deg → height_mm) projection model.
-//!
-//! Port of `src/camera_model/lut_camera_model.{hpp,cpp}`.
 
 use crate::camera::model::{
     require_equal_lengths, CameraModel, CameraModelBase, LutParams, ModelError, EPS,
