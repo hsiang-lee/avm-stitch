@@ -56,11 +56,8 @@ fn from_baked_packs_two_cameras_per_uv_slot_and_four_per_weight_slot() {
     let baked = baked_with(5, 10.0);
     let packed = PackedVertex::from_baked(&[0.0; 3], &[0.0; 3], &baked);
 
-    // Camera 0 / 1 -> uv slot 0
     assert_eq!([10.25, 10.5, 11.25, 11.5], packed.uv[0]);
-    // Camera 2 / 3 -> uv slot 1
     assert_eq!([12.25, 12.5, 13.25, 13.5], packed.uv[1]);
-    // Camera 4 -> first half of uv slot 2, second half zero
     assert_eq!([14.25, 14.5, 0.0, 0.0], packed.uv[2]);
     assert_eq!([0.0; 4], packed.uv[3]);
 

@@ -291,8 +291,9 @@ fn look_at_extrinsics_keeps_projection_finite() {
 /// Truth anchor: the expected pixels come from OpenCV 4.12
 /// `cv::fisheye::projectPoints` run once outside the repository, so the crate
 /// keeps its zero-OpenCV dependency and the constants must not be regenerated
-/// from this model. There is no RED phase; the `1e-6` tolerance still rejects a
-/// `1e-3` drift of the distortion polynomial.
+/// from this model. Of the six points only the widest-field one departs from a
+/// plain pinhole projection (by ~69 px); the other five are within 1 px, and the
+/// `1e-6` tolerance still rejects a `1e-3` drift of the distortion polynomial.
 #[test]
 fn matches_opencv_fisheye_reference() {
     let model = make_kb_model(

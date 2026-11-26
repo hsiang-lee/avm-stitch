@@ -10,6 +10,7 @@ pub struct Camera {
 }
 
 impl Camera {
+    // Model accessors panic unless `is_valid()`; use `model()` for the fallible path.
     pub fn new(extrinsics: CameraExtrinsics, model: Box<dyn CameraModel>) -> Self {
         Self::named("", extrinsics, model)
     }
@@ -42,27 +43,22 @@ impl Camera {
         self.model.as_deref()
     }
 
-    /// Precondition: `is_valid()`.
     pub fn width(&self) -> i32 {
         self.model_ref().width()
     }
 
-    /// Precondition: `is_valid()`.
     pub fn height(&self) -> i32 {
         self.model_ref().height()
     }
 
-    /// Precondition: `is_valid()`.
     pub fn inside_fisheye_circle(&self, u: f64, v: f64) -> bool {
         self.model_ref().inside_fisheye_circle(u, v)
     }
 
-    /// Precondition: `is_valid()`.
     pub fn edge_feather(&self, u: f64, v: f64, feather_px: f64) -> f64 {
         self.model_ref().edge_feather(u, v, feather_px)
     }
 
-    /// Precondition: `is_valid()`.
     pub fn project_points(
         &self,
         cam_points: &[[f64; 3]],
@@ -74,8 +70,6 @@ impl Camera {
 
     /// Single-point forward projection: uv plus the `[0,width) x [0,height)`
     /// inside-rect bit.
-    ///
-    /// Precondition: `is_valid()`.
     pub fn project_point(&self, p_cam: [f64; 3]) -> ([f64; 2], u8) {
         let mut uv = [[0.0; 2]];
         let mut valid = [0u8];

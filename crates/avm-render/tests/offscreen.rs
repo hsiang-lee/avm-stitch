@@ -31,8 +31,8 @@ fn look_at_extrinsics(az_deg: f64, radius: f64, height: f64, target_z: f64) -> C
 
 fn bowl_model() -> BowlModel {
     let params = BowlParams::new(2.0, 1.0, 0.5, 0.4, 4.0, 0.1, 2.2, 4.0, [0.0, 0.0]);
-    // `MakeKbParams` of the C++ test support: the fisheye radius (240 px) must
-    // exceed the 40 px feather band, otherwise every edge factor is 0.
+    // The fisheye radius (240 px) must exceed the 40 px feather band, otherwise
+    // every edge factor is 0.
     let intrinsics = KbParams {
         width: 640,
         height: 480,
