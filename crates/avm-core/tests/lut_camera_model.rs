@@ -18,7 +18,7 @@ const CX: f64 = 640.0;
 const CY: f64 = 480.0;
 
 const CONE_X: f64 = 0.5;
-const CONE_Z: f64 = 0.86602540378443864676;
+const CONE_Z: f64 = 0.8660254037844386;
 
 fn lut_params() -> LutParams {
     LutParams {

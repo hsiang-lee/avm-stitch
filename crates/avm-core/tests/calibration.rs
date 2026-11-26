@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use avm_core::bowl::BowlModel;
 use avm_core::calibration::Calibration;
-use avm_core::camera::CameraModel;
 
 fn examples_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples")
@@ -34,8 +33,6 @@ fn data_4_loads_four_named_kb_cameras() {
 
 #[test]
 fn data_4_keeps_intrinsics_and_extrinsics() {
-    use avm_core::camera::CameraModel;
-
     let cal = load("data_4");
     let front = &cal.cameras[0];
     let model = front.model().expect("valid model");
@@ -47,7 +44,7 @@ fn data_4_keeps_intrinsics_and_extrinsics() {
     let theta = 0.1f64.atan();
     let theta2 = theta * theta;
     let (fx, k1, k2, k3, k4) = (
-        129.18233905154759,
+        129.1823390515476,
         -0.1,
         0.05,
         0.01,
@@ -64,9 +61,9 @@ fn data_4_keeps_intrinsics_and_extrinsics() {
     assert!((240.0 - uv[1]).abs() < 1e-9);
 
     let pos = front.extrinsics().position();
-    assert!((4.1166681677199062 - pos[0]).abs() < 1e-9);
+    assert!((4.116668167719906 - pos[0]).abs() < 1e-9);
     assert!((-0.053393489601802596 - pos[1]).abs() < 1e-9);
-    assert!((0.68738271643240068 - pos[2]).abs() < 1e-9);
+    assert!((0.6873827164324007 - pos[2]).abs() < 1e-9);
 }
 
 #[test]

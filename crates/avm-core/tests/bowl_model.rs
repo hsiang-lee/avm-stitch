@@ -388,7 +388,7 @@ fn bake_produces_one_baked_vertex_per_mesh_vertex() {
 fn single_camera_uv_matches_the_projection() {
     let intr = real_intrinsics();
     let extr = CameraExtrinsics::identity();
-    let model = make_coarse_bowl(5.0, &[intr.clone()], &[extr]);
+    let model = make_coarse_bowl(5.0, std::slice::from_ref(&intr), &[extr]);
     assert!(model.vertex_count() > 0);
     assert_eq!(1, model.baked_num_cameras());
 
@@ -539,7 +539,7 @@ fn point_in_rect_but_outside_the_fisheye_circle_is_invisible() {
         [0.0, 0.0, 5.0],
     );
 
-    let model = BowlModel::new(&tall_bowl_params(), &wrap_kb_cameras(&[intr.clone()], &[extr]));
+    let model = BowlModel::new(&tall_bowl_params(), &wrap_kb_cameras(std::slice::from_ref(&intr), &[extr]));
     assert!(model.vertex_count() > 0);
 
     let rep = make_kb_model(
@@ -629,7 +629,7 @@ fn edge_gate_unsafe_camera_is_dropped_while_safe_camera_gets_full_weight() {
         [0.0, 0.0, 5.0],
     );
 
-    let scan = BowlModel::new(&tall_bowl_params(), &wrap_kb_cameras(&[intr.clone()], &[cam0]));
+    let scan = BowlModel::new(&tall_bowl_params(), &wrap_kb_cameras(std::slice::from_ref(&intr), &[cam0]));
     assert!(scan.vertex_count() > 0);
     let rep = make_kb_model(
         intr.width, intr.height, intr.fx, intr.fy, intr.cx, intr.cy, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -770,7 +770,7 @@ fn vertex_below_the_camera_still_gets_weight() {
     );
     let model = BowlModel::new(
         &make_coarse_bowl_params(5.0),
-        &wrap_kb_cameras(&[intr.clone()], &[extr]),
+        &wrap_kb_cameras(std::slice::from_ref(&intr), &[extr]),
     );
     assert!(model.vertex_count() > 0);
 
@@ -798,7 +798,7 @@ fn edge_gate_zeroes_weight_when_all_cameras_are_unsafe() {
         [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         [0.0, 0.0, 5.0],
     );
-    let model = BowlModel::new(&tall_bowl_params(), &wrap_kb_cameras(&[intr.clone()], &[cam]));
+    let model = BowlModel::new(&tall_bowl_params(), &wrap_kb_cameras(std::slice::from_ref(&intr), &[cam]));
     assert!(model.vertex_count() > 0);
 
     let rep = make_kb_model(

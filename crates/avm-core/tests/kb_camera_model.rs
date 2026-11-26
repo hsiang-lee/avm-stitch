@@ -1,8 +1,10 @@
 //! Port of `tests/camera_model/test_kb_camera_model.cpp`.
 //!
-//! The OpenCV cross-check (`ProjectionTest.MatchesOpenCV`) needs the OpenCV
-//! reference implementation and is therefore listed in `OPEN_ITEMS`; every
-//! other case is translated.
+//! `ProjectionTest.MatchesOpenCV` is translated as
+//! [`matches_opencv_fisheye_reference`]: the expected pixels were produced once
+//! by OpenCV 4.12 `cv::fisheye::projectPoints` (the project's vcpkg build) from
+//! a throw-away program outside the repository, and are hard-coded here, so the
+//! Rust crate keeps its zero-OpenCV dependency.
 
 mod common;
 
@@ -294,4 +296,73 @@ fn look_at_extrinsics_keeps_projection_finite() {
     assert!(uv[0].is_finite() && uv[1].is_finite());
     assert!(uv[0] > 0.0 && uv[0] < real_intrinsics().width as f64);
     assert!(uv[1] > 0.0 && uv[1] < real_intrinsics().height as f64);
+}
+
+/// `ProjectionTest.MatchesOpenCV`: pinned against OpenCV 4.12
+/// `cv::fisheye::projectPoints` output for the same intrinsics, extrinsics and
+/// world points. The reference program ran outside the repository; no OpenCV
+/// dependency is added here.
+///
+/// This is a truth-anchor test: it locks behaviour that already matches, so it
+/// has no RED phase. It still has teeth — the reference pixels differ from the
+/// pinhole/identity answers by tens to hundreds of pixels, and the `1e-6`
+/// tolerance rejects even a `1e-3` drift of the distortion polynomial.
+#[test]
+fn matches_opencv_fisheye_reference() {
+    let model = make_kb_model(
+        1920,
+        1536,
+        441.45,
+        441.45,
+        952.14,
+        758.27,
+        0.215,
+        -0.05,
+        0.003,
+        0.0,
+        0.0,
+    );
+    let pos = vec3(3.84, -0.016, 0.66);
+    let extr =
+        avm_core::camera::CameraExtrinsics::new(look_at_rotation(pos, vec3(0.0, 0.0, 0.2)), pos);
+
+    let world_points = [
+        [0.0, 0.0, 0.2],
+        [1.0, 0.0, 0.2],
+        [0.0, 1.0, 0.2],
+        [2.0, 2.0, 0.5],
+        [-2.0, -1.0, 0.8],
+        [3.0, 0.0, 0.6],
+    ];
+    // `cv::fisheye::projectPoints` reference pixels (OpenCV 4.12, %.17g).
+    let opencv_uv = [
+        [952.14, 758.27],
+        [951.5002625473055, 740.0082672371517],
+        [839.0476859731364, 758.3260467989531],
+        [542.6463204259896, 770.7043920967401],
+        [1028.701970724108, 821.528992734919],
+        [945.5824447841555, 779.4342024164037],
+    ];
+
+    let camera_points: Vec<[f64; 3]> = world_points
+        .iter()
+        .map(|p| arr(extr.to_camera(vec3(p[0], p[1], p[2]))))
+        .collect();
+    let (uv, valid) = project_vec(&model, &camera_points);
+
+    for (i, expected) in opencv_uv.iter().enumerate() {
+        assert_eq!(1, valid[i], "point {i} must project inside the image");
+        assert!(
+            (expected[0] - uv[i][0]).abs() < 1e-6,
+            "point {i}: u = {} vs OpenCV {}",
+            uv[i][0],
+            expected[0]
+        );
+        assert!(
+            (expected[1] - uv[i][1]).abs() < 1e-6,
+            "point {i}: v = {} vs OpenCV {}",
+            uv[i][1],
+            expected[1]
+        );
+    }
 }

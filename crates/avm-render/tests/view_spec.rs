@@ -30,39 +30,77 @@ fn look_at_places_a_point_behind_the_eye_behind_the_camera() {
     assert!(behind[3] < 0.0, "w = {}", behind[3]);
 }
 
-/// Off-axis points pin the vertical fov and the aspect ratio: at 10 m the
-/// half-extents are `tan(30°)`, divided by the aspect ratio on x. With the eye
-/// on +y and up +z, world +x lies on the camera's left, so `ndc_x` is negative.
 #[test]
-fn look_at_scales_off_axis_points_by_fov_and_aspect() {
-    let aspect = 4.0 / 3.0;
+fn fov_and_aspect_are_consumed_by_the_projection() {
+    // f = 1/tan(fov_y/2) = 1/tan(30 deg); ndc_x = (f/aspect) * x / depth.
     let view = ViewSpec::look_at(
         [0.0, 10.0, 0.0],
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
         60.0,
-        aspect,
+        4.0 / 3.0,
         0.1,
         100.0,
     );
+    let f = 1.0f32 / 30.0f32.to_radians().tan();
+    let aspect = 4.0f32 / 3.0;
 
-    let half_extent = 1.0 / 30.0f32.to_radians().tan();
+    // World +x is on the camera's left (eye looks down -y with up +z).
+    let clip = transform(&view.view_proj, [1.0, 0.0, 0.0, 1.0]);
+    let ndc_x = clip[0] / clip[3];
+    let expected_x = -(f / aspect) / 10.0;
+    assert!((ndc_x - expected_x).abs() < 1e-5, "ndc_x = {ndc_x}, expected {expected_x}");
 
-    let right = transform(&view.view_proj, [1.0, 0.0, 0.0, 1.0]);
-    assert!(right[3] > 0.0, "w = {}", right[3]);
-    let ndc_x = right[0] / right[3];
-    let expected_x = -half_extent / aspect / 10.0;
-    assert!(
-        (expected_x - ndc_x).abs() < 1e-5,
-        "ndc x = {ndc_x}, expected {expected_x}"
+    let clip = transform(&view.view_proj, [0.0, 0.0, 1.0, 1.0]);
+    let ndc_y = clip[1] / clip[3];
+    let expected_y = f / 10.0;
+    assert!((ndc_y - expected_y).abs() < 1e-5, "ndc_y = {ndc_y}, expected {expected_y}");
+}
+
+/// wgpu clip space is `0 <= z <= w` (not the OpenGL `-w <= z <= w`).
+#[test]
+fn depth_maps_near_to_zero_and_far_to_one() {
+    let (near, far) = (0.1f32, 100.0f32);
+    let view = ViewSpec::look_at(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, -1.0],
+        [0.0, 1.0, 0.0],
+        60.0,
+        1.0,
+        near,
+        far,
     );
 
-    let above = transform(&view.view_proj, [0.0, 0.0, 1.0, 1.0]);
-    assert!(above[3] > 0.0, "w = {}", above[3]);
-    let ndc_y = above[1] / above[3];
-    let expected_y = half_extent / 10.0;
+    for distance in [near, near * 1.0001, 0.5, 1.0, 10.0, 99.9, far] {
+        let clip = transform(&view.view_proj, [0.0, 0.0, -distance, 1.0]);
+        assert!(
+            clip[2] >= 0.0,
+            "distance {distance}: clip.z = {} is below 0 (GL convention?)",
+            clip[2]
+        );
+        assert!(
+            clip[2] <= clip[3],
+            "distance {distance}: clip.z = {} exceeds clip.w = {}",
+            clip[2],
+            clip[3]
+        );
+        let ndc_z = clip[2] / clip[3];
+        assert!(
+            (0.0..=1.0).contains(&ndc_z),
+            "distance {distance}: ndc z = {ndc_z}"
+        );
+    }
+
+    let at_near = transform(&view.view_proj, [0.0, 0.0, -near, 1.0]);
     assert!(
-        (expected_y - ndc_y).abs() < 1e-5,
-        "ndc y = {ndc_y}, expected {expected_y}"
+        (at_near[2] / at_near[3]).abs() < 1e-4,
+        "near plane must map to ndc 0, got {}",
+        at_near[2] / at_near[3]
+    );
+    let at_far = transform(&view.view_proj, [0.0, 0.0, -far, 1.0]);
+    assert!(
+        (at_far[2] / at_far[3] - 1.0).abs() < 1e-4,
+        "far plane must map to ndc 1, got {}",
+        at_far[2] / at_far[3]
     );
 }

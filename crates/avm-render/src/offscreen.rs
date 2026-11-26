@@ -9,7 +9,7 @@ use wgpu::util::DeviceExt;
 use thiserror::Error;
 
 use crate::scene::SceneData;
-use crate::vertex::PackedVertex;
+use crate::vertex::{PackedVertex, MAX_CAMERAS};
 use crate::view::ViewSpec;
 use crate::SHADER_SOURCE;
 
@@ -21,6 +21,10 @@ pub enum RenderError {
     Device(String),
     #[error("scene has no geometry to draw")]
     EmptyScene,
+    #[error("scene declares {num_cameras} cameras but the packed vertex layout holds at most {max}")]
+    TooManyCameras { num_cameras: usize, max: usize },
+    #[error("scene declares {num_cameras} cameras but carries {images} camera images")]
+    CameraImageCountMismatch { num_cameras: usize, images: usize },
     #[error("render target must be non-empty, got {width}x{height}")]
     InvalidSize { width: u32, height: u32 },
     #[error("camera image {index} is {width}x{height}, expected {expected_width}x{expected_height}")]
@@ -71,6 +75,20 @@ pub fn render_all_views(
     }
     if width == 0 || height == 0 {
         return Err(RenderError::InvalidSize { width, height });
+    }
+    // Mirrors the C++ `Configure` precondition (N9): the packed vertex layout
+    // only carries 8 cameras, and every active camera needs a texture layer.
+    if scene.num_cameras > MAX_CAMERAS {
+        return Err(RenderError::TooManyCameras {
+            num_cameras: scene.num_cameras,
+            max: MAX_CAMERAS,
+        });
+    }
+    if scene.camera_images.len() != scene.num_cameras {
+        return Err(RenderError::CameraImageCountMismatch {
+            num_cameras: scene.num_cameras,
+            images: scene.camera_images.len(),
+        });
     }
 
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());

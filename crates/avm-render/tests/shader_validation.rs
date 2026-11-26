@@ -7,7 +7,7 @@ fn parse() -> naga::Module {
 }
 
 /// The value type behind a global variable, unwrapping its pointer if any.
-fn pointee<'a>(module: &'a naga::Module, ty: naga::Handle<naga::Type>) -> &'a naga::TypeInner {
+fn pointee(module: &naga::Module, ty: naga::Handle<naga::Type>) -> &naga::TypeInner {
     match &module.types[ty].inner {
         naga::TypeInner::Pointer { base, .. } => &module.types[*base].inner,
         inner => inner,

@@ -223,7 +223,22 @@ impl BowlParams {
         const FAR_MARGIN: f64 = 5.3553572528096565;
         const NEAR_REL: f64 = 0.01;
         let far = FAR_MARGIN * (max_eye_to_target + self.outer_radius);
-        let near = (self.outer_radius * NEAR_REL).clamp(1.0e-3, far / 1000.0);
+        // libstdc++ `std::clamp(v, lo, hi)` is `min(max(v, lo), hi)`. Spelled
+        // with plain comparisons, so a NaN radius propagates exactly as in the
+        // C++ release build (Rust's `f64::max`/`min` would silently drop the
+        // NaN), and `lo > hi` cannot panic (Rust's `f64::clamp` would).
+        // Degenerate rule for the all-zero default (`far == 0`): `hi` wins, so
+        // `near == far == 0` and the planes stay ordered. Hardened libstdc++
+        // builds abort on this input, so there is no numeric C++ result to copy.
+        let low = self.outer_radius * NEAR_REL;
+        // `std::max(low, 1.0e-3)`, NaN-propagating.
+        let raised = if low < 1.0e-3 { 1.0e-3 } else { low };
+        // `std::min(raised, far / 1000)`, NaN-propagating.
+        let near = if far / 1000.0 < raised {
+            far / 1000.0
+        } else {
+            raised
+        };
         ClipPlanes { near, far }
     }
 

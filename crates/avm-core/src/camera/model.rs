@@ -316,11 +316,16 @@ pub fn make_camera_model(
             if lut.points.len() < 2 {
                 return Err(ModelError::LutTooFewPoints(lut.points.len()));
             }
+            // `!(a < b)` / `!(a > b)` are deliberate: they mirror the C++
+            // comparisons, whose negated form also rejects NaN. Rewriting them
+            // as `a >= b` / `a <= b` would let NaN through.
+            #[allow(clippy::neg_cmp_op_on_partial_ord)]
             for i in 1..lut.points.len() {
                 if !(lut.points[i - 1][0] < lut.points[i][0]) {
                     return Err(ModelError::LutNotAscending(i));
                 }
             }
+            #[allow(clippy::neg_cmp_op_on_partial_ord)]
             if !(lut.pixel_size_mm > 0.0) {
                 return Err(ModelError::NonPositivePixelSize(lut.pixel_size_mm));
             }

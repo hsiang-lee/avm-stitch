@@ -55,8 +55,8 @@ fn reference_point_matches_the_renderer_kernel() {
     let model = fish_back_model();
     let n = (0.3f64 * 0.3 + 0.2 * 0.2 + 0.9327 * 0.9327).sqrt();
     let (uv, valid) = project_vec(model.as_ref(), &[[0.3 / n, 0.2 / n, 0.9327 / n]]);
-    assert!((742.00773299911305 - uv[0][0]).abs() < 1e-6);
-    assert!((546.37971005202451 - uv[0][1]).abs() < 1e-6);
+    assert!((742.007732999113 - uv[0][0]).abs() < 1e-6);
+    assert!((546.3797100520245 - uv[0][1]).abs() < 1e-6);
     assert_eq!(1, valid[0]);
 }
 
@@ -137,6 +137,6 @@ fn batch_projection_matches_single_calls_and_rejects_length_mismatch() {
     let mut valid = vec![0u8; pts.len()];
     let err = model
         .project_points(&pts, &mut short_uv, &mut valid)
-        .err().expect("short uv slice must be rejected");
+        .expect_err("short uv slice must be rejected");
     assert_eq!(ModelError::LengthMismatch, err);
 }

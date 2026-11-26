@@ -2,6 +2,7 @@
 //!
 //! Port of `src/camera_model/*` (the C++ side keeps OpenCV/OSG out of this crate).
 
+#[allow(clippy::module_inception)] // `camera::camera` mirrors the file layout.
 pub mod camera;
 pub mod extrinsics;
 pub mod kb;
