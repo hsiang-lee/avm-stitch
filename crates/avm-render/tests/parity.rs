@@ -1,7 +1,7 @@
 //! Pixel parity with the C++ OSG renderer; the fixtures are external ground
 //! truth described in `fixtures/parity/data_4/METADATA.md`. Without a GPU
-//! adapter the test fails rather than skipping. `AVM_PARITY_DATA_DIR` /
-//! `AVM_PARITY_FIXTURE_DIR` override the inputs for cross-checks.
+//! adapter the test fails rather than skipping. `AVM_PARITY_DATA_DIR` overrides
+//! only the rendered dataset, never the reference.
 
 use std::path::{Path, PathBuf};
 
@@ -11,8 +11,7 @@ use avm_render::{load_camera_image, render_all_views_with, RenderError, SceneDat
 
 const WIDTH: u32 = 960;
 const HEIGHT: u32 = 640;
-/// Must match the reference renderer's background (RGB 30/36/50), otherwise the
-/// mean-difference check fails wherever the bowl does not cover the frame.
+/// The reference renderer's background, RGB(30, 36, 50).
 const CLEAR: [f64; 4] = [
     30.0 / 255.0,
     36.0 / 255.0,
@@ -33,9 +32,7 @@ fn data_dir() -> PathBuf {
 }
 
 fn fixture_dir() -> PathBuf {
-    std::env::var("AVM_PARITY_FIXTURE_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| workspace_path("crates/avm-render/tests/fixtures/parity/data_4"))
+    workspace_path("crates/avm-render/tests/fixtures/parity/data_4")
 }
 
 /// VCS -> y-up render basis, the same remap the C++ renderer applies.

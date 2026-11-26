@@ -10,7 +10,6 @@ pub struct Camera {
 }
 
 impl Camera {
-    // Model accessors panic unless `is_valid()`; use `model()` for the fallible path.
     pub fn new(extrinsics: CameraExtrinsics, model: Box<dyn CameraModel>) -> Self {
         Self::named("", extrinsics, model)
     }
@@ -43,6 +42,8 @@ impl Camera {
         self.model.as_deref()
     }
 
+    // Model accessors below panic unless `is_valid()`; `model()` is the
+    // fallible path.
     pub fn width(&self) -> i32 {
         self.model_ref().width()
     }
