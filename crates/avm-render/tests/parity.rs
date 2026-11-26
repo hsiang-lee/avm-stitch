@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use avm_core::bowl::BowlModel;
 use avm_core::calibration::Calibration;
-use avm_render::{load_camera_image, render_all_views_with, RenderError, SceneData, ViewSpec};
+use avm_render::{load_camera_image, render_all_views_with, RenderError, RenderSize, SceneData, ViewSpec};
 
 const WIDTH: u32 = 960;
 const HEIGHT: u32 = 640;
@@ -83,7 +83,7 @@ fn render_data_dir(data_dir: &Path) -> (Vec<String>, Vec<Vec<u8>>) {
         })
         .collect();
 
-    let frames = render_all_views_with(&scene, &views, WIDTH, HEIGHT, CLEAR)
+    let frames = render_all_views_with(&scene, &views, RenderSize::new(WIDTH, HEIGHT), CLEAR)
         .unwrap_or_else(|error| match error {
             RenderError::NoAdapter => panic!("parity test requires a GPU adapter"),
             other => panic!("parity render failed: {other}"),

@@ -9,7 +9,6 @@ license.workspace = true
 [dependencies]
 avm-core = { path = "../avm-core" }
 avm-render = { path = "../avm-render" }
-pollster.workspace = true
 thiserror.workspace = true
 wgpu.workspace = true
 winit = { version = "0.30.12", default-features = false, features = ["rwh_06", "x11"] }

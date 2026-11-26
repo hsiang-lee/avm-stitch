@@ -3,7 +3,7 @@
 
 use avm_core::bowl::{BowlModel, BowlParams};
 use avm_core::camera::Camera;
-use avm_render::{render_all_views_with, RenderError, SceneData, ViewSpec};
+use avm_render::{render_all_views_with, RenderError, RenderSize, SceneData, ViewSpec};
 use image::RgbaImage;
 use thiserror::Error;
 
@@ -176,7 +176,7 @@ impl StitchEngine {
         scene.camera_images = images.to_vec();
         let (width, height) = configured.output;
         let specs: Vec<ViewSpec> = configured.views.iter().map(|view| view.spec).collect();
-        let frames = render_all_views_with(&scene, &specs, width, height, CLEAR_COLOR)?;
+        let frames = render_all_views_with(&scene, &specs, RenderSize::new(width, height), CLEAR_COLOR)?;
 
         Ok(configured
             .views

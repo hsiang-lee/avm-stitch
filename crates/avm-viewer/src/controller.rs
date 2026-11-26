@@ -3,8 +3,8 @@
 use avm_core::bowl::{BowlParams, ClipPlanes, ViewPose};
 use avm_render::ViewSpec;
 
-/// Radians of orbit per mouse pixel.
-const ROTATE_RAD_PER_PIXEL: f64 = 0.005;
+/// Degrees of orbit per mouse pixel.
+const ROTATE_DEG_PER_PIXEL: f64 = 0.005 * (180.0 / std::f64::consts::PI);
 /// Dolly factor per mouse pixel of vertical drag.
 const ZOOM_PER_PIXEL: f64 = 0.01;
 /// Keep the view direction off the poles so the up vector stays usable.
@@ -52,6 +52,11 @@ fn normalize(v: [f64; 3]) -> [f64; 3] {
     }
 }
 
+/// Eye minus target in the render basis; the orbit distance is its length.
+fn offset_from_pose(pose: &ViewPose) -> [f64; 3] {
+    sub(render_basis(pose.position), render_basis(pose.target))
+}
+
 /// Which trackball operation a drag performs. The window maps mouse buttons to
 /// this; the priority is left, then right, then middle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,24 +66,49 @@ pub enum DragMode {
     Pan,
 }
 
-pub fn drag_mode(left: bool, right: bool, middle: bool) -> Option<DragMode> {
-    if left {
-        Some(DragMode::Rotate)
-    } else if right {
-        Some(DragMode::Zoom)
-    } else if middle {
-        Some(DragMode::Pan)
-    } else {
-        None
+/// The mouse-button state that selects a drag mode. Keeping the three flags and
+/// the priority rule together means a drag call site never passes them
+/// positionally, so left and right cannot be transposed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DragButtons {
+    pub left: bool,
+    pub right: bool,
+    pub middle: bool,
+}
+
+impl DragButtons {
+    pub fn any(&self) -> bool {
+        self.left || self.right || self.middle
     }
+
+    pub fn mode(&self) -> Option<DragMode> {
+        if self.left {
+            Some(DragMode::Rotate)
+        } else if self.right {
+            Some(DragMode::Zoom)
+        } else if self.middle {
+            Some(DragMode::Pan)
+        } else {
+            None
+        }
+    }
+}
+
+pub fn drag_mode(left: bool, right: bool, middle: bool) -> Option<DragMode> {
+    DragButtons {
+        left,
+        right,
+        middle,
+    }
+    .mode()
 }
 
 #[derive(Clone, Debug)]
 pub struct OrbitController {
     target: [f64; 3],
     distance: f64,
-    yaw: f64,
-    pitch: f64,
+    yaw_deg: f64,
+    pitch_deg: f64,
     up: [f64; 3],
     clip: ClipPlanes,
     fovy_deg: f64,
@@ -87,21 +117,18 @@ pub struct OrbitController {
 impl OrbitController {
     pub fn from_home(bowl: &BowlParams) -> Self {
         let pose = bowl.home_view_pose();
-        let eye = render_basis(pose.position);
-        let target = render_basis(pose.target);
-        let clip = bowl.clip_planes_for(norm(sub(eye, target)));
+        let clip = bowl.clip_planes_for(norm(offset_from_pose(&pose)));
         Self::from_pose(&pose, clip)
     }
 
     pub fn from_pose(pose: &ViewPose, clip: ClipPlanes) -> Self {
-        let eye = render_basis(pose.position);
         let target = render_basis(pose.target);
-        let offset = sub(eye, target);
+        let offset = offset_from_pose(pose);
         let distance = norm(offset);
-        let (yaw, pitch) = if distance > 0.0 {
+        let (yaw_deg, pitch_deg) = if distance > 0.0 {
             (
-                offset[0].atan2(offset[2]),
-                (offset[1] / distance).clamp(-1.0, 1.0).asin(),
+                offset[0].atan2(offset[2]).to_degrees(),
+                (offset[1] / distance).clamp(-1.0, 1.0).asin().to_degrees(),
             )
         } else {
             (0.0, 0.0)
@@ -109,8 +136,8 @@ impl OrbitController {
         Self {
             target,
             distance,
-            yaw,
-            pitch,
+            yaw_deg,
+            pitch_deg,
             up: normalize(render_basis(pose.up)),
             clip,
             fovy_deg: pose.fovy_deg,
@@ -118,12 +145,9 @@ impl OrbitController {
     }
 
     fn direction(&self) -> [f64; 3] {
-        let (sin_pitch, cos_pitch) = self.pitch.sin_cos();
-        [
-            cos_pitch * self.yaw.sin(),
-            sin_pitch,
-            cos_pitch * self.yaw.cos(),
-        ]
+        let (sin_pitch, cos_pitch) = self.pitch_deg.to_radians().sin_cos();
+        let yaw = self.yaw_deg.to_radians();
+        [cos_pitch * yaw.sin(), sin_pitch, cos_pitch * yaw.cos()]
     }
 
     pub fn eye(&self) -> [f64; 3] {
@@ -146,14 +170,18 @@ impl OrbitController {
         self.clip
     }
 
+    pub fn yaw_deg(&self) -> f64 {
+        self.yaw_deg
+    }
+
     pub fn pitch_deg(&self) -> f64 {
-        self.pitch.to_degrees()
+        self.pitch_deg
     }
 
     pub fn rotate(&mut self, dx: f64, dy: f64) {
-        self.yaw -= dx * ROTATE_RAD_PER_PIXEL;
-        let limit = MAX_PITCH_DEG.to_radians();
-        self.pitch = (self.pitch + dy * ROTATE_RAD_PER_PIXEL).clamp(-limit, limit);
+        self.yaw_deg -= dx * ROTATE_DEG_PER_PIXEL;
+        self.pitch_deg = (self.pitch_deg + dy * ROTATE_DEG_PER_PIXEL)
+            .clamp(-MAX_PITCH_DEG, MAX_PITCH_DEG);
     }
 
     /// Positive `dy` (drag up) dollies in. The result stays inside the fixed

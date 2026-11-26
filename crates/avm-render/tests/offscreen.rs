@@ -6,7 +6,7 @@ use avm_core::bowl::{BowlModel, BowlParams};
 use avm_core::camera::{make_camera_model, Camera, CameraExtrinsics, CameraModelParams, KbParams};
 use avm_core::{Matrix3, Vector3};
 use avm_render::vertex::{PackedVertex, MAX_CAMERAS};
-use avm_render::{render_all_views, render_all_views_with, RenderError, SceneData, ViewSpec};
+use avm_render::{render_all_views, render_all_views_with, RenderError, RenderSize, SceneData, ViewSpec};
 
 const WIDTH: u32 = 320;
 const HEIGHT: u32 = 240;
@@ -139,7 +139,7 @@ fn render_views(
     clear: [f64; 4],
 ) -> Option<Vec<Vec<u8>>> {
     let _gpu = gpu_lock();
-    match render_all_views_with(scene, views, WIDTH, HEIGHT, clear) {
+    match render_all_views_with(scene, views, RenderSize::new(WIDTH, HEIGHT), clear) {
         Ok(frames) => Some(frames),
         Err(RenderError::NoAdapter) => {
             eprintln!("skipping offscreen check: no wgpu adapter available");
@@ -291,7 +291,7 @@ fn empty_scene_is_rejected() {
         num_cameras: 0,
         camera_images: Vec::new(),
     };
-    let err = render_all_views(&empty, &[top_down_view()], WIDTH, HEIGHT)
+    let err = render_all_views(&empty, &[top_down_view()], RenderSize::new(WIDTH, HEIGHT))
         .expect_err("empty scene must fail");
     assert!(matches!(err, RenderError::EmptyScene));
 
@@ -302,7 +302,7 @@ fn empty_scene_is_rejected() {
         num_cameras: 0,
         camera_images: Vec::new(),
     };
-    let err = render_all_views(&vertices_only, &[top_down_view()], WIDTH, HEIGHT)
+    let err = render_all_views(&vertices_only, &[top_down_view()], RenderSize::new(WIDTH, HEIGHT))
         .expect_err("vertices without indices must fail");
     assert!(matches!(err, RenderError::EmptyScene));
 }
@@ -314,7 +314,7 @@ fn more_cameras_than_the_packed_layout_is_rejected() {
     scene.camera_images = (0..=MAX_CAMERAS)
         .map(|_| image::RgbaImage::from_pixel(64, 48, image::Rgba([40, 20, 200, 255])))
         .collect();
-    let err = render_all_views(&scene, &[top_down_view()], WIDTH, HEIGHT)
+    let err = render_all_views(&scene, &[top_down_view()], RenderSize::new(WIDTH, HEIGHT))
         .expect_err("9 cameras must be rejected");
     assert!(
         matches!(err, RenderError::TooManyCameras { .. }),
@@ -326,7 +326,7 @@ fn more_cameras_than_the_packed_layout_is_rejected() {
 fn camera_image_count_must_match_num_cameras() {
     let mut scene = triangle_scene([1.0, 0.0, 0.0, 0.0], 1);
     scene.num_cameras = 2;
-    let err = render_all_views(&scene, &[top_down_view()], WIDTH, HEIGHT)
+    let err = render_all_views(&scene, &[top_down_view()], RenderSize::new(WIDTH, HEIGHT))
         .expect_err("missing camera layer must be rejected");
     assert!(
         matches!(err, RenderError::CameraImageCountMismatch { .. }),
